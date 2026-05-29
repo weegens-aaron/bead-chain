@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "bead_chain",
+  "project_id": "5b277b68-1b06-40d9-9383-b5efd5312f01"
+}
