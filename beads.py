@@ -84,16 +84,11 @@ def _exclude_type_arg() -> str:
 
 # Key on a bd-ready bead dict that names the bead's parent epic, if any.
 #
-# Verified empirically against bd v0.x: ``bd ready --json`` surfaces the
-# parent as a top-level ``"parent"`` field (string id) on each child
-# bead, alongside the more verbose ``dependencies`` array. We pick the
-# top-level field as canonical because it's a one-key lookup and lines
-# up with bd's own ``--parent=<id>`` filter on ``bd ready`` / ``bd list``.
-#
-# Cross-version note: earlier prototype releases of bd reportedly used
-# ``parent_id`` or ``epic_id`` instead. :func:`extract_parent_epic_id`
-# walks all three names so the plugin keeps working across that drift
-# without anyone having to remember to bump this constant.
+# ``bd ready --json`` surfaces the parent as a top-level ``"parent"``
+# field (string id) on each child bead, alongside the more verbose
+# ``dependencies`` array. We pick the top-level field as canonical
+# because it's a one-key lookup and lines up with bd's own
+# ``--parent=<id>`` filter on ``bd ready`` / ``bd list``.
 PARENT_EPIC_KEY: str = "parent"
 
 # Legacy/fallback keys checked by :func:`extract_parent_epic_id` after

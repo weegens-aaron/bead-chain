@@ -304,22 +304,12 @@ async def _on_interactive_turn_end(
 def _on_interactive_turn_cancel(prompt: str, *, reason: str = "cancelled") -> None:
     """Bow out on Ctrl+C; leave the in-flight bead in_progress for recovery.
 
-    Evolution of intent here matters — read this before "simplifying":
-
-      * v1 left the bead claimed-but-open. Cancels accumulated stranded
-        in_progress beads (5+ in ``bd status`` was routine).
-      * v2 reverted to ``open``. Fixed the accumulation but introduced
-        a worse failure mode: any partial work on disk got orphaned
-        from its bead because the next ``bd ready`` could (and did)
-        hand us a *different* bead, leaving the half-done changes
-        silently attached to no tracked work.
-      * v3 (this one): leave the bead **in_progress**. The next
-        ``/bead-chain`` run hits the recovery tier first
-        (:func:`pick_next_bead` tier 0) and re-prompts the agent with
-        :data:`prompt._RECOVERY_PREAMBLE`, instructing it to assess
-        what's already on disk before doing any new work. Partial
-        work and its bead stay paired — no orphaning, no stranding-
-        across-runs because the invariant guard finds it next time.
+    The bead stays **in_progress** deliberately. The next ``/bead-chain``
+    run hits the recovery tier first (:func:`pick_next_bead` tier 0) and
+    re-prompts the agent with :data:`prompt._RECOVERY_PREAMBLE`,
+    instructing it to assess what's already on disk before doing any new
+    work. This keeps partial work paired with its bead — no orphaning,
+    no stranding, because the invariant guard finds it next time.
 
     The chain itself still stops cleanly here — we only halt the loop,
     not the bead's status. Recovery is a startup-time concern, handled

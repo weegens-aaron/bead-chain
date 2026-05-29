@@ -1,13 +1,10 @@
 """Bead lifecycle helpers — the state-transition brain of bead-chain.
 
-Pulled out of :mod:`register_callbacks` once that module crossed the
-600-line plugin cap. The split is along a clean seam:
-
-* :mod:`register_callbacks` owns the *wiring*: slash-command registration,
-  hook registration, the hook handlers themselves, CLI flag parsing.
-* :mod:`lifecycle` owns the *state transitions*: how to close, revert,
-  enforce the single-in_progress invariant, pick the next bead, and
-  arm wiggum for the next iteration.
+This module owns the *state transitions*: how to close, revert, enforce
+the single-in_progress invariant, pick the next bead, and arm wiggum
+for the next iteration. The companion :mod:`register_callbacks` module
+owns the *wiring*: slash-command registration, hook registration,
+the hook handlers themselves, CLI flag parsing.
 
 Functions here are deliberately stateful (they mutate :mod:`state` and
 shell out via :mod:`beads`) but each is self-contained — same input
@@ -17,8 +14,7 @@ sites.
 
 DO NOT add hook *registration* here. Hooks live in :mod:`register_callbacks`
 so contributors have one obvious place to discover what bead-chain
-listens to. Mixing the two would re-create the ball-of-mud this split
-was meant to fix.
+listens to.
 """
 
 from __future__ import annotations
@@ -273,11 +269,8 @@ def ensure_epic_in_progress(bead: dict[str, Any] | None) -> None:
     bead actually in flight, not whatever happened to top ``bd ready
     --type=epic``.
 
-    Earlier versions of this function fell back to ``next_ready_epic()``
-    when the active bead had no parent. That fallback **was the bug**:
-    it routinely surfaced an unrelated epic, contradicting the very
-    signal we were trying to provide. We now no-op when the bead has
-    no parent — surfacing no epic beats surfacing the wrong one.
+    When the active bead has no parent epic, we no-op rather than
+    guessing — surfacing no epic beats surfacing the wrong one.
 
     **Soft-fails by design.** This is a courtesy status update, not a
     gate — if bd is flaky we log and keep trotting. Never stalls the
