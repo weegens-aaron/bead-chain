@@ -165,6 +165,11 @@ def handle_bead_chain_command(command: str) -> str | bool:
         emit_info("🔗 bead-chain is already running.")
         return True
 
+    # Immediate ack: the bd probes below (enforce_single_in_progress,
+    # next_ready, claim) can stall noticeably, so emit *something* the
+    # instant the command registers — otherwise the UI looks frozen.
+    emit_info("🔗 bead-chain starting…")
+
     # Parse --max=N before touching bd: invalid flag → bail loud,
     # don't claim anything.
     max_iterations = _parse_max_iterations(command)
