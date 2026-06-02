@@ -406,8 +406,20 @@ def activate_next_bead(
         return None
 
     if bead is None:
+        # Drain pass: before we terminate the run, sweep any epics whose
+        # final child we just closed. The per-turn rollup in
+        # _on_interactive_turn_end already attempts this after each close,
+        # but that pass can soft-fail (BeadsError swallowed) or be skipped
+        # if a future refactor moves it — and the run that finishes an
+        # epic's last child is *exactly* the run a user expects to see it
+        # close. Running close-eligible one last time here makes
+        # "chain ran to exhaustion" an invariant termination point: no
+        # all-children-closed epic is ever left open waiting for the next
+        # run's rollup (bdboard-rzxb). Idempotent and soft-failing, so the
+        # extra call is harmless when the per-turn pass already cleaned up.
+        rollup_completed_epics()
         emit_success(
-            f"🦴 bead-chain: no more ready beads. "
+            f"bead-chain: no more ready beads. "
             f"Closed {state.get_state().completed_count} this run. Good boy!"
         )
         state.stop()

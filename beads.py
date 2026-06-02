@@ -442,8 +442,20 @@ def close_eligible_epics() -> list[dict[str, Any]]:
     (bd missing, non-zero exit) still raise :class:`BeadsError` so
     callers can decide whether to soft-fail or escalate.
 
-    Both the bare-list and ``{"closed": [...]}`` JSON shapes are
-    tolerated so we don't break across bd schema tweaks.
+    The returned list always contains **dicts** with at least an ``id``
+    key, regardless of which shape bd emitted. Several shapes are
+    tolerated so we don't break across bd schema tweaks:
+
+      * bd 1.0.4 wraps a list of bare **string ids** under ``closed``:
+        ``{"closed": ["abc-1", "abc-2"], "count": 2}``. Each id is
+        normalised to ``{"id": "abc-1"}`` so callers can uniformly do
+        ``epic.get("id")`` / ``epic.get("title")``. (Before this
+        normalisation the ``isinstance(item, dict)`` filter dropped
+        every string, so rollups closed epics *silently* with no log
+        line — bdboard-rzxb.)
+      * Older bd emits a bare top-level list of epic dicts.
+      * Some shapes wrap each closed epic as ``{"epic": {...}}``; we
+        unwrap to the inner dict.
     """
     raw = _run_bd("epic", "close-eligible", "--json").strip()
     if not raw:
@@ -458,9 +470,35 @@ def close_eligible_epics() -> list[dict[str, Any]]:
     if isinstance(payload, list):
         items: Any = payload
     elif isinstance(payload, dict):
-        # Future-proof against bd wrapping the list under a key.
+        # bd 1.0.4: {"closed": [...ids...]}. Older/alt: {"epics": [...]}.
         items = payload.get("closed") or payload.get("epics") or []
     else:
         return []
 
-    return [item for item in items if isinstance(item, dict)]
+    return [_normalise_closed_epic(item) for item in items if _is_closed_epic(item)]
+
+
+def _is_closed_epic(item: Any) -> bool:
+    """True if ``item`` is a usable closed-epic entry (non-empty str or dict)."""
+    if isinstance(item, str):
+        return bool(item.strip())
+    return isinstance(item, dict)
+
+
+def _normalise_closed_epic(item: Any) -> dict[str, Any]:
+    """Coerce a close-eligible entry into a ``{"id": ..., ...}`` dict.
+
+    bd's ``epic close-eligible --json`` is inconsistent across versions:
+    1.0.4 returns bare string ids under ``closed``; older builds return
+    epic dicts; some wrap each as ``{"epic": {...}}``. Callers only need
+    ``id`` (and optionally ``title``) for log lines, so we flatten every
+    shape to a plain dict here. Centralised so the rollup logger in
+    :mod:`lifecycle` never has to branch on bd's output shape.
+    """
+    if isinstance(item, str):
+        return {"id": item.strip()}
+    # dict: unwrap a nested {"epic": {...}} envelope if present.
+    inner = item.get("epic")
+    if isinstance(inner, dict):
+        return inner
+    return item
