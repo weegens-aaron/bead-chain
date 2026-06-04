@@ -1,0 +1,68 @@
+{
+  "formula": "code-health-audit",
+  "description": "Code-health audit for the bead_chain code-puppy plugin (pure-Python: beads.py, lifecycle.py, prompt.py, register_callbacks.py, close_guard.py, state.py). This repo has NO CI, NO .github/ workflows, and NO dependency manifest, so each child RUNS its tool locally and triages the output. File one bead per finding via the Bug Discovery Protocol; do NOT fix inline unless blocking. Run via 'bd mol pour code-health-audit'.",
+  "version": 2,
+  "type": "workflow",
+  "pour": true,
+  "steps": [
+    {
+      "id": "audit-root",
+      "title": "Code-health audit",
+      "description": "Umbrella for a code-health audit of the bead_chain plugin. This is a pure-Python code-puppy plugin with no CI pipeline, so the children RUN their checks locally against the *.py modules in the repo root and triage the output. File one bead per finding via the Bug Discovery Protocol; do NOT fix inline unless blocking.",
+      "type": "epic",
+      "priority": 2,
+      "labels": [
+        "code-health",
+        "audit"
+      ]
+    },
+    {
+      "id": "lint-triage",
+      "title": "Lint triage: run ruff check on the plugin modules",
+      "description": "Run 'ruff check .' against the repo (ruff is the linter this project standardizes on, per prompt.py and AGENTS.md). Review every diagnostic, including F401 unused imports - this replaces the separate vulture/ruff CI signals the old formula assumed. For each finding decide fix-now vs. file-a-bead vs. intentional/ignore. Do NOT blindly '--fix'; assess first. Output: ranked list of lint findings (file:line + rule code) worth a cleanup bead, plus confirmation that 'ruff format .' leaves the tree clean.",
+      "type": "task",
+      "priority": 2,
+      "labels": [
+        "code-health",
+        "lint"
+      ],
+      "parent": "audit-root"
+    },
+    {
+      "id": "dry-triage",
+      "title": "DRY triage: review the modules for duplication",
+      "description": "There is no .jscpd.json config in this repo, so run a duplication pass yourself (e.g. 'npx jscpd --min-tokens 50 .' if Node is available, otherwise a careful manual read) across beads.py, lifecycle.py, prompt.py, register_callbacks.py, close_guard.py and state.py. Focus on copy-pasted bd-subprocess invocation, JSON parsing, and status-handling blocks. Output: ranked list of duplication hotspots (file:line) worth a refactor bead.",
+      "type": "task",
+      "priority": 2,
+      "labels": [
+        "code-health",
+        "DRY"
+      ],
+      "parent": "audit-root"
+    },
+    {
+      "id": "solid-review",
+      "title": "SOLID review: responsibility & coupling",
+      "description": "Judgment-only review (no mechanical tool for this). Look for SRP violations (modules approaching/over the 600-line guideline - beads.py and lifecycle.py are the largest), leaky abstractions across the bds/lifecycle/prompt boundary, and tight coupling to the code_puppy host callback API. Output: refactor candidates ranked by pain, with a note on any module that should be split.",
+      "type": "task",
+      "priority": 2,
+      "labels": [
+        "code-health",
+        "SOLID"
+      ],
+      "parent": "audit-root"
+    },
+    {
+      "id": "dead-code-triage",
+      "title": "Dead-code triage: run vulture on the plugin modules",
+      "description": "Run 'vulture . --min-confidence 80' locally (no CI job exists here). Cross-check with ruff's F401 unused-import signal from the lint-triage step. For each reported item decide remove vs. keep (false positive - watch for callback handlers and command entrypoints registered with code_puppy via register_callback/register_command, which look unused but are wired at runtime). Output: removal candidates with confidence notes, plus any sub-80-confidence items worth a manual look.",
+      "type": "task",
+      "priority": 2,
+      "labels": [
+        "code-health",
+        "dead-code"
+      ],
+      "parent": "audit-root"
+    }
+  ]
+}
