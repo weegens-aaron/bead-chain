@@ -229,11 +229,12 @@ def close_current_bead_success() -> dict[str, Any] | None:
     #   1. An in_progress epic is categorically broken (epics are
     #      containers, never doable work). Leaving it stranded would
     #      silently corrupt ``bd status`` displays.
-    #   2. The tier-0 recovery path in :func:`pick_next_bead` calls
-    #      :func:`beads.next_in_progress`, which filters epics out via
-    #      ``--exclude-type=epic``. So a stranded epic would never be
-    #      picked up by the recovery preamble flow — it would just sit
-    #      there forever. Reverting is the only path back to sanity.
+    #   2. The tier-0 recovery path in :func:`pick_next_bead` reads
+    #      :func:`_unblocked_in_progress` (which wraps
+    #      :func:`beads.list_in_progress`), and that query filters epics
+    #      out via ``--exclude-type=epic``. So a stranded epic would
+    #      never be picked up by the recovery preamble flow — it would
+    #      just sit there forever. Reverting is the only path to sanity.
     if is_excluded_type(just_closed):
         emit_warning(
             f"🚫 bead-chain refused to close {bead_id}: it's an excluded "
