@@ -20,9 +20,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import beads  # noqa: E402
 
+# bd init/create can prompt without this; e2e must stay non-interactive.
+ENV = {**os.environ, "BD_NON_INTERACTIVE": "1"}
+
 
 def sh(*args, cwd):
-    return subprocess.run(["bd", *args], capture_output=True, text=True, cwd=cwd)
+    return subprocess.run(
+        ["bd", *args], capture_output=True, text=True, cwd=cwd, env=ENV
+    )
 
 
 def create(issue_type, title, cwd):
@@ -39,7 +44,7 @@ def statuses(cwd):
 
 def main():
     workdir = tempfile.mkdtemp(prefix="bc_e2e_")
-    sh("init", cwd=workdir)
+    sh("init", "--non-interactive", "--prefix", "test", cwd=workdir)
 
     eid = create("epic", "E2E Epic", workdir)
     cid = create("task", "E2E only child", workdir)
