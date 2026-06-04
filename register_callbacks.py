@@ -72,8 +72,8 @@ from .close_guard import on_run_shell_command as _on_run_shell_command
 from .lifecycle import (
     activate_next_bead,
     close_current_bead_success,
-    ensure_epic_in_progress,
     enforce_single_in_progress,
+    ensure_epic_in_progress,
     is_recovery_bead,
     rollup_completed_epics,
 )
