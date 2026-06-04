@@ -316,9 +316,12 @@ def open_blocker_ids(bead_id: str) -> list[str]:
     issues that gate it — exactly the set ``bd close`` would later
     refuse on.
 
-    Includes both work-time blockers (blocks edges) AND fan-out gates
-    (waits_for: children-of(...) with unsatisfied spawned children).
-    The latter is a workaround for beads CLI bug bead_chain-9sc.
+    This function checks **only** ``blocks`` edges (work-time blockers).
+    Fan-out gates (waits_for: children-of(...)) are checked separately
+    in :func:`lifecycle._has_fan_out_gate_issue` and integrated into
+    :func:`lifecycle.activate_next_bead`. This separation keeps the
+    blocker logic focused on ``blocks`` edges while fan-out gates are
+    detected and skipped at claim time.
 
     Why this exists
     ---------------
@@ -333,10 +336,6 @@ def open_blocker_ids(bead_id: str) -> list[str]:
       2. **bd version drift.** Same defence-in-depth rationale as the
          epic ``--exclude-type`` filter: if a future ``bd ready`` ever
          leaked a blocked bead, we still refuse to drive it.
-      3. **Fan-out gates (bead_chain-9sc).** Beads with
-         `waits_for: children-of(...)` gates are invisible to both
-         `bd ready` and `bd blocked` in the beads CLI. We detect them
-         here and treat them as blocked until all children are closed.
 
     We re-fetch via :func:`show` because only ``bd show <id> --json``
     carries each dependency's *status* + *dependency_type*; the

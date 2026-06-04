@@ -659,7 +659,7 @@ def _has_fan_out_gate_issue(bead_id: str) -> bool:
 
     # Extract spawner ID
     try:
-        spawner_id = waits_for[len("children-of("):-1].strip()
+        spawner_id = waits_for[len("children-of(") : -1].strip()
         if not spawner_id:
             return False
     except (ValueError, IndexError):
