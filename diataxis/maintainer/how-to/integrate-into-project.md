@@ -1,1 +1,124 @@
-# How-to: Integrate bead-chain into a project\n\n## How to integrate bead-chain into your project\n\n**When to use this:** You have a beads-enabled project and want bead-chain to automatically drive your task queue without manual `/goal` invocations. This is the recipe for continuous, hands-free bead processing.\n\n---\n\n## Prerequisites\n\n- A project with `.beads/` directory (run `bd init` if you don't have one)\n- Code Puppy running\n- At least one task or bug bead in your queue (`bd ready` shows items)\n\n---\n\n## Steps\n\n### 1. Verify bead-chain is loaded\n\nCheck that the Code Puppy plugin is available:\n```bash\n/bead-chain --help\n```\n\n**Expected:** You see usage info for `/bead-chain`.\n\n### 2. Start the chain in dry-run mode (optional)\n\nIf you're nervous, preview what bead-chain will pick up without committing to it:\n```bash\nbd ready\n```\n\n**Expected:** You see a list of open beads. bead-chain will work these in order.\n\n### 3. Start bead-chain with a safety cap\n\nRun the chain, limited to 3 beads:\n```bash\n/bead-chain --max=3\n```\n\n**Why the cap?** Confidence building. Start small, watch the loop complete, then remove the cap.\n\n**Expected:**\n- bead-chain picks the first ready bead\n- Claims it (`in_progress`)\n- Hands it to `/goal`\n- On LLM pass, closes it and picks the next\n- Repeats 3 times, then stops\n\n### 4. Verify the beads are closed\n\nCheck your work:\n```bash\nbd list --status=closed | grep -c ✓\n```\n\n**Expected:** You see \"3\" (or however many beads you processed).\n\n### 5. Run without a cap for steady progress\n\nOnce you're confident, remove `--max`:\n```bash\n/bead-chain\n```\n\nThis runs until the queue is empty — the natural integration point.\n\n---\n\n## Variations & options\n\n### Stop gracefully anytime\n\nPress `Ctrl+C` to stop. The current bead stays `in_progress` — the next `/bead-chain` run will resume it with a recovery preamble. No work is lost.\n\n### Resume from interruption\n\nIf you hit Ctrl+C mid-bead, just re-run:\n```bash\n/bead-chain\n```\n\nbead-chain detects the `in_progress` bead and asks if the work is done. If not, it picks up where you left off.\n\n### Debug a stuck chain\n\nIf `/bead-chain` seems hung, check:\n```bash\nbd list --status=in_progress\n```\n\n**What to look for:** Only one bead should be `in_progress`. If there are multiples, see [how-to/debug-stuck-bead.md](./debug-stuck-bead.md).\n\n### Run bead-chain as a scheduled job\n\nYou can wire bead-chain into cron or a scheduler to run unattended. The one-at-a-time discipline and automatic closing make this safe (no firehose, no manual babysitting):\n\n```bash\n# Run up to 5 beads, then exit cleanly\ncd /path/to/project && /bead-chain --max=5 >> /tmp/bead-chain.log 2>&1\n```\n\n---\n\n## Done — verify\n\nYou've successfully integrated bead-chain. Markers of success:\n\n- ✓ Beads move from `open` → `in_progress` → `closed` automatically\n- ✓ No manual `/goal` commands needed (bead-chain runs them)\n- ✓ Ctrl+C stops safely without stranding work\n- ✓ Recovery mode picks up where you left off\n\n---\n\n## Related\n\n- **Stuck?** See [debug-stuck-bead.md](./debug-stuck-bead.md) for recovery strategies.\n- **Want to extend bead-chain?** Read [extend-with-custom-logic.md](./extend-with-custom-logic.md).\n- **Understand the architecture?** Check [../reference/architecture.md](../reference/architecture.md).\n"
+# How-to: Integrate bead-chain into a project
+
+## How to integrate bead-chain into your project
+
+**When to use this:** You have a beads-enabled project and want bead-chain to automatically drive your task queue without manual `/goal` invocations. This is the recipe for continuous, hands-free bead processing.
+
+---
+
+## Prerequisites
+
+- A project with `.beads/` directory (run `bd init` if you don't have one)
+- Code Puppy running
+- At least one task or bug bead in your queue (`bd ready` shows items)
+
+---
+
+## Steps
+
+### 1. Verify bead-chain is loaded
+
+Check that the Code Puppy plugin is available:
+```bash
+/bead-chain --help
+```
+
+**Expected:** You see usage info for `/bead-chain`.
+
+### 2. Start the chain in dry-run mode (optional)
+
+If you're nervous, preview what bead-chain will pick up without committing to it:
+```bash
+bd ready
+```
+
+**Expected:** You see a list of open beads. bead-chain will work these in order.
+
+### 3. Start bead-chain with a safety cap
+
+Run the chain, limited to 3 beads:
+```bash
+/bead-chain --max=3
+```
+
+**Why the cap?** Confidence building. Start small, watch the loop complete, then remove the cap.
+
+**Expected:**
+- bead-chain picks the first ready bead
+- Claims it (`in_progress`)
+- Hands it to `/goal`
+- On LLM pass, closes it and picks the next
+- Repeats 3 times, then stops
+
+### 4. Verify the beads are closed
+
+Check your work:
+```bash
+bd list --status=closed | grep -c ✓
+```
+
+**Expected:** You see \"3\" (or however many beads you processed).
+
+### 5. Run without a cap for steady progress
+
+Once you're confident, remove `--max`:
+```bash
+/bead-chain
+```
+
+This runs until the queue is empty — the natural integration point.
+
+---
+
+## Variations & options
+
+### Stop gracefully anytime
+
+Press `Ctrl+C` to stop. The current bead stays `in_progress` — the next `/bead-chain` run will resume it with a recovery preamble. No work is lost.
+
+### Resume from interruption
+
+If you hit Ctrl+C mid-bead, just re-run:
+```bash
+/bead-chain
+```
+
+bead-chain detects the `in_progress` bead and asks if the work is done. If not, it picks up where you left off.
+
+### Debug a stuck chain
+
+If `/bead-chain` seems hung, check:
+```bash
+bd list --status=in_progress
+```
+
+**What to look for:** Only one bead should be `in_progress`. If there are multiples, see [how-to/debug-stuck-bead.md](./debug-stuck-bead.md).
+
+### Run bead-chain as a scheduled job
+
+You can wire bead-chain into cron or a scheduler to run unattended. The one-at-a-time discipline and automatic closing make this safe (no firehose, no manual babysitting):
+
+```bash
+# Run up to 5 beads, then exit cleanly
+cd /path/to/project && /bead-chain --max=5 >> /tmp/bead-chain.log 2>&1
+```
+
+---
+
+## Done — verify
+
+You've successfully integrated bead-chain. Markers of success:
+
+- ✓ Beads move from `open` → `in_progress` → `closed` automatically
+- ✓ No manual `/goal` commands needed (bead-chain runs them)
+- ✓ Ctrl+C stops safely without stranding work
+- ✓ Recovery mode picks up where you left off
+
+---
+
+## Related
+
+- **Stuck?** See [debug-stuck-bead.md](./debug-stuck-bead.md) for recovery strategies.
+- **Want to extend bead-chain?** Read [extend-with-custom-logic.md](./extend-with-custom-logic.md).
+- **Understand the architecture?** Check [../reference/architecture.md](../reference/architecture.md).
+"
