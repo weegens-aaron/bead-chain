@@ -28,7 +28,7 @@ from code_puppy.messaging import (
 )
 from code_puppy.plugins.wiggum import state as wiggum_state
 
-from . import state
+from . import beads, state
 from .beads import (
     BeadsError,
     claim,
@@ -570,6 +570,25 @@ def activate_next_bead(
         state.stop()
         return None
 
+    # WORKAROUND (bead_chain-9sc): Check for unsatisfied fan-out gates.
+    # Beads with waits_for: children-of(...) are invisible to bd blocked,
+    # so we detect and refuse to claim them here.
+    if _has_fan_out_gate_issue(bead_id):
+        emit_warning(
+            f"bead-chain refused to activate {bead_id}: it has an unsatisfied "
+            "fan-out gate (waits_for: children-of(...) with unclosed spawned "
+            "children). The gate will be satisfied once all children close. "
+            "Stopping chain to avoid driving work that isn't ready yet."
+        )
+        if not recovery:
+            try:
+                revert_to_open(bead_id)
+                emit_info(f"reverted {bead_id} to open")
+            except BeadsError as exc:
+                emit_warning(f"also couldn't revert {bead_id}: {exc}")
+        state.stop()
+        return None
+
     # Walk the hierarchy top-down: claim the parent epic FIRST, then
     # the child bead. bd's UI caches per-parent children-by-status
     # views, so flipping a leaf to in_progress under a still-open
@@ -604,3 +623,68 @@ def activate_next_bead(
         "delay": 0.5,
         "reason": "bead_chain",
     }
+
+
+def _has_fan_out_gate_issue(bead_id: str) -> bool:
+    """True if bead has unsatisfied fan-out gate (bead_chain-9sc workaround).
+
+    Beads with waits_for: children-of(...) are invisible to bd blocked due
+    to a beads CLI bug. This detects them so bead-chain can properly surface
+    them as waiting.
+
+    A bead has an unsatisfied fan-out gate if:
+    1. It has a "waits_for" field
+    2. The field is in "children-of(spawner_id)" format
+    3. The spawner has at least one child that is not yet closed
+    """
+    if not bead_id:
+        return False
+
+    try:
+        bead = show(bead_id)
+    except BeadsError:
+        # Can't determine gate status; assume no gate issue
+        return False
+    if not bead:
+        return False
+
+    # Check for waits_for field
+    waits_for = bead.get("waits_for")
+    if not waits_for or not isinstance(waits_for, str):
+        return False
+
+    # Check if it's a fan-out gate (children-of format)
+    if not waits_for.startswith("children-of(") or not waits_for.endswith(")"):
+        return False
+
+    # Extract spawner ID
+    try:
+        spawner_id = waits_for[len("children-of("):-1].strip()
+        if not spawner_id:
+            return False
+    except (ValueError, IndexError):
+        return False
+
+    # Check if spawner has any unclosed children
+    try:
+        spawner = show(spawner_id)
+    except BeadsError:
+        # Can't determine; assume gate is satisfied
+        return False
+    if not spawner:
+        return False
+
+    # Find children with parent=spawner_id and status != closed
+    try:
+        raw = beads._run_bd("list", "--json")
+        all_issues = beads._parse_json_list(raw, "bd list --json")
+        for issue in all_issues:
+            if isinstance(issue, dict) and issue.get("parent") == spawner_id:
+                if issue.get("status", "").lower() != "closed":
+                    # Found an unclosed child; gate is unsatisfied
+                    return True
+    except BeadsError:
+        # Can't determine; assume gate is satisfied
+        pass
+
+    return False

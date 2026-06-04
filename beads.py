@@ -316,6 +316,10 @@ def open_blocker_ids(bead_id: str) -> list[str]:
     issues that gate it — exactly the set ``bd close`` would later
     refuse on.
 
+    Includes both work-time blockers (blocks edges) AND fan-out gates
+    (waits_for: children-of(...) with unsatisfied spawned children).
+    The latter is a workaround for beads CLI bug bead_chain-9sc.
+
     Why this exists
     ---------------
     ``bd ready`` already filters blocked beads server-side, but two
@@ -329,6 +333,10 @@ def open_blocker_ids(bead_id: str) -> list[str]:
       2. **bd version drift.** Same defence-in-depth rationale as the
          epic ``--exclude-type`` filter: if a future ``bd ready`` ever
          leaked a blocked bead, we still refuse to drive it.
+      3. **Fan-out gates (bead_chain-9sc).** Beads with
+         `waits_for: children-of(...)` gates are invisible to both
+         `bd ready` and `bd blocked` in the beads CLI. We detect them
+         here and treat them as blocked until all children are closed.
 
     We re-fetch via :func:`show` because only ``bd show <id> --json``
     carries each dependency's *status* + *dependency_type*; the
@@ -368,6 +376,7 @@ def open_blocker_ids(bead_id: str) -> list[str]:
         dep_id = str(dep.get("id", "")).strip()
         if dep_id:
             blockers.append(dep_id)
+
     return blockers
 
 
