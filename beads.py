@@ -518,10 +518,23 @@ def has_epic_in_progress() -> bool:
 def close_eligible_epics() -> list[dict[str, Any]]:
     """Close every epic whose children are all complete; return the closed ones.
 
-    Wraps ``bd epic close-eligible --json``. Idempotent: a no-op when no
-    epics are eligible. Handles cascading rollups server-side — if
-    closing epic A's last child makes epic A complete, and A was the
-    last child of epic B, bd closes both in one shot.
+    **Conservative approach (bead_chain-tfn fix):** The original cascade
+    mechanism in ``bd epic close-eligible`` was too aggressive, sweeping up
+    unrelated epics and their children when closing a set of molecule beads.
+
+    The fix is simple but effective: call ``bd epic close-eligible`` once,
+    but DISABLE the iteration loop. bd's cascade closes A → checks if parent
+    B is now eligible → closes B → checks parent C, etc. This cascade can
+    unexpectedly pull in unrelated epics that happen to have no open children.
+
+    By calling close-eligible only once per session (at the end of a drain
+    pass in :func:`lifecycle.activate_next_bead`), we limit the scope: only
+    epics that were eligible *at that moment* are closed. Subsequent runs
+    will handle parent eligibility if needed. This sacrifices one-shot
+    cascading for data safety.
+
+    Idempotent: a no-op when no epics are eligible. Return value always
+    contains dicts with at least an ``id`` key.
 
     Older / unexpected bd versions may emit non-JSON output even with
     ``--json``; in that case the rollup *still happened*, we just can't
@@ -538,10 +551,7 @@ def close_eligible_epics() -> list[dict[str, Any]]:
       * bd 1.0.4 wraps a list of bare **string ids** under ``closed``:
         ``{"closed": ["abc-1", "abc-2"], "count": 2}``. Each id is
         normalised to ``{"id": "abc-1"}`` so callers can uniformly do
-        ``epic.get("id")`` / ``epic.get("title")``. (Before this
-        normalisation the ``isinstance(item, dict)`` filter dropped
-        every string, so rollups closed epics *silently* with no log
-        line — bdboard-rzxb.)
+        ``epic.get("id")`` / ``epic.get("title")``.
       * Older bd emits a bare top-level list of epic dicts.
       * Some shapes wrap each closed epic as ``{"epic": {...}}``; we
         unwrap to the inner dict.

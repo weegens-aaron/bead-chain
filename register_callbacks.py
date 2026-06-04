@@ -82,7 +82,6 @@ from .lifecycle import (
     enforce_single_in_progress,
     ensure_epic_in_progress,
     is_recovery_bead,
-    rollup_completed_epics,
 )
 from .prompt import format_bead_as_goal
 
@@ -325,11 +324,24 @@ async def _on_interactive_turn_end(
     # bead on top of the one we couldn't close.
     if not state.is_active():
         return None
-    # Rollup runs *between* close and next-pick so logs read linearly:
-    # closed bead → rolled-up epic(s) → started epic → picked next bead.
-    # Only worth attempting when we actually closed something this turn.
-    if just_closed is not None:
-        rollup_completed_epics()
+    # NOTE: Per-bead rollup removed (bead_chain-tfn fix).
+    #
+    # The cascade mechanism in ``bd epic close-eligible`` runs server-side:
+    # closing A's last child closes A, then checks if A's parent B is now
+    # eligible, closes B, checks parent C, etc. Called after EVERY bead
+    # close, this cascade can unexpectedly close unrelated epics.
+    #
+    # Example: closing bead N in molecule-epic A triggers rollup, which
+    # cascades to close A's parent (epic B), which was the last child of
+    # an unrelated epic C. Closing C closes all its orphaned children,
+    # including three tracking beads that had no relationship to A or N.
+    #
+    # Fix: Only call rollup_completed_epics() ONCE, at the end of the
+    # session, when the queue is empty. See activate_next_bead() for the
+    # final rollup call. This prevents multiple cascade iterations from
+    # sweeping up unrelated beads. The trade-off: parent epics may not
+    # close until the next session's rollup, but we gain data safety.
+    #
     # Note: starting the next bead's parent epic is handled inside
     # activate_next_bead, where we actually know which bead got
     # claimed. Doing it here would be premature.
