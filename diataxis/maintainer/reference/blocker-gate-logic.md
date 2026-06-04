@@ -137,34 +137,22 @@ def claim_next(bead: dict) -> None:
 
 **Location:** `lifecycle.py::handle_recovery()`
 
-**Scenario:** A previous run claimed a bead, then crashed. This run finds it `in_progress`. We ask the human if the work is done. If they say \"no, I'll continue\", we should still check if the bead's blockers have changed.
+**Scenario:** A previous run claimed a bead, then crashed. This run finds it `in_progress`. Check if blockers have changed; if not and the bead is unblocked, recover and resume it. If blocked, revert and skip.
 
 **Pseudocode:**
 ```python
 def handle_recovery() -> dict | None:
-    stranded = beads.next_in_progress()  # fetch the in_progress bead
-    if not stranded:
+    workable = lifecycle._unblocked_in_progress()  # fetch list of unblocked in_progress bead(s)
+    # (blocked beads are automatically reverted inside _unblocked_in_progress)
+    if not workable:
         return None  # no recovery needed
     
-    # Ask if work is done
-    is_done = ask_user(f\"Work on {stranded['title']} finished?\")
-    if is_done:
-        beads.close(stranded[\"id\"], reason=\"bead-chain: LLM judges passed\")
-        return None  # continue to next bead
-    
-    # Work not done; check if blockers changed
-    blockers = beads.open_blocker_ids(stranded[\"id\"])
-    if blockers:
-        # Blocker was reopened after the claim (very rare)
-        # Revert the bead to open so it re-queues behind its blocker
-        beads.revert_to_open(stranded[\"id\"])
-        return None  # don't resume; fix blockers first
-    
-    # Blockers unchanged; safe to resume
+    stranded = workable[0]  # pick the first (usually only) unblocked bead
+    # Blockers already checked and unblocked; safe to resume
     return stranded
 ```
 
-**Outcome:** If a blocker is unexpectedly open, the stranded bead is reverted. It re-enters the queue behind the blocker (will be picked again once blocker closes).
+**Outcome:** If a stranded bead becomes blocked after it was claimed, `_unblocked_in_progress()` detects it and reverts it automatically. Only unblocked stranded beads are resumed.
 
 ---
 
