@@ -282,10 +282,15 @@ def close_current_bead_success() -> dict[str, Any] | None:
 def rollup_completed_epics() -> None:
     """Auto-close any epics whose children are now all complete.
 
-    Runs ``bd epic close-eligible`` after every successful child close
-    so finished epics don't linger as zombie containers. bd handles
-    cascades natively: closing epic A's last child may make A's parent
-    epic B eligible too, and one call rolls both up.
+    Called **once per session** when the queue is empty (drain pass in
+    :func:`activate_next_bead`), NOT after every individual child close.
+    This is mitigation for the over-close bug (bead_chain-tfn): bd's
+    ``epic close-eligible`` cascade can unexpectedly close unrelated
+    epics if called too frequently. By calling once-per-session, we
+    dramatically reduce the surface for unintended side effects.
+
+    bd handles cascades natively: closing epic A's last child may make
+    A's parent epic B eligible too, and one call rolls both up.
 
     **Soft-fails by design.** Epic rollup is a courtesy cleanup, not
     bead-chain's core mission. A flaky/missing/old ``bd epic`` should
