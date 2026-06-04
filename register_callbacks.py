@@ -67,7 +67,14 @@ from code_puppy.messaging import (
 from code_puppy.plugins.wiggum import state as wiggum_state
 
 from . import state
-from .beads import BeadsError, claim, is_excluded_type, next_ready
+from .beads import (
+    BeadsError,
+    claim,
+    is_excluded_type,
+    next_ready,
+    open_blocker_ids,
+    revert_to_open,
+)
 from .close_guard import on_run_shell_command as _on_run_shell_command
 from .lifecycle import (
     activate_next_bead,
@@ -207,10 +214,33 @@ def handle_bead_chain_command(command: str) -> str | bool:
         )
         return True
 
+    # Last-line-of-defence assertion: matches the same check in
+    # :func:`lifecycle.activate_next_bead`. ``bd ready`` filters blocked
+    # beads server-side and the recovery path
+    # (:func:`lifecycle.enforce_single_in_progress`) reverts+drops any
+    # blocked stranded bead, so this should never fire. If it does — bd
+    # version drift, or a ``blocks`` edge wired between the probe and now
+    # — we refuse to start work that ``bd close`` will later reject. This
+    # is the bdboard-oals fix: respect work-time blocks at claim time.
+    blockers = open_blocker_ids(bead_id)
+    if blockers:
+        emit_warning(
+            f"bead-chain refused to start with {bead_id}: it has open "
+            f"blocker(s) [{', '.join(blockers)}]. Respecting work-time blocks "
+            "at claim time, not just at close."
+        )
+        if not is_recovery_bead(bead):
+            try:
+                revert_to_open(bead_id)
+                emit_info(f"reverted {bead_id} to open")
+            except BeadsError as exc:
+                emit_warning(f"also couldn't revert {bead_id}: {exc}")
+        return True
+
     recovery = is_recovery_bead(bead)
     if recovery:
         emit_warning(
-            f"⚠️ Recovering stranded in_progress bead {bead_id} — "
+            f"Recovering stranded in_progress bead {bead_id} -- "
             "agent will assess current state before doing new work."
         )
 

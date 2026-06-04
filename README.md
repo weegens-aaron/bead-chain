@@ -55,6 +55,17 @@ If a previous run crashed or was cancelled mid-bead, `/bead-chain` detects the s
 
 **Why:** Partial work stays paired with its bead — no orphaning, no duplicate effort.
 
+### Work-Time Blocker Gate
+bead-chain only works beads on the `bd ready` frontier — it respects `blocks` dependencies at **claim/start time**, not just at close time. A bead with an open `DEPENDS ON` (inbound `blocks`) edge is never claimed or driven.
+
+This matters because two paths can otherwise surface a blocked bead:
+- the **recovery tier** reads `bd list --status=in_progress`, which ignores the ready frontier — a bead claimed-while-ready and later re-blocked would be re-driven; and
+- **bd version drift** could let `bd ready` leak a blocked bead.
+
+At every claim site the chain rechecks blockers (via `bd show`); a blocked stranded bead is reverted to `open` (re-entering the queue behind its blockers) rather than re-run.
+
+**Why:** Running blocked work to completion wastes cycles on stale inputs and only trips at `bd close` ("blocked by open issues") — far too late. The close-time guard is a safety net; this is the prevention (bdboard-oals).
+
 ### Epic Affinity
 After closing a bead, bead-chain prefers the next ready sibling **under the same parent epic** before falling back to the global queue.
 

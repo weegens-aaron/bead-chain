@@ -39,9 +39,9 @@ from .beads import (
     is_excluded_type,
     list_in_progress,
     next_blocking_bug,
-    next_in_progress,
     next_ready,
     next_ready_in_epic,
+    open_blocker_ids,
     revert_to_open,
     show,
 )
@@ -73,6 +73,51 @@ def is_recovery_bead(bead: dict[str, Any] | None) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _unblocked_in_progress() -> list[dict[str, Any]]:
+    """List the in_progress non-epic beads that are *actually workable*.
+
+    A stranded in_progress bead with open ``blocks`` dependencies must
+    **never** be re-driven — that is the bdboard-oals bug: the recovery
+    tier reads ``bd list --status=in_progress`` (which ignores the ready
+    frontier), so a bead claimed-while-ready and later re-blocked would
+    get run to completion and only trip at ``bd close``. We refuse to
+    perpetuate that: any blocked stranded bead is **reverted to open**
+    (so it re-enters the queue behind its blockers) and dropped from the
+    workable set.
+
+    Eviction is best-effort — if the revert itself fails we log and still
+    drop the bead from the workable list, so the chain never picks it up
+    this pass regardless.
+
+    Raises :class:`BeadsError` from the underlying ``bd list`` so callers
+    keep the same soft-fail contract they had with
+    :func:`beads.list_in_progress`.
+    """
+    items = list_in_progress()
+    workable: list[dict[str, Any]] = []
+    for bead in items:
+        bead_id = str(bead.get("id", ""))
+        blockers = open_blocker_ids(bead_id)
+        if blockers:
+            emit_warning(
+                f"bead-chain: stranded in_progress bead {bead_id} is blocked "
+                f"by open issue(s) [{', '.join(blockers)}] -- refusing to re-drive "
+                "it and reverting to open (work-time blocks must be respected, "
+                "not just at close-time)."
+            )
+            try:
+                revert_to_open(bead_id)
+                emit_info(f"reverted blocked {bead_id} to open")
+            except BeadsError as exc:
+                emit_warning(
+                    f"also couldn't revert {bead_id} (still dropping it from "
+                    f"this pass): {exc}"
+                )
+            continue
+        workable.append(bead)
+    return workable
+
+
 def enforce_single_in_progress() -> dict[str, Any] | None:
     """Pick the head in_progress bead for recovery; leave the rest alone.
 
@@ -95,13 +140,17 @@ def enforce_single_in_progress() -> dict[str, Any] | None:
         in_progress bead represents real partial work on disk that the
         agent must assess via the recovery preamble before doing more.
 
+    Beads with open work-time blockers are filtered out (and reverted
+    to open) by :func:`_unblocked_in_progress` before any of the above
+    — a blocked stranded bead is never recovered/re-driven (bdboard-oals).
+
     Soft-fails by design: a bd outage here shouldn't block the chain
     from running. If listing fails we emit a warning and return
     ``None``, letting the normal startup probe handle whatever it can
     see.
     """
     try:
-        items = list_in_progress()
+        items = _unblocked_in_progress()
     except BeadsError as exc:
         emit_warning(
             f"🔗 bead-chain: couldn't enumerate in_progress beads ({exc}); "
@@ -342,31 +391,67 @@ def pick_next_bead(
        you start' rule).
     3. **Global ready queue.** Whatever bd hands us next.
 
+    Beads with open work-time blockers are never returned: tier 0
+    reverts+drops blocked stranded beads via :func:`_unblocked_in_progress`,
+    and tiers 1-3 (which come from ``bd ready`` and so *should* already
+    be unblocked) get a belt-and-suspenders :func:`beads.is_blocked`
+    recheck — defence-in-depth against bd version drift, mirroring the
+    epic ``--exclude-type`` filter. This is the bdboard-oals fix: the
+    chain respects blocks at claim/start time, not just at close.
+
     Raises :class:`BeadsError` on infrastructure failure so the caller
     can stop the chain cleanly.
     """
-    stranded = next_in_progress()
-    if stranded is not None:
+    workable = _unblocked_in_progress()
+    if workable:
+        stranded = workable[0]
         bead_id = str(stranded.get("id", "<unknown>"))
         emit_warning(
-            f"⚠️ bead-chain: found stranded in_progress bead {bead_id} — "
+            f"bead-chain: found stranded in_progress bead {bead_id} -- "
             "recovering before picking new work."
         )
         return stranded
 
     blocking = next_blocking_bug()
-    if blocking is not None:
+    if blocking is not None and not _reject_if_blocked(blocking, "blocking bug"):
         bead_id = str(blocking.get("id", "<unknown>"))
-        emit_info(f"🔗 bead-chain: blocking bug detected → prioritising {bead_id}")
+        emit_info(f"bead-chain: blocking bug detected -> prioritising {bead_id}")
         return blocking
 
     epic_id = extract_parent_epic_id(just_closed)
     if epic_id:
         sibling = next_ready_in_epic(epic_id)
-        if sibling is not None:
-            emit_info(f"🔗 bead-chain: epic affinity → staying inside {epic_id}")
+        if sibling is not None and not _reject_if_blocked(sibling, "epic affinity"):
+            emit_info(f"bead-chain: epic affinity -> staying inside {epic_id}")
             return sibling
-    return next_ready()
+
+    nxt = next_ready()
+    if nxt is not None and _reject_if_blocked(nxt, "global ready"):
+        return None
+    return nxt
+
+
+def _reject_if_blocked(bead: dict[str, Any] | None, tier: str) -> bool:
+    """True (and warn) if ``bead`` has open work-time blockers.
+
+    Defence-in-depth for the non-recovery tiers, which source beads
+    from ``bd ready`` (server-side blocker-filtered) and so should
+    never be blocked. If one ever is — bd version drift, a ``blocks``
+    edge wired between the ``ready`` query and now — we refuse to drive
+    it rather than barrel into the close-time failure (bdboard-oals).
+    """
+    if not bead:
+        return False
+    bead_id = str(bead.get("id", ""))
+    blockers = open_blocker_ids(bead_id)
+    if not blockers:
+        return False
+    emit_warning(
+        f"bead-chain: {tier} candidate {bead_id} has open blocker(s) "
+        f"[{', '.join(blockers)}] -- refusing to claim it (bd ready leaked a "
+        "blocked bead; respecting work-time blocks anyway)."
+    )
+    return True
 
 
 def activate_next_bead(
@@ -444,6 +529,32 @@ def activate_next_bead(
 
     bead_id = str(bead.get("id", ""))
     recovery = is_recovery_bead(bead)
+
+    # Last-line-of-defence assertion: the picker is *not allowed* to
+    # return a bead with open work-time blockers. Tier 0 reverts+drops
+    # them; tiers 1-3 reject them via :func:`_reject_if_blocked`. If one
+    # still reached here (e.g. a ``blocks`` edge wired in the moment
+    # between pick and activate), refuse to claim/drive it rather than
+    # running blocked work that ``bd close`` will later reject. This is
+    # the bdboard-oals fix mirrored at the activation boundary. Recovery
+    # beads are exempt from the revert path here (they were already
+    # blocker-filtered in :func:`_unblocked_in_progress`); we just stop
+    # if somehow one is blocked, leaving it in_progress for inspection.
+    blockers = open_blocker_ids(bead_id)
+    if blockers:
+        emit_warning(
+            f"bead-chain refused to activate {bead_id}: it has open "
+            f"blocker(s) [{', '.join(blockers)}]. Respecting work-time blocks "
+            "at claim time, not just at close. Stopping chain."
+        )
+        if not recovery:
+            try:
+                revert_to_open(bead_id)
+                emit_info(f"reverted {bead_id} to open")
+            except BeadsError as exc:
+                emit_warning(f"also couldn't revert {bead_id}: {exc}")
+        state.stop()
+        return None
 
     # Walk the hierarchy top-down: claim the parent epic FIRST, then
     # the child bead. bd's UI caches per-parent children-by-status

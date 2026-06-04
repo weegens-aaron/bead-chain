@@ -64,6 +64,22 @@ def is_excluded_type(bead: dict[str, Any] | None) -> bool:
     return issue_type in EXCLUDED_TYPES
 
 
+# Dependency-edge type that means "this bead is blocked until the other
+# one closes". bd uses the literal string ``"blocks"`` for both sides of
+# the edge (it's the edge type, not a perspective) — see repo memory
+# 'dep-edge-direction'. From a bead's *inbound* ``dependencies`` list a
+# ``blocks`` entry reads as "X blocks me", i.e. a work-time blocker.
+# ``parent-child`` / ``discovered-from`` / ``related`` edges do NOT gate
+# work, so they are deliberately excluded. Tuple-constant so adding a
+# future blocking edge type (e.g. ``"requires"``) stays a one-line edit.
+BLOCKING_DEP_TYPES: tuple[str, ...] = ("blocks",)
+
+# Statuses that mean a blocker is *satisfied* (no longer gates work).
+# Only a closed blocker is satisfied; open / in_progress / blocked all
+# still gate. Case-insensitive comparison, see :func:`open_blocker_ids`.
+SATISFIED_BLOCKER_STATUSES: frozenset[str] = frozenset({"closed"})
+
+
 # Issue types that count as 'bugs' for the blocking-bug priority pass.
 # A blocking bug (type in here AND dependent_count > 0) jumps the queue
 # ahead of every other selection rule because fixing it unblocks more
@@ -290,6 +306,79 @@ def extract_parent_epic_id(bead: dict[str, Any] | None) -> str | None:
         if value:
             return str(value)
     return None
+
+
+def open_blocker_ids(bead_id: str) -> list[str]:
+    """Return the ids of ``bead_id``'s **open** work-time blockers.
+
+    An empty list means the bead is *ready to work* (no unresolved
+    ``blocks`` dependencies). A non-empty list names the still-open
+    issues that gate it — exactly the set ``bd close`` would later
+    refuse on.
+
+    Why this exists
+    ---------------
+    ``bd ready`` already filters blocked beads server-side, but two
+    chain paths bypass it and can therefore surface a blocked bead:
+
+      1. The **recovery tier** reads ``bd list --status=in_progress``,
+         which does NOT honour the ready frontier. A bead claimed while
+         ready, then re-blocked (blocker reopened, or a ``blocks`` edge
+         wired after the claim), would be re-driven to completion and
+         only trip at ``bd close`` — the exact bug in bdboard-oals.
+      2. **bd version drift.** Same defence-in-depth rationale as the
+         epic ``--exclude-type`` filter: if a future ``bd ready`` ever
+         leaked a blocked bead, we still refuse to drive it.
+
+    We re-fetch via :func:`show` because only ``bd show <id> --json``
+    carries each dependency's *status* + *dependency_type*; the
+    ``dependencies`` array on ``bd ready`` / ``bd list`` output is a
+    list of bare edge records (no status), so it can't tell us whether
+    a blocker is still open.
+
+    Soft-fails to ``[]`` (treat as not-blocked) on any infrastructure
+    error: a transient bd blip must not strand the chain, and the
+    close-time guard remains as the final safety net.
+    """
+    if not bead_id:
+        return []
+    try:
+        bead = show(bead_id)
+    except BeadsError:
+        # Can't determine blockers — don't strand the chain on a blip;
+        # the close-time guard still backstops us.
+        return []
+    if not bead:
+        return []
+
+    deps = bead.get("dependencies")
+    if not isinstance(deps, list):
+        return []
+
+    blockers: list[str] = []
+    for dep in deps:
+        if not isinstance(dep, dict):
+            continue
+        dep_type = str(dep.get("dependency_type", "")).strip().lower()
+        if dep_type not in BLOCKING_DEP_TYPES:
+            continue
+        status = str(dep.get("status", "")).strip().lower()
+        if status in SATISFIED_BLOCKER_STATUSES:
+            continue
+        dep_id = str(dep.get("id", "")).strip()
+        if dep_id:
+            blockers.append(dep_id)
+    return blockers
+
+
+def is_blocked(bead_id: str) -> bool:
+    """True if ``bead_id`` has at least one open work-time blocker.
+
+    Thin convenience wrapper over :func:`open_blocker_ids` for callers
+    that only need the boolean. Soft-fails to ``False`` for the same
+    reasons (see that function's docstring).
+    """
+    return bool(open_blocker_ids(bead_id))
 
 
 def next_blocking_bug() -> dict[str, Any] | None:
