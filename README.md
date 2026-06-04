@@ -84,7 +84,9 @@ While bead-chain is active, agent attempts to run `bd close` or `bd update --sta
 **Why:** Only the LLM judges should close a bead. Agents doing their own closing short-circuits the quality gate.
 
 ### Epic Rollup
-After each bead closes, bead-chain runs `bd epic close-eligible` to auto-close any parent epics whose children are now all complete. Cascades are handled by bd.
+At session-end (when the queue is empty), bead-chain runs `bd epic close-eligible` to auto-close any epics whose children are now all complete.
+
+**Implementation note (bead_chain-tfn):** Rollup runs **once per session** at the drain pass, not after every bead close. This prevents bd's server-side cascade from unexpectedly closing unrelated epics. Parent epics may close one session later, but this trade-off prioritizes data safety over single-pass cascading.
 
 **Why:** Epics shouldn't linger as zombies once their work is done.
 

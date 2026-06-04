@@ -492,17 +492,25 @@ def activate_next_bead(
         return None
 
     if bead is None:
-        # Drain pass: before we terminate the run, sweep any epics whose
-        # final child we just closed. The per-turn rollup in
-        # _on_interactive_turn_end already attempts this after each close,
-        # but that pass can soft-fail (BeadsError swallowed) or be skipped
-        # if a future refactor moves it — and the run that finishes an
-        # epic's last child is *exactly* the run a user expects to see it
-        # close. Running close-eligible one last time here makes
-        # "chain ran to exhaustion" an invariant termination point: no
-        # all-children-closed epic is ever left open waiting for the next
-        # run's rollup (bdboard-rzxb). Idempotent and soft-failing, so the
-        # extra call is harmless when the per-turn pass already cleaned up.
+        # Drain pass: at session end, sweep any epics whose final child we
+        # just closed. Per bead_chain-tfn (over-close bug fix), we call
+        # rollup_completed_epics() ONLY HERE at the end of a session
+        # (when the queue is empty), NOT after every individual bead close.
+        #
+        # Rationale: bd's ``epic close-eligible`` command runs a server-side
+        # cascade: closing A's last child closes A, then checks if A's parent
+        # B is now eligible, closes B, checks parent C, etc. When called
+        # per-bead (after EVERY close), this cascade can unexpectedly close
+        # unrelated epics that happen to have no open children.
+        #
+        # Fix: Calling it once per session limits the cascade to a single
+        # pass at the end. This is mitigation (not prevention) — the cascade
+        # still exists in bd, but is called far less frequently, reducing the
+        # surface for unintended side effects. Parent epics may close one
+        # session later, but data safety is preserved.
+        #
+        # See register_callbacks._on_interactive_turn_end for the detailed
+        # explanation and the call-site of the per-bead rollup removal.
         rollup_completed_epics()
         emit_success(
             f"bead-chain: no more ready beads. "
