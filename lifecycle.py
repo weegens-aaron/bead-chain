@@ -39,6 +39,7 @@ from .beads import (
     is_excluded_type,
     list_in_progress,
     next_blocking_bug,
+    next_in_progress,  # noqa: F401 — exposed in recovery-branch API surface
     next_ready,
     next_ready_in_epic,
     open_blocker_ids,
