@@ -124,7 +124,10 @@ def lint_directory(directory: Path) -> dict[str, list[tuple[int, str, str]]]:
     """Lint all .md files in a directory. Return {filepath: issues}."""
     results: dict[str, list[tuple[int, str, str]]] = {}
     for md in sorted(directory.rglob("*.md")):
-        if md.name == "_Manifest.md":
+        # Skip underscore-prefixed working/authoring files (e.g. _Manifest.md,
+        # _DiataxisGuide.md, _UpdateQueue.md, _AuditLog.md) — they are not
+        # published pages.
+        if md.name.startswith("_"):
             continue
         issues = lint_file(md)
         if issues:

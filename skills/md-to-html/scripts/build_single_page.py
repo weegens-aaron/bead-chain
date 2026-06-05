@@ -70,7 +70,10 @@ def discover_pages(docs_dir: Path) -> list[dict]:
     for md in sorted(docs_dir.rglob("*.md")):
         rel = md.relative_to(docs_dir)
         name = rel.stem
-        if name == "_Manifest":
+        # Skip underscore-prefixed working/authoring files (e.g. _Manifest,
+        # _DiataxisGuide, _UpdateQueue, _AuditLog) so they never leak into
+        # the published site.
+        if name.startswith("_"):
             continue
         section = (
             str(rel.parent).replace("\\", "/")

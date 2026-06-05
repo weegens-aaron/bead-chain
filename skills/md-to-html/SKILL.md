@@ -169,7 +169,10 @@ The format is auto-detected: objects with `categories` use categorized layout; a
 Sections auto-detected from subdirectories. Priority order:
 Overview → Concepts → Getting-Started → Guides → Reference → Tutorials.
 Others sort alphabetically after. Root `.md` files → "Overview".
-`index.md` sorts first within each section. `_Manifest.md` files skipped.
+`index.md` sorts first within each section. Underscore-prefixed files
+(e.g. `_Manifest.md`, `_DiataxisGuide.md`, `_UpdateQueue.md`, `_AuditLog.md`)
+are treated as working/authoring files and skipped — they are never published
+or linted.
 
 ## Customizing the Theme
 
