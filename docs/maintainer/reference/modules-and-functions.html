@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference: Modules and public functions — bead-chain — maintainer documentation</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain — maintainer documentation</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<div class="nav-section">explanation</div>
+<a href="../explanation/index.html">Index</a>
+<a href="../explanation/lazy-hook-registration-ordering.html">Lazy-hook-registration-ordering</a>
+<a href="../explanation/once-per-session-epic-rollup.html">Once-per-session-epic-rollup</a>
+<a href="../explanation/queue-driver-not-goal-engine.html">Queue-driver-not-goal-engine</a>
+<a href="../explanation/work-time-blocker-gate.html">Work-time-blocker-gate</a>
+<div class="nav-section">how-to</div>
+<a href="../how-to/index.html">Index</a>
+<a href="../how-to/add-excluded-bead-type.html">Add-excluded-bead-type</a>
+<a href="../how-to/extend-close-guard.html">Extend-close-guard</a>
+<a href="../how-to/recover-stranded-bead.html">Recover-stranded-bead</a>
+<div class="nav-section">reference</div>
+<a href="index.html">Index</a>
+<a href="command-and-configuration.html">Command-and-configuration</a>
+<a href="modules-and-functions.html" class="active">Modules-and-functions</a>
+<div class="nav-section">tutorials</div>
+<a href="../tutorials/index.html">Index</a>
+<a href="../tutorials/run-locally-and-test.html">Run-locally-and-test</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="reference-modules-and-public-functions">Reference: Modules and public functions</h1>
+<p>A structured map of the <code>bead_chain</code> package, mirroring its module layout. Each module lists its public functions with signature and one-line description. This page describes only; for tasks see the <a href="../how-to/index.html">how-to guides</a>, and for design rationale see the <a href="../explanation/index.html">explanation</a> section.</p>
+<h2 id="package-layout">Package layout</h2>
+<pre><code>bead_chain/
+- __init__.py           # Package docstring
+- register_callbacks.py # Wiring: /bead-chain command, hook handlers
+- lifecycle.py          # State transitions: close, pick next, arm wiggum
+- beads.py              # Subprocess wrapper around the bd CLI
+- prompt.py             # Bead to goal prompt formatting
+- close_guard.py        # Shell hook that blocks premature closes
+- state.py              # Singleton dataclass for chain state</code></pre>
+<h2 id="state-py"><code>state.py</code></h2>
+<table><thead><tr>
+<th>Symbol</th>
+<th>Signature</th>
+<th>Description</th>
+</tr></thead><tbody>
+<tr>
+<td><code>BeadChainState</code></td>
+<td>dataclass</td>
+<td>Holds <code>active</code>, <code>current_bead</code>, <code>completed_count</code>, <code>max_iterations</code></td>
+</tr>
+<tr>
+<td><code>BeadChainState.current_bead_id</code></td>
+<td>property -&gt; `str \</td>
+<td>None`</td>
+<td>Convenience accessor for <code>current_bead["id"]</code></td>
+</tr>
+<tr>
+<td><code>BeadChainState.start</code></td>
+<td><code>() -&gt; None</code></td>
+<td>Set active, clear current bead, reset completed count</td>
+</tr>
+<tr>
+<td><code>BeadChainState.stop</code></td>
+<td><code>() -&gt; None</code></td>
+<td>Clear active, current bead, and the iteration cap</td>
+</tr>
+<tr>
+<td><code>BeadChainState.bump_completed</code></td>
+<td><code>() -&gt; int</code></td>
+<td>Increment and return the completed count</td>
+</tr>
+<tr>
+<td><code>get_state</code></td>
+<td><code>() -&gt; BeadChainState</code></td>
+<td>Return the module-level singleton</td>
+</tr>
+<tr>
+<td><code>is_active</code></td>
+<td><code>() -&gt; bool</code></td>
+<td>Whether the chain is engaged</td>
+</tr>
+<tr>
+<td><code>start</code> / <code>stop</code></td>
+<td><code>() -&gt; None</code></td>
+<td>Module-level wrappers over the singleton</td>
+</tr>
+</tbody></table>
+<h2 id="beads-py"><code>beads.py</code></h2>
+<p>Thin subprocess wrapper. Raises <code>BeadsError</code> on infrastructure failure.</p>
+<table><thead><tr>
+<th>Symbol</th>
+<th>Signature</th>
+<th>Description</th>
+</tr></thead><tbody>
+<tr>
+<td><code>BeadsError</code></td>
+<td><code>RuntimeError</code> subclass</td>
+<td>Raised when <code>bd</code> fails, is missing, or returns junk</td>
+</tr>
+<tr>
+<td><code>is_excluded_type</code></td>
+<td><code>(bead) -&gt; bool</code></td>
+<td>True for container types (case-insensitive)</td>
+</tr>
+<tr>
+<td><code>next_ready</code></td>
+<td>`() -&gt; dict \</td>
+<td>None`</td>
+<td>Top ready non-epic bead</td>
+</tr>
+<tr>
+<td><code>list_in_progress</code></td>
+<td><code>() -&gt; list[dict]</code></td>
+<td>All in_progress non-epic beads</td>
+</tr>
+<tr>
+<td><code>next_in_progress</code></td>
+<td>`() -&gt; dict \</td>
+<td>None`</td>
+<td>Head of <code>list_in_progress</code></td>
+</tr>
+<tr>
+<td><code>next_ready_in_epic</code></td>
+<td>`(epic_id) -&gt; dict \</td>
+<td>None`</td>
+<td>Top ready bead under an epic</td>
+</tr>
+<tr>
+<td><code>extract_parent_epic_id</code></td>
+<td>`(bead) -&gt; str \</td>
+<td>None`</td>
+<td>Parent epic id via canonical + fallback keys</td>
+</tr>
+<tr>
+<td><code>open_blocker_ids</code></td>
+<td><code>(bead_id) -&gt; list[str]</code></td>
+<td>Ids of open <code>blocks</code> work-time blockers</td>
+</tr>
+<tr>
+<td><code>is_blocked</code></td>
+<td><code>(bead_id) -&gt; bool</code></td>
+<td>Whether any open work-time blocker exists</td>
+</tr>
+<tr>
+<td><code>next_blocking_bug</code></td>
+<td>`() -&gt; dict \</td>
+<td>None`</td>
+<td>Top ready bug with <code>dependent_count &gt; 0</code></td>
+</tr>
+<tr>
+<td><code>show</code></td>
+<td>`(bead_id) -&gt; dict \</td>
+<td>None`</td>
+<td>Full bead record via <code>bd show --json</code></td>
+</tr>
+<tr>
+<td><code>claim</code></td>
+<td><code>(bead_id) -&gt; None</code></td>
+<td><code>bd update &lt;id&gt; --claim</code></td>
+</tr>
+<tr>
+<td><code>revert_to_open</code></td>
+<td><code>(bead_id) -&gt; None</code></td>
+<td><code>bd update &lt;id&gt; --status=open</code></td>
+</tr>
+<tr>
+<td><code>close</code></td>
+<td><code>(bead_id, *, reason=None) -&gt; None</code></td>
+<td><code>bd close &lt;id&gt; [--reason ...]</code></td>
+</tr>
+<tr>
+<td><code>has_epic_in_progress</code></td>
+<td><code>() -&gt; bool</code></td>
+<td>Whether any epic is in_progress</td>
+</tr>
+<tr>
+<td><code>close_eligible_epics</code></td>
+<td><code>() -&gt; list[dict]</code></td>
+<td>Roll up epics whose children are all closed</td>
+</tr>
+</tbody></table>
+<h2 id="prompt-py"><code>prompt.py</code></h2>
+<p>Bead-dict to goal-prompt formatting. Mostly pure.</p>
+<table><thead><tr>
+<th>Symbol</th>
+<th>Signature</th>
+<th>Description</th>
+</tr></thead><tbody>
+<tr>
+<td><code>TRIAGE_MARKER</code></td>
+<td><code>str</code> = <code>"[bead-chain:triaged]"</code></td>
+<td>Sentinel in a bug's description marking an inline-fixed triaged bug</td>
+</tr>
+<tr>
+<td><code>is_triaged_bug</code></td>
+<td><code>(bead) -&gt; bool</code></td>
+<td>True for a <code>bug</code> whose description carries the marker</td>
+</tr>
+<tr>
+<td><code>format_bead_as_goal</code></td>
+<td><code>(bead, *, recovery=False) -&gt; str</code></td>
+<td>Render the <code>/goal</code> prompt, with a recovery or triage preamble and the bug-discovery protocol appended</td>
+</tr>
+</tbody></table>
+<p>Preamble precedence in <code>format_bead_as_goal</code>: <code>recovery</code> wins over a triaged bug; otherwise no preamble. The bug-discovery protocol is appended to every prompt.</p>
+<h2 id="close-guard-py"><code>close_guard.py</code></h2>
+<table><thead><tr>
+<th>Symbol</th>
+<th>Signature</th>
+<th>Description</th>
+</tr></thead><tbody>
+<tr>
+<td><code>CloseGuardMatch</code></td>
+<td>frozen dataclass</td>
+<td><code>pattern_name</code> and <code>description</code> of a detected close attempt</td>
+</tr>
+<tr>
+<td><code>detect_premature_close</code></td>
+<td>`(command) -&gt; CloseGuardMatch \</td>
+<td>None`</td>
+<td>Detect <code>bd close</code> / <code>bd update --status=closed</code> at a command boundary</td>
+</tr>
+<tr>
+<td><code>on_run_shell_command</code></td>
+<td>`async (context, command, cwd=None, timeout=60) -&gt; dict \</td>
+<td>None`</td>
+<td>Hook that blocks the command (returns a <code>blocked</code> dict) when the chain is active</td>
+</tr>
+</tbody></table>
+<h2 id="lifecycle-py"><code>lifecycle.py</code></h2>
+<p>State-transition logic. Functions mutate <code>state</code> and shell out via <code>beads</code>.</p>
+<table><thead><tr>
+<th>Symbol</th>
+<th>Signature</th>
+<th>Description</th>
+</tr></thead><tbody>
+<tr>
+<td><code>is_recovery_bead</code></td>
+<td><code>(bead) -&gt; bool</code></td>
+<td>True if the bead was already in_progress when picked</td>
+</tr>
+<tr>
+<td><code>enforce_single_in_progress</code></td>
+<td>`() -&gt; dict \</td>
+<td>None`</td>
+<td>Pick head in_progress bead for recovery; leave the rest</td>
+</tr>
+<tr>
+<td><code>close_current_bead_success</code></td>
+<td>`() -&gt; dict \</td>
+<td>None`</td>
+<td>Close the current bead; halt + leave in_progress on failure</td>
+</tr>
+<tr>
+<td><code>rollup_completed_epics</code></td>
+<td><code>() -&gt; None</code></td>
+<td>Once-per-session epic rollup (soft-fail)</td>
+</tr>
+<tr>
+<td><code>ensure_epic_in_progress</code></td>
+<td><code>(bead) -&gt; None</code></td>
+<td>Claim the bead's parent epic if no epic is in_progress</td>
+</tr>
+<tr>
+<td><code>pick_next_bead</code></td>
+<td>`(just_closed) -&gt; dict \</td>
+<td>None`</td>
+<td>Four-tier waterfall: recovery, blocking bug, epic affinity, global ready</td>
+</tr>
+<tr>
+<td><code>activate_next_bead</code></td>
+<td>`(just_closed=None) -&gt; dict \</td>
+<td>None`</td>
+<td>Pick, claim, arm wiggum; honour the <code>--max</code> cap</td>
+</tr>
+</tbody></table>
+<p>Private helpers worth knowing: <code>_unblocked_in_progress</code> (reverts blocked stranded beads), <code>_reject_if_blocked</code> (defence-in-depth block recheck), <code>_has_fan_out_gate_issue</code> (detects <code>waits_for: children-of(...)</code> gates).</p>
+<h2 id="register-callbacks-py"><code>register_callbacks.py</code></h2>
+<table><thead><tr>
+<th>Symbol</th>
+<th>Signature</th>
+<th>Description</th>
+</tr></thead><tbody>
+<tr>
+<td><code>handle_bead_chain_command</code></td>
+<td>`(command) -&gt; str \</td>
+<td>bool`</td>
+<td>The <code>/bead-chain</code> slash command entry point</td>
+</tr>
+<tr>
+<td><code>_ensure_hooks_registered</code></td>
+<td><code>() -&gt; None</code></td>
+<td>Register turn hooks once, lazily (after wiggum)</td>
+</tr>
+<tr>
+<td><code>_parse_max_iterations</code></td>
+<td>`(command) -&gt; int \</td>
+<td>None \</td>
+<td>object`</td>
+<td>Parse <code>--max</code>; sentinel <code>_PARSE_ERROR</code> on bad input</td>
+</tr>
+<tr>
+<td><code>_on_interactive_turn_end</code></td>
+<td>`async (...) -&gt; dict \</td>
+<td>None`</td>
+<td>Drive close to next-bead loop</td>
+</tr>
+<tr>
+<td><code>_on_interactive_turn_cancel</code></td>
+<td><code>(prompt, *, reason="cancelled") -&gt; None</code></td>
+<td>Halt on cancel; leave bead in_progress</td>
+</tr>
+</tbody></table>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="command-and-configuration.html">/bead-chain command and configuration</a> -- flags, env vars, and constants.</li>
+<li><a href="../explanation/queue-driver-not-goal-engine.html">Why bead-chain is a queue driver, not a goal engine</a> -- how these modules divide responsibility.</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explanation — bead-chain — maintainer documentation</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain — maintainer documentation</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<div class="nav-section">explanation</div>
+<a href="index.html" class="active">Index</a>
+<a href="lazy-hook-registration-ordering.html">Lazy-hook-registration-ordering</a>
+<a href="once-per-session-epic-rollup.html">Once-per-session-epic-rollup</a>
+<a href="queue-driver-not-goal-engine.html">Queue-driver-not-goal-engine</a>
+<a href="work-time-blocker-gate.html">Work-time-blocker-gate</a>
+<div class="nav-section">how-to</div>
+<a href="../how-to/index.html">Index</a>
+<a href="../how-to/add-excluded-bead-type.html">Add-excluded-bead-type</a>
+<a href="../how-to/extend-close-guard.html">Extend-close-guard</a>
+<a href="../how-to/recover-stranded-bead.html">Recover-stranded-bead</a>
+<div class="nav-section">reference</div>
+<a href="../reference/index.html">Index</a>
+<a href="../reference/command-and-configuration.html">Command-and-configuration</a>
+<a href="../reference/modules-and-functions.html">Modules-and-functions</a>
+<div class="nav-section">tutorials</div>
+<a href="../tutorials/index.html">Index</a>
+<a href="../tutorials/run-locally-and-test.html">Run-locally-and-test</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="explanation">Explanation</h1>
+<p>Understanding-oriented discussion: why bead-chain is built the way it is — the design decisions, trade-offs, and the bugs that shaped its invariants.</p>
+<ul>
+<li><a href="queue-driver-not-goal-engine.html">Why bead-chain is a queue driver, not a goal engine</a> — The central decision: bead-chain never judges completion.</li>
+<li><a href="work-time-blocker-gate.html">Why bead-chain respects blocks at claim time</a> — Why prevention beats the close-time safety net.</li>
+<li><a href="once-per-session-epic-rollup.html">Why epic rollup runs once per session</a> — A data-safety response to the over-close cascade bug.</li>
+<li><a href="lazy-hook-registration-ordering.html">Why hooks register lazily so wiggum runs first</a> — Why ordering relative to wiggum demands lazy registration.</li>
+</ul>
+<p><a href="../index.html">← Back to documentation home</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

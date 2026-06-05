@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explanation: Why hooks register lazily so wiggum runs first — bead-chain — maintainer documentation</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain — maintainer documentation</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<div class="nav-section">explanation</div>
+<a href="index.html">Index</a>
+<a href="lazy-hook-registration-ordering.html" class="active">Lazy-hook-registration-ordering</a>
+<a href="once-per-session-epic-rollup.html">Once-per-session-epic-rollup</a>
+<a href="queue-driver-not-goal-engine.html">Queue-driver-not-goal-engine</a>
+<a href="work-time-blocker-gate.html">Work-time-blocker-gate</a>
+<div class="nav-section">how-to</div>
+<a href="../how-to/index.html">Index</a>
+<a href="../how-to/add-excluded-bead-type.html">Add-excluded-bead-type</a>
+<a href="../how-to/extend-close-guard.html">Extend-close-guard</a>
+<a href="../how-to/recover-stranded-bead.html">Recover-stranded-bead</a>
+<div class="nav-section">reference</div>
+<a href="../reference/index.html">Index</a>
+<a href="../reference/command-and-configuration.html">Command-and-configuration</a>
+<a href="../reference/modules-and-functions.html">Modules-and-functions</a>
+<div class="nav-section">tutorials</div>
+<a href="../tutorials/index.html">Index</a>
+<a href="../tutorials/run-locally-and-test.html">Run-locally-and-test</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="explanation-why-hooks-register-lazily-so-wiggum-runs-first">Explanation: Why hooks register lazily so wiggum runs first</h1>
+<h2 id="about-this-topic">About this topic</h2>
+<p>bead-chain listens for the <code>interactive_turn_end</code> event to decide whether to close the current bead and grab the next one. wiggum listens for the same event to decide whether its goal is complete. Both run on every turn, and the <em>order</em> in which they run is not incidental — it is the difference between bead-chain working and bead-chain misfiring. This piece explains why bead-chain registers its turn hooks lazily, on first use, instead of at import time.</p>
+<h2 id="context-and-background">Context and background</h2>
+<p>code-puppy fires registered callbacks in registration order. wiggum is loaded at startup, so its <code>interactive_turn_end</code> hook is already in the callback list before any user command runs. bead-chain, by contrast, is dormant until someone types <code>/bead-chain</code>.</p>
+<p>The signal bead-chain depends on is <code>wiggum_state.is_active()</code>. On each turn, wiggum decides whether the goal is still in progress and updates that flag. bead-chain then reads it:</p>
+<ul>
+<li><code>wiggum_state.is_active()</code> is <code>True</code> → goal still running → bead-chain returns <code>None</code> and lets wiggum's continuation win.</li>
+<li><code>wiggum_state.is_active()</code> is <code>False</code> → wiggum just finished (judges ruled) → bead-chain closes the bead and activates the next one.</li>
+</ul>
+<p>For that read to be correct, bead-chain <strong>must run after wiggum on every turn</strong>. If bead-chain ran first, it would observe wiggum's state from the <em>previous</em> turn and make the wrong call.</p>
+<h2 id="how-it-fits-together">How it fits together</h2>
+<p><code>_ensure_hooks_registered</code> is the mechanism. It is guarded by a module-level <code>_HOOKS_REGISTERED</code> flag and called from <code>handle_bead_chain_command</code> — i.e. only when the user actually starts a chain, which is necessarily after startup. By that point wiggum's hook is already registered, so bead-chain's hook is appended <em>after</em> it and therefore runs <em>after</em> it each turn.</p>
+<p>Note the deliberate asymmetry in registration strategy:</p>
+<ul>
+<li>The two <strong>turn hooks</strong> (<code>interactive_turn_end</code>, <code>interactive_turn_cancel</code>) register lazily, because their correctness depends on ordering relative to wiggum.</li>
+<li>The **<code>run_shell_command</code> hook<em>* (the close guard) registers </em>eagerly* at module import. It has no ordering dependency on any other plugin, and it is a cheap no-op when <code>state.is_active()</code> is false, so there is no reason to defer it.</li>
+</ul>
+<p>This split is documented in both <code>register_callbacks</code> and <code>close_guard</code> so a contributor does not "tidy up" the inconsistency by making both eager — which would reintroduce the ordering bug.</p>
+<h2 id="why-this-approach">Why this approach</h2>
+<p>Lazy registration is, on its face, slightly more complex than registering everything at import — there is a flag, a guard function, and a comment explaining the subtlety. So why not register the turn hooks eagerly and sort the ordering some other way?</p>
+<ul>
+<li><strong>Eager registration with explicit ordering control.</strong> code-puppy's callback system orders by registration, not by priority. There is no priority knob to lean on, so the only lever bead-chain has is <em>when</em> it registers. Lazy registration uses that lever directly.</li>
+<li><strong>Registering before wiggum.</strong> Impossible to guarantee and backwards anyway — bead-chain needs to run <em>last</em>, not first.</li>
+<li><strong>Re-reading wiggum state defensively.</strong> No amount of defensive reading fixes observing a stale flag; the only fix is running after the writer.</li>
+</ul>
+<p>The cost is one boolean and a one-time guard. The benefit is a correct, order-dependent handoff with no reliance on a priority feature the callback system does not have. The lazy approach is the simplest thing that is actually correct — which is the bar, not the simplest thing that compiles.</p>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../reference/command-and-configuration.html">/bead-chain command and configuration</a> — the registered-callbacks table showing lazy vs eager.</li>
+<li><a href="queue-driver-not-goal-engine.html">Why bead-chain is a queue driver, not a goal engine</a> — why bead-chain's whole loop hinges on reading wiggum's state correctly.</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

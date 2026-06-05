@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutorial: Run bead-chain locally and pass the test suite — bead-chain — maintainer documentation</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain — maintainer documentation</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<div class="nav-section">explanation</div>
+<a href="../explanation/index.html">Index</a>
+<a href="../explanation/lazy-hook-registration-ordering.html">Lazy-hook-registration-ordering</a>
+<a href="../explanation/once-per-session-epic-rollup.html">Once-per-session-epic-rollup</a>
+<a href="../explanation/queue-driver-not-goal-engine.html">Queue-driver-not-goal-engine</a>
+<a href="../explanation/work-time-blocker-gate.html">Work-time-blocker-gate</a>
+<div class="nav-section">how-to</div>
+<a href="../how-to/index.html">Index</a>
+<a href="../how-to/add-excluded-bead-type.html">Add-excluded-bead-type</a>
+<a href="../how-to/extend-close-guard.html">Extend-close-guard</a>
+<a href="../how-to/recover-stranded-bead.html">Recover-stranded-bead</a>
+<div class="nav-section">reference</div>
+<a href="../reference/index.html">Index</a>
+<a href="../reference/command-and-configuration.html">Command-and-configuration</a>
+<a href="../reference/modules-and-functions.html">Modules-and-functions</a>
+<div class="nav-section">tutorials</div>
+<a href="index.html">Index</a>
+<a href="run-locally-and-test.html" class="active">Run-locally-and-test</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="tutorial-run-bead-chain-locally-and-pass-the-test-suite">Tutorial: Run bead-chain locally and pass the test suite</h1>
+<p>A guided first lesson for a newcomer to the <code>bead_chain</code> codebase. By the end you will have the test suite running green on your own machine and will have watched bead-chain's core logic execute. Follow every step in order; each one tells you exactly what you should see.</p>
+<h2 id="what-you-ll-build">What you'll build</h2>
+<p>A working local checkout of the <code>bead_chain</code> plugin with all of its unit and end-to-end tests passing — 49 green dots in your terminal — plus a quick hands-on peek at the prompt-formatting code that turns a bead into a <code>/goal</code> prompt.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>Python 3.10 or newer on your <code>PATH</code> (<code>python --version</code> prints <code>3.10</code>+).</li>
+<li>The <code>bead_chain</code> plugin checked out at <code>~/.code_puppy/plugins/bead_chain</code> (its tests resolve the package from that location — see [Modules and public functions](../reference/modules-and-functions.md) for the layout).</li>
+<li><code>code_puppy</code> importable in your environment (the lifecycle tests import <code>code_puppy.plugins.wiggum</code>).</li>
+</ul>
+<h2 id="step-1-move-into-the-plugin-directory">Step 1 — Move into the plugin directory</h2>
+<pre><code class="language-bash">cd ~/.code_puppy/plugins/bead_chain</code></pre>
+<p>You should now see the source modules when you list the directory:</p>
+<pre><code class="language-bash">ls *.py</code></pre>
+<p>Expected result — these files are listed:</p>
+<pre><code>__init__.py  beads.py  close_guard.py  lifecycle.py
+prompt.py    register_callbacks.py     state.py</code></pre>
+<h2 id="step-2-run-the-full-test-suite">Step 2 — Run the full test suite</h2>
+<pre><code class="language-bash">python -m pytest -q</code></pre>
+<p>Expected result — a row of dots followed by a green summary line:</p>
+<pre><code>.................................................
+49 passed in 15.23s</code></pre>
+<p>The exact count and timing may differ slightly as the suite grows; the word you are looking for is <strong>passed</strong> with no failures.</p>
+<h2 id="step-3-run-one-test-file-on-its-own">Step 3 — Run one test file on its own</h2>
+<p>Pick the blocker-gate test and run just that file:</p>
+<pre><code class="language-bash">python -m pytest tests/test_blocker_gate.py -v</code></pre>
+<p>Expected result — each test in that file is named and marked <code>PASSED</code>.</p>
+<h2 id="step-4-watch-a-bead-become-a-goal-prompt">Step 4 — Watch a bead become a goal prompt</h2>
+<p>Move up one directory so Python can import the plugin as a package (<code>prompt.py</code> uses package-relative imports), then format a fake bead in a single one-off command:</p>
+<pre><code class="language-bash">cd ~/.code_puppy/plugins
+python -c "
+from bead_chain import prompt
+bead = {'id': 'demo-1', 'title': 'Say hello', 'description': 'Print a greeting', 'issue_type': 'task', 'priority': 2}
+print(prompt.format_bead_as_goal(bead))
+"</code></pre>
+<p>Expected result — a goal prompt that begins with <code>Complete beads issue demo-1: Say hello</code>, lists the issue metadata, and ends with the BUG DISCOVERY PROTOCOL section.</p>
+<h2 id="you-did-it">You did it</h2>
+<p>You ran the whole suite green, ran a single file in isolation, and saw bead-chain turn a bead dict into a <code>/goal</code> prompt — the exact handoff that drives the whole chain.</p>
+<h2 id="where-next">Where next</h2>
+<ul>
+<li>Ready to change behaviour? See the how-to guides: <a href="../how-to/add-excluded-bead-type.html">Add a new excluded container bead type</a>, <a href="../how-to/recover-stranded-bead.html">Diagnose and recover a stranded in_progress bead</a>, or <a href="../how-to/extend-close-guard.html">Extend the close-guard to block another bd command</a>.</li>
+<li>Want the precise map of every flag, env var, and function? See <a href="../reference/command-and-configuration.html">/bead-chain command and configuration</a> and <a href="../reference/modules-and-functions.html">Modules and public functions</a>.</li>
+<li>Curious <em>why</em> it is built this way? Read <a href="../explanation/queue-driver-not-goal-engine.html">Why bead-chain is a queue driver, not a goal engine</a>.</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

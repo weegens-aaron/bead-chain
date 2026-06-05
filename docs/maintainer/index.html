@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bead-chain — maintainer documentation — bead-chain — maintainer documentation</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain — maintainer documentation</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="index.html" class="active">Index</a>
+<div class="nav-section">explanation</div>
+<a href="explanation/index.html">Index</a>
+<a href="explanation/lazy-hook-registration-ordering.html">Lazy-hook-registration-ordering</a>
+<a href="explanation/once-per-session-epic-rollup.html">Once-per-session-epic-rollup</a>
+<a href="explanation/queue-driver-not-goal-engine.html">Queue-driver-not-goal-engine</a>
+<a href="explanation/work-time-blocker-gate.html">Work-time-blocker-gate</a>
+<div class="nav-section">how-to</div>
+<a href="how-to/index.html">Index</a>
+<a href="how-to/add-excluded-bead-type.html">Add-excluded-bead-type</a>
+<a href="how-to/extend-close-guard.html">Extend-close-guard</a>
+<a href="how-to/recover-stranded-bead.html">Recover-stranded-bead</a>
+<div class="nav-section">reference</div>
+<a href="reference/index.html">Index</a>
+<a href="reference/command-and-configuration.html">Command-and-configuration</a>
+<a href="reference/modules-and-functions.html">Modules-and-functions</a>
+<div class="nav-section">tutorials</div>
+<a href="tutorials/index.html">Index</a>
+<a href="tutorials/run-locally-and-test.html">Run-locally-and-test</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="bead-chain-maintainer-documentation">bead-chain — maintainer documentation</h1>
+<p>Documentation for <strong>contributors and maintainers</strong> of the <code>bead_chain</code> code-puppy plugin: the beads-driven <code>/goal</code> variant that chains your <code>bd ready</code> queue through wiggum's goal loop, one bead at a time.</p>
+<p>This documentation is organised around the four <a href="https://diataxis.fr/">Diátaxis</a> needs. Pick the section that matches what you are trying to do right now:</p>
+<ul>
+<li>**<a href="tutorials/index.html">Tutorials</a>** — learning-oriented lessons. Start here if you are new to the codebase and want to get bead-chain running and tested on your own machine by following along.</li>
+<li>**<a href="how-to/index.html">How-to guides</a>** — task-oriented recipes. Use these when you already know your way around and need to accomplish a specific maintenance job (add an excluded type, recover a stranded bead, extend the close-guard).</li>
+<li>**<a href="reference/index.html">Reference</a>** — information-oriented descriptions. Consult these for the precise, factual map of the <code>/bead-chain</code> command, its configuration knobs, and the public functions in each module.</li>
+<li>**<a href="explanation/index.html">Explanation</a>** — understanding-oriented discussion. Read these to understand <em>why</em> bead-chain is built the way it is: the design decisions, the trade-offs, and the bugs that shaped its invariants.</li>
+</ul>
+<h2 id="where-to-begin">Where to begin</h2>
+<table><thead><tr>
+<th>If you are…</th>
+<th>Go to…</th>
+</tr></thead><tbody>
+<tr>
+<td>Brand new to the repo</td>
+<td><a href="tutorials/index.html">Tutorials</a></td>
+</tr>
+<tr>
+<td>Fixing or extending behaviour</td>
+<td><a href="how-to/index.html">How-to guides</a></td>
+</tr>
+<tr>
+<td>Looking up a flag, env var, or function</td>
+<td><a href="reference/index.html">Reference</a></td>
+</tr>
+<tr>
+<td>Trying to understand a design decision</td>
+<td><a href="explanation/index.html">Explanation</a></td>
+</tr>
+</tbody></table>
+<h2 id="authoring-contract">Authoring contract</h2>
+<p>Every document in this tree is written against the rules in <code>_DiataxisGuide.md</code> and tracked in <code>_Manifest.md</code>. If you add docs, classify each item with the compass first, then follow the per-type template.</p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

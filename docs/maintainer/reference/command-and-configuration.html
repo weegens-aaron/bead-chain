@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference: /bead-chain command and configuration — bead-chain — maintainer documentation</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain — maintainer documentation</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<div class="nav-section">explanation</div>
+<a href="../explanation/index.html">Index</a>
+<a href="../explanation/lazy-hook-registration-ordering.html">Lazy-hook-registration-ordering</a>
+<a href="../explanation/once-per-session-epic-rollup.html">Once-per-session-epic-rollup</a>
+<a href="../explanation/queue-driver-not-goal-engine.html">Queue-driver-not-goal-engine</a>
+<a href="../explanation/work-time-blocker-gate.html">Work-time-blocker-gate</a>
+<div class="nav-section">how-to</div>
+<a href="../how-to/index.html">Index</a>
+<a href="../how-to/add-excluded-bead-type.html">Add-excluded-bead-type</a>
+<a href="../how-to/extend-close-guard.html">Extend-close-guard</a>
+<a href="../how-to/recover-stranded-bead.html">Recover-stranded-bead</a>
+<div class="nav-section">reference</div>
+<a href="index.html">Index</a>
+<a href="command-and-configuration.html" class="active">Command-and-configuration</a>
+<a href="modules-and-functions.html">Modules-and-functions</a>
+<div class="nav-section">tutorials</div>
+<a href="../tutorials/index.html">Index</a>
+<a href="../tutorials/run-locally-and-test.html">Run-locally-and-test</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="reference-bead-chain-command-and-configuration">Reference: /bead-chain command and configuration</h1>
+<p>Technical description of the <code>/bead-chain</code> slash command, its flag, its environment configuration, and the hardcoded operational constants. This page describes the machinery; it does not teach workflows (see the <a href="../tutorials/index.html">tutorials</a> and <a href="../how-to/index.html">how-to guides</a> for those).</p>
+<h2 id="command">Command</h2>
+<table><thead><tr>
+<th>Item</th>
+<th>Value</th>
+</tr></thead><tbody>
+<tr>
+<td>Name</td>
+<td><code>bead-chain</code></td>
+</tr>
+<tr>
+<td>Usage</td>
+<td><code>/bead-chain [--max=N]</code></td>
+</tr>
+<tr>
+<td>Category</td>
+<td><code>plugin</code></td>
+</tr>
+<tr>
+<td>Description</td>
+<td>Chain <code>bd ready</code> beads through <code>/goal</code> until the queue is empty</td>
+</tr>
+<tr>
+<td>Handler</td>
+<td><code>register_callbacks.handle_bead_chain_command</code></td>
+</tr>
+<tr>
+<td>Return</td>
+<td>A goal-prompt string (first bead) on success; <code>True</code> (no-op) on early exit</td>
+</tr>
+</tbody></table>
+<h3 id="startup-probe-order">Startup probe order</h3>
+<ol>
+<li>If the chain is already active, emit a notice and return <code>True</code>.</li>
+<li>Parse <code>--max=N</code> (see below). On parse error, return <code>True</code> without touching <code>bd</code>.</li>
+<li><code>enforce_single_in_progress()</code> — recover a stranded bead if one exists.</li>
+<li>If none, <code>next_ready()</code> — fetch the first ready non-epic bead.</li>
+<li>Reject the candidate if it is an excluded type (<code>is_excluded_type</code>) or has open blockers (<code>open_blocker_ids</code>). Both are last-line-of-defence re-checks of filters <code>bd ready</code> already applies server-side.</li>
+<li>Register hooks lazily, claim the bead (skipped for recovery beads), arm wiggum goal mode, and return the goal prompt.</li>
+</ol>
+<p>The unsatisfied fan-out gate check (<code>waits_for: children-of(...)</code> with unclosed children) is <em>not</em> applied on this startup path — it runs only when picking each subsequent bead, in <code>lifecycle.activate_next_bead</code>. A gated bead is rejected there, reverted to open, and the chain stops.</p>
+<h2 id="flag">Flag</h2>
+<table><thead><tr>
+<th>Flag</th>
+<th>Forms</th>
+<th>Type</th>
+<th>Default</th>
+<th>Effect</th>
+</tr></thead><tbody>
+<tr>
+<td><code>--max</code></td>
+<td><code>--max=N</code>, <code>--max N</code></td>
+<td>positive integer</td>
+<td>none (no cap)</td>
+<td>Stop the chain after <code>N</code> beads are completed in the run</td>
+</tr>
+</tbody></table>
+<p>Parsing (<code>_parse_max_iterations</code>) returns one of three outcomes:</p>
+<table><thead><tr>
+<th>Outcome</th>
+<th>Meaning</th>
+</tr></thead><tbody>
+<tr>
+<td><code>None</code></td>
+<td>No <code>--max</code> flag present — run until the queue empties</td>
+</tr>
+<tr>
+<td>positive <code>int</code></td>
+<td>Parsed cap value</td>
+</tr>
+<tr>
+<td><code>_PARSE_ERROR</code> sentinel</td>
+<td>Flag present but value missing, non-integer, zero, or negative — a warning is emitted and the chain refuses to start</td>
+</tr>
+</tbody></table>
+<h2 id="environment-variables">Environment variables</h2>
+<table><thead><tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr></thead><tbody>
+<tr>
+<td><code>BEADS_BIN</code></td>
+<td><code>bd</code></td>
+<td>Path to the <code>bd</code> executable. Unset or empty falls back to <code>bd</code> on <code>PATH</code>. Read by <code>beads._bd_bin()</code>.</td>
+</tr>
+</tbody></table>
+<h2 id="operational-constants">Operational constants</h2>
+<p>Defined in <code>beads.py</code>; not configurable at runtime (promoted to env vars only if a concrete need arises).</p>
+<table><thead><tr>
+<th>Constant</th>
+<th>Value</th>
+<th>Meaning</th>
+</tr></thead><tbody>
+<tr>
+<td><code>DEFAULT_TIMEOUT</code></td>
+<td><code>30.0</code></td>
+<td>Per-<code>bd</code>-command timeout, in seconds</td>
+</tr>
+<tr>
+<td><code>MAX_ATTEMPTS</code></td>
+<td><code>3</code></td>
+<td>Initial try plus up to two retries</td>
+</tr>
+<tr>
+<td><code>_RETRY_BACKOFFS</code></td>
+<td><code>(0.5, 1.0)</code></td>
+<td>Delays (seconds) applied before each retry</td>
+</tr>
+<tr>
+<td><code>EXCLUDED_TYPES</code></td>
+<td><code>("epic",)</code></td>
+<td>Container types never driven</td>
+</tr>
+<tr>
+<td><code>BLOCKING_DEP_TYPES</code></td>
+<td><code>("blocks",)</code></td>
+<td>Dependency edge types that gate work</td>
+</tr>
+<tr>
+<td><code>SATISFIED_BLOCKER_STATUSES</code></td>
+<td><code>frozenset({"closed"})</code></td>
+<td>Blocker statuses that no longer gate</td>
+</tr>
+<tr>
+<td><code>BLOCKING_BUG_TYPES</code></td>
+<td><code>("bug",)</code></td>
+<td>Issue types eligible for blocking-bug priority</td>
+</tr>
+<tr>
+<td><code>PARENT_EPIC_KEY</code></td>
+<td><code>"parent"</code></td>
+<td>Canonical bd field naming the parent epic</td>
+</tr>
+<tr>
+<td><code>_PARENT_EPIC_FALLBACK_KEYS</code></td>
+<td><code>("parent_id", "epic_id")</code></td>
+<td>Legacy parent-id keys checked in order</td>
+</tr>
+</tbody></table>
+<p>Retries apply to <code>subprocess.TimeoutExpired</code> only. <code>FileNotFoundError</code> (bd missing) and non-zero exits (real bd errors such as "bead not found" or "already closed") are permanent and surface on the first failure.</p>
+<h2 id="registered-callbacks">Registered callbacks</h2>
+<table><thead><tr>
+<th>Hook</th>
+<th>Handler</th>
+<th>Registration</th>
+<th>Purpose</th>
+</tr></thead><tbody>
+<tr>
+<td><code>interactive_turn_end</code></td>
+<td><code>_on_interactive_turn_end</code></td>
+<td>Lazy (first <code>/bead-chain</code>)</td>
+<td>Drive close → pick-next → arm loop</td>
+</tr>
+<tr>
+<td><code>interactive_turn_cancel</code></td>
+<td><code>_on_interactive_turn_cancel</code></td>
+<td>Lazy (first <code>/bead-chain</code>)</td>
+<td>Halt on Ctrl+C; leave bead in_progress</td>
+</tr>
+<tr>
+<td><code>run_shell_command</code></td>
+<td><code>close_guard.on_run_shell_command</code></td>
+<td>Eager (module import)</td>
+<td>Block premature agent <code>bd close</code></td>
+</tr>
+</tbody></table>
+<p>The two turn hooks register lazily so they land <em>after</em> wiggum's startup-registered hook; see <a href="../explanation/lazy-hook-registration-ordering.html">Why hooks register lazily so wiggum runs first</a>.</p>
+<h2 id="close-guard-patterns">Close-guard patterns</h2>
+<p>While the chain is active, <code>close_guard.detect_premature_close</code> blocks:</p>
+<table><thead><tr>
+<th><code>pattern_name</code></th>
+<th>Matched form</th>
+</tr></thead><tbody>
+<tr>
+<td><code>bd close</code></td>
+<td><code>bd close [...]</code> at a command boundary</td>
+</tr>
+<tr>
+<td><code>bd update --status=closed</code></td>
+<td><code>bd update &lt;id&gt; ... --status=closed</code> (or <code>--status closed</code>) in the same command</td>
+</tr>
+</tbody></table>
+<p>Quoted or echoed text is not matched — the patterns anchor to a command boundary (<code>^</code>, <code>&amp;&amp;</code>, <code>||</code>, <code>;</code>, <code>|</code>).</p>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="modules-and-functions.html">Modules and public functions</a> — the function-level map behind these knobs.</li>
+<li><a href="../tutorials/run-locally-and-test.html">Run bead-chain locally and pass the test suite</a> — a first hands-on run.</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>
