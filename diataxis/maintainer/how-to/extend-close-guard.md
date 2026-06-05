@@ -48,10 +48,15 @@ goal engine](../explanation/queue-driver-not-goal-engine.md).
    `detect_premature_close`, so no hook changes are needed — your new
    pattern is enforced automatically while `state.is_active()`.
 
-5. Add a test covering both the positive case and a false-positive guard:
+5. Add a test covering both the positive case and a false-positive guard.
+   `close_guard` uses relative imports (`from . import state`), so import
+   it through the package path — the same way `tests/test_pick_respects_blocks.py`
+   does (the `conftest.py` fixture registers `code_puppy.plugins.bead_chain`
+   as a real package for bare pytest runs):
 
    ```python
-   from close_guard import detect_premature_close
+   from code_puppy.plugins.bead_chain.close_guard import detect_premature_close
+
    assert detect_premature_close("bd delete cpp-1") is not None
    assert detect_premature_close('echo "bd delete cpp-1"') is None
    ```
