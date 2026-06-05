@@ -69,7 +69,12 @@ client-side epic filter.
 
 ## Related
 
+- [Why bead-chain is a queue driver, not a goal engine](queue-driver-not-goal-engine.md)
+  — the deeper philosophy this gate serves: bead-chain trusts the bd queue
+  (including its `blocks` edges) rather than reasoning about goals itself.
 - [Diagnose and recover a stranded in_progress bead](../how-to/recover-stranded-bead.md)
-  — the operational view of the recovery path.
+  — the operational view of the recovery path that `_unblocked_in_progress`
+  guards.
 - [Modules and public functions](../reference/modules-and-functions.md) —
-  `open_blocker_ids`, `is_blocked`, `_unblocked_in_progress`.
+  the precise signatures of `open_blocker_ids`, `is_blocked`, and
+  `_unblocked_in_progress`.
