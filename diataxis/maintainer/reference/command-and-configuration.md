@@ -23,10 +23,16 @@ page describes the machinery; it does not teach workflows (see the
    touching `bd`.
 3. `enforce_single_in_progress()` — recover a stranded bead if one exists.
 4. If none, `next_ready()` — fetch the first ready non-epic bead.
-5. Reject the candidate if it is an excluded type, has open blockers, or
-   has an unsatisfied fan-out gate.
+5. Reject the candidate if it is an excluded type (`is_excluded_type`) or
+   has open blockers (`open_blocker_ids`). Both are last-line-of-defence
+   re-checks of filters `bd ready` already applies server-side.
 6. Register hooks lazily, claim the bead (skipped for recovery beads),
    arm wiggum goal mode, and return the goal prompt.
+
+The unsatisfied fan-out gate check (`waits_for: children-of(...)` with
+unclosed children) is *not* applied on this startup path — it runs only
+when picking each subsequent bead, in `lifecycle.activate_next_bead`. A
+gated bead is rejected there, reverted to open, and the chain stops.
 
 ## Flag
 
