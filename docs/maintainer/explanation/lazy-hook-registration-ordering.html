@@ -50,7 +50,7 @@
 <p>Note the deliberate asymmetry in registration strategy:</p>
 <ul>
 <li>The two <strong>turn hooks</strong> (<code>interactive_turn_end</code>, <code>interactive_turn_cancel</code>) register lazily, because their correctness depends on ordering relative to wiggum.</li>
-<li>The **<code>run_shell_command</code> hook<em>* (the close guard) registers </em>eagerly* at module import. It has no ordering dependency on any other plugin, and it is a cheap no-op when <code>state.is_active()</code> is false, so there is no reason to defer it.</li>
+<li>The <strong><code>run_shell_command</code> hook</strong> (the close guard) registers <em>eagerly</em> at module import. It has no ordering dependency on any other plugin, and it is a cheap no-op when <code>state.is_active()</code> is false, so there is no reason to defer it.</li>
 </ul>
 <p>This split is documented in both <code>register_callbacks</code> and <code>close_guard</code> so a contributor does not "tidy up" the inconsistency by making both eager — which would reintroduce the ordering bug.</p>
 <h2 id="why-this-approach">Why this approach</h2>
