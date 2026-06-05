@@ -178,6 +178,17 @@
   },
   "active": "7c253d31690a3c83",
   "lastOpenFiles": [
+    "SPIKE_COMPLETION_T1Z.md",
+    "diataxis/maintainer/reference/fan-out-gate-logic.md",
+    "tests/__pycache__/test_fan_out_gate.cpython-313-pytest-9.0.3.pyc",
+    "tests/test_fan_out_gate.py",
+    "SOLUTION_SUMMARY.md",
+    "fan_out_gates.py",
+    "tests/__pycache__/test_over_close_bug_e2e.cpython-313.pyc",
+    "COMPLETION_SUMMARY.md",
+    "tests/__pycache__/test_over_close_bug_e2e.cpython-313-pytest-9.0.3.pyc",
+    "tests/test_over_close_bug_e2e.py",
+    "tests/__pycache__/test_over_close_bug.cpython-313.pyc",
     "tests/__pycache__/test_over_close_bug.cpython-313-pytest-9.0.3.pyc",
     "tests/test_over_close_bug.py",
     "diataxis/maintainer/tutorials/setup-from-scratch.md",
@@ -189,13 +200,8 @@
     "diataxis/maintainer/how-to/extend-with-custom-logic.md",
     "diataxis/maintainer/how-to/debug-stuck-bead.md",
     "diataxis/maintainer/explanation/epic-affinity-philosophy.md",
-    "diataxis/maintainer/reference",
     "diataxis/maintainer/index.md",
-    "diataxis/maintainer/how-to",
-    "diataxis/maintainer/explanation",
     "diataxis/maintainer/_Manifest.md",
-    "diataxis/maintainer/_DiataxisGuide.md",
-    "diataxis/maintainer",
-    "diataxis"
+    "diataxis/maintainer/_DiataxisGuide.md"
   ]
 }
