@@ -69,22 +69,22 @@ Expected result — each test in that file is named and marked `PASSED`.
 
 ## Step 4 — Watch a bead become a goal prompt
 
-Start a Python shell from the same directory and format a fake bead:
+Move up one directory so Python can import the plugin as a package
+(`prompt.py` uses package-relative imports), then format a fake bead in a
+single one-off command:
 
 ```bash
-python
-```
-
-```python
-import prompt
-bead = {"id": "demo-1", "title": "Say hello", "description": "Print a greeting", "issue_type": "task", "priority": 2}
+cd ~/.code_puppy/plugins
+python -c "
+from bead_chain import prompt
+bead = {'id': 'demo-1', 'title': 'Say hello', 'description': 'Print a greeting', 'issue_type': 'task', 'priority': 2}
 print(prompt.format_bead_as_goal(bead))
+"
 ```
 
 Expected result — a goal prompt that begins with
 `Complete beads issue demo-1: Say hello`, lists the issue metadata, and
-ends with the BUG DISCOVERY PROTOCOL section. Press `Ctrl-D` to exit
-the shell.
+ends with the BUG DISCOVERY PROTOCOL section.
 
 ## You did it 
 
