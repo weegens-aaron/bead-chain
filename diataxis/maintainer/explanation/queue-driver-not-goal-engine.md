@@ -71,6 +71,14 @@ directly out of the queue-driver-not-goal-engine stance.
 ## Related
 
 - [Run bead-chain locally and pass the test suite](../tutorials/run-locally-and-test.md)
-  — see the prompt that gets handed to wiggum.
+  — see the `format_bead_as_goal` prompt that gets handed to wiggum, the
+  hand-off this whole decision turns on.
 - [Modules and public functions](../reference/modules-and-functions.md) —
-  the per-module responsibility split that encodes this decision.
+  the per-module responsibility split (`beads`/`prompt`/`state`/`lifecycle`)
+  that encodes this decision in code.
+- [Extend the close-guard to block another bd command](../how-to/extend-close-guard.md)
+  — the operational guard that enforces "the judges are the only legitimate
+  closer", a direct consequence of the queue-driver stance.
+- [Why bead-chain respects blocks at claim time](work-time-blocker-gate.md)
+  — a sibling consequence: trusting the bd queue (and its `blocks` edges)
+  instead of reasoning about goals itself.
