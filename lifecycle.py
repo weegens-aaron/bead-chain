@@ -31,6 +31,7 @@ from code_puppy.plugins.wiggum import state as wiggum_state
 from . import beads, state
 from .beads import (
     BeadsError,
+    check_gates,
     claim,
     close,
     close_eligible_epics,
@@ -309,6 +310,47 @@ def rollup_completed_epics() -> None:
         emit_success(f"🎯 epic {epic_id} rolled up (all children complete){suffix}")
 
 
+def probe_resolved_gates() -> bool:
+    """Re-evaluate open gates on an empty queue; report if any resolved.
+
+    Called once from :func:`activate_next_bead` the moment ``bd ready``
+    comes back empty, *before* the chain declares itself done. Resolvable
+    gate types (``timer`` / ``gh:run`` / ``gh:pr`` / ``bead``) keep their
+    target issues out of ``bd ready`` until the gate closes, and nothing
+    else in bead-chain ever pokes them. So an empty queue might really be
+    a queue waiting on a now-satisfied gate — we ask bd to close those
+    and re-open their targets for the next pick.
+
+    Returns ``True`` if at least one gate resolved (the caller should
+    re-probe ``bd ready`` rather than stop), ``False`` otherwise.
+
+    **Soft-fails by design.** Like :func:`rollup_completed_epics`, this
+    is a courtesy nudge, not bead-chain's core mission. A flaky / missing
+    / old ``bd gate`` logs a warning and returns ``False`` so the chain
+    finishes its drain cleanly — losing a gate probe is far less bad than
+    halting the loop.
+    """
+    try:
+        counts = check_gates()
+    except BeadsError as exc:
+        emit_warning(f"⏳ bead-chain: gate check failed (continuing): {exc}")
+        return False
+
+    resolved = counts.get("resolved", 0)
+    escalated = counts.get("escalated", 0)
+    if resolved:
+        emit_success(
+            f"⏳ {resolved} gate(s) resolved on the empty-queue probe — "
+            "re-opening their targets and re-checking for ready work."
+        )
+    if escalated:
+        emit_warning(
+            f"⏳ {escalated} gate(s) escalated (expired/failed) during the "
+            "empty-queue probe — these need a human look."
+        )
+    return bool(resolved)
+
+
 # ---------------------------------------------------------------------------
 # Epic / bead claim helpers
 # ---------------------------------------------------------------------------
@@ -495,6 +537,23 @@ def activate_next_bead(
         emit_warning(f"🔗 bead-chain stopping — `bd ready` failed: {exc}")
         state.stop()
         return None
+
+    if bead is None:
+        # Empty-queue gate probe (bead_chain-x3g / FB-3): before we declare
+        # the chain done, ask bd to re-evaluate every open gate. Resolvable
+        # gate types (timer / gh:run / gh:pr / bead) keep their targets out
+        # of `bd ready` until the gate closes, and nothing else in
+        # bead-chain pokes them — so an "empty" queue might just be waiting
+        # on a now-satisfied gate. If any gate resolves, its target re-opens
+        # and we re-probe the ready queue for one more iteration. Soft-fails
+        # (see probe_resolved_gates) so a flaky `bd gate` never halts us.
+        if probe_resolved_gates():
+            try:
+                bead = pick_next_bead(just_closed)
+            except BeadsError as exc:
+                emit_warning(f"🔗 bead-chain stopping — `bd ready` failed: {exc}")
+                state.stop()
+                return None
 
     if bead is None:
         # Drain pass: at session end, sweep any epics whose final child we

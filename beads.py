@@ -620,3 +620,63 @@ def _normalise_closed_epic(item: Any) -> dict[str, Any]:
     if isinstance(inner, dict):
         return inner
     return item
+
+
+# Summary keys bd emits from ``gate check --json``. Centralised so the
+# parser and its zero-default fallback stay in lock-step.
+_GATE_COUNT_KEYS: tuple[str, ...] = ("checked", "resolved", "escalated", "errors")
+
+
+def check_gates() -> dict[str, int]:
+    """Evaluate all open gates, close the resolved ones, return the counts.
+
+    Wraps ``bd gate check --json``. Resolvable gate types — ``timer``,
+    ``gh:run``, ``gh:pr``, ``bead`` — keep their *target* issues out of
+    ``bd ready`` until the gate closes. bead-chain never polls these on
+    its own, so a gate that has *become* satisfied can sit closeable-but-
+    open and strand its target, stopping the chain short of ready-
+    pending-poll work. Asking bd to re-evaluate every open gate closes
+    the satisfied ones, which re-opens their targets for the next
+    ``bd ready`` pick.
+
+    Returns the summary counts ``{"checked", "resolved", "escalated",
+    "errors"}`` (any missing key defaults to 0). ``resolved > 0`` means
+    at least one gate closed this pass — the caller should re-probe the
+    ready queue rather than declare the chain done.
+
+    Raises :class:`BeadsError` on infrastructure failure (bd missing,
+    non-zero exit) — same contract as :func:`close_eligible_epics`, so
+    the caller can soft-fail. Unparseable-but-successful output degrades
+    to all-zero counts rather than raising: a courtesy probe shouldn't
+    halt the chain over a log-format quirk.
+    """
+    raw = _run_bd("gate", "check", "--json")
+    return _parse_gate_check_summary(raw)
+
+
+def _parse_gate_check_summary(raw: str) -> dict[str, int]:
+    """Extract ``{checked,resolved,escalated,errors}`` from bd's output.
+
+    bd 1.0.x prints a human-readable summary line *before* the JSON
+    object even under ``--json`` (e.g. ``Checked 3 gates: 1 resolved,
+    0 escalated, 0 errors`` then ``{...}``), so we slice from the first
+    ``{`` to the last ``}`` rather than parsing the whole payload. Any
+    non-JSON / non-dict / missing-key situation degrades to zeros so a
+    courtesy gate probe never raises on a log-format quirk.
+    """
+    zeros = {key: 0 for key in _GATE_COUNT_KEYS}
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return zeros
+    try:
+        payload = json.loads(raw[start : end + 1])
+    except json.JSONDecodeError:
+        return zeros
+    if not isinstance(payload, dict):
+        return zeros
+    summary: dict[str, int] = {}
+    for key in _GATE_COUNT_KEYS:
+        value = payload.get(key, 0)
+        summary[key] = value if isinstance(value, int) else 0
+    return summary
