@@ -212,16 +212,20 @@ isn't pure" complaint.
 
 ### 4. (HIGH PAIN) `emit_*` host coupling now threads through **four** files → add a `reporting` seam (DIP)
 
-The host-messaging dependency has spread, not shrunk:
+The host-messaging dependency has spread, not shrunk (counts are real
+`emit_*(` call sites, excluding the `from code_puppy.messaging import …`
+lines and docstring mentions — verified via
+`grep -cE "emit_[a-z_]+\("`):
 
-| File | `emit_*` calls |
+| File | `emit_*` call sites |
 |------|---------------|
-| lifecycle.py | 42 |
-| register_callbacks.py | 22 |
-| execution_hints.py | 3 |
-| close_guard.py | 2 |
+| lifecycle.py | 39 |
+| register_callbacks.py | 20 |
+| execution_hints.py | 1 |
+| close_guard.py | 1 |
 
-Pure decision logic is welded to `code_puppy.messaging`, so you can't
+That's **61 call sites across four files**, every one of them importing
+`code_puppy.messaging` directly. Pure decision logic is welded to `code_puppy.messaging`, so you can't
 unit-test the *decisions* (the 4-tier waterfall, the close/rollup
 sequencing) without the host present. This was mol-9o2's #1 and it has
 only gotten more diffuse.
