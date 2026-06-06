@@ -35,10 +35,21 @@ MAX_ATTEMPTS: int = 3  # initial try + up to (MAX_ATTEMPTS - 1) retries
 _RETRY_BACKOFFS: tuple[float, ...] = (0.5, 1.0)
 
 # Bead types that /bead-chain must never try to drive directly.
-# 'epic' is a container of child issues — we want the children, not
-# the epic itself. Extend this tuple if other purely-organizational
-# types appear (e.g. 'milestone'). One-line change, by design. DRY.
-EXCLUDED_TYPES: tuple[str, ...] = ("epic",)
+# These are container / handle types: they organise or gate *other*
+# work and have no code work of their own, so handing one to /goal
+# produces a bead that can't be completed — close_guard then refuses
+# the close and the whole chain stalls.
+#
+#   * 'epic'      — container of child issues (anatomy); drive children
+#   * 'milestone' — container/handle (anatomy#4)
+#   * 'gate'      — gating handle (gates#2)
+#   * 'molecule'  — swarm container/handle (swarms#1)
+#
+# Extend this tuple if other purely-organizational/handle types appear.
+# One-line change, by design — :func:`_exclude_type_arg` builds the
+# server-side ``--exclude-type`` arg from this tuple and
+# :func:`is_excluded_type` re-filters client-side. DRY.
+EXCLUDED_TYPES: tuple[str, ...] = ("epic", "milestone", "gate", "molecule")
 
 
 def is_excluded_type(bead: dict[str, Any] | None) -> bool:

@@ -143,7 +143,7 @@ bead_chain/
 - `bd` command timeout: 30 seconds  
 - Retry policy: 3 attempts with 0.5s/1.0s backoff (timeout only, not errors)
 
-**Excluded types:** Epics are filtered out both server-side (`--exclude-type=epic`) and client-side. bead-chain never tries to drive container beads — only leaf work items.
+**Excluded types:** Container / handle types — `epic`, `milestone`, `gate`, `molecule` — are filtered out both server-side (`--exclude-type=...`) and client-side. bead-chain never tries to drive container beads — only leaf work items.
 
 ---
 
