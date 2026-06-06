@@ -227,6 +227,43 @@ _BUG_DISCOVERY_PROTOCOL: str = (
 )
 
 
+def _format_acceptance_criteria_block(bead: dict[str, Any]) -> str:
+    """Return a ``## Acceptance Criteria`` prompt section, or ``""`` if absent.
+
+    ``acceptance_criteria`` is already a key on the ``bd ready --json``
+    record bead-chain hands to :func:`format_bead_as_goal`, but the
+    formatter historically never read it — so the LLM judges verified
+    completion against a contract the prompt never showed the agent
+    (coverage-audit gap FB-2, ``bead_chain-2zx``).
+
+    Contract:
+
+    * Non-empty ``acceptance_criteria`` → a block beginning with the
+      literal ``## Acceptance Criteria`` heading, then the criteria text,
+      then a trailing blank line so it slots between prompt sections.
+    * Missing / empty / whitespace-only / non-string → ``""`` (the
+      prompt is byte-for-byte unchanged, preserving old behaviour).
+    * If the stored value *already* leads with the ``## Acceptance
+      Criteria`` heading (some beads embed it in the field text), we
+      don't double it up — the value is emitted as-is under the blank
+      line.
+
+    Pure function, trivially testable.
+    """
+    raw = bead.get("acceptance_criteria", "")
+    if not isinstance(raw, str):
+        return ""
+    criteria = raw.strip()
+    if not criteria:
+        return ""
+    heading = "## Acceptance Criteria"
+    if criteria.lstrip("# ").lower().startswith("acceptance criteria"):
+        body = criteria
+    else:
+        body = f"{heading}\n{criteria}"
+    return f"{body}\n\n"
+
+
 def is_triaged_bug(bead: dict[str, Any] | None) -> bool:
     """True if ``bead``'s description carries the :data:`TRIAGE_MARKER`.
 
@@ -279,6 +316,14 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
     Every prompt gets :data:`_BUG_DISCOVERY_PROTOCOL` appended at the
     bottom regardless of preamble — the bug-handling rules apply on
     every iteration of every bead.
+
+    When the bead carries a non-empty ``acceptance_criteria`` field (it
+    is already a key on the ``bd ready --json`` record), a
+    ``## Acceptance Criteria`` section is injected just before the
+    "When you believe this is done" checklist via
+    :func:`_format_acceptance_criteria_block`, so the agent is shown the
+    same contract the LLM judges grade it against. Absent/empty → the
+    prompt is unchanged.
     """
     bead_id = str(bead.get("id", "<unknown>"))
     title = str(bead.get("title", "")).strip() or "(no title)"
@@ -292,6 +337,11 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
     ]
     metadata_lines.extend(_format_epic_metadata_lines(bead))
     metadata = "\n".join(metadata_lines)
+
+    # Render the bead's own acceptance_criteria (already on the bd ready
+    # dict) so the agent — and the LLM judges — grade against the same
+    # contract. Empty string when absent, so the prompt is unchanged.
+    acceptance_block = _format_acceptance_criteria_block(bead)
 
     preamble = ""
     if recovery:
@@ -307,6 +357,7 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
         f"Issue metadata:\n"
         f"{metadata}\n"
         f"\n"
+        f"{acceptance_block}"
         f"When you believe this is done:\n"
         f"1. Run linters (`ruff check --fix`, `ruff format .`).\n"
         f"2. Run any relevant tests.\n"
