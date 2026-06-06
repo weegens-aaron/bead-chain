@@ -144,6 +144,128 @@ def _format_labels_line(bead: dict[str, Any]) -> list[str]:
     return [f"- Labels: {', '.join(labels)}"]
 
 
+# Non-gating, context-bearing edge types bead-chain surfaces in the goal
+# prompt (coverage-audit gap FB-11, ``bead_chain-n57``; dependency#2).
+#
+# These six edges carry *context* the working agent (and the LLM judges)
+# otherwise can't see: provenance (``discovered-from``), causal bug links
+# (``caused-by``), validating tests (``validates``), and plain related
+# work (``related`` / ``relates-to`` / ``tracks``). The field guide
+# classifies all six as Informational — they do NOT gate readiness, and
+# bead-chain deliberately keeps it that way (see
+# :data:`beads.BLOCKING_DEP_TYPES`). Surfacing them here is purely about
+# context; gating behaviour is untouched.
+#
+# Mapping value is the human-readable gloss prefixed to the target id in
+# the rendered block. Insertion order also defines the *display* order so
+# the most causally-load-bearing edges (provenance / cause / validation)
+# lead. Adding a future context edge is a one-line edit. DRY.
+_CONTEXT_EDGE_GLOSSES: dict[str, str] = {
+    "discovered-from": "Discovered while working on",
+    "caused-by": "Caused by",
+    "validates": "Validates",
+    "related": "Related to",
+    "relates-to": "Relates to",
+    "tracks": "Tracks",
+}
+
+
+def _edge_type(dep: dict[str, Any]) -> str:
+    """Return a dependency edge's lowercased type, shape-agnostic.
+
+    bd reports edges with two different field names depending on the
+    command: ``bd ready``/``bd list`` records carry ``type``, while
+    ``bd show`` records carry ``dependency_type``. We accept either so
+    this formatter works regardless of which shape upstream hands us.
+    """
+    raw = dep.get("type") or dep.get("dependency_type") or ""
+    return str(raw).strip().lower()
+
+
+def _edge_target_id(dep: dict[str, Any]) -> str:
+    """Return the id of the bead an edge points at, shape-agnostic.
+
+    ``bd ready``/``bd list`` name the far end ``depends_on_id``; the
+    ``bd show`` dependency records inline the related bead and name its
+    id ``id``. Prefer the explicit ``depends_on_id`` so we never mistake
+    a ``bd show`` edge's own id for its target.
+    """
+    raw = dep.get("depends_on_id") or dep.get("id") or ""
+    return str(raw).strip()
+
+
+def _format_related_context_block(bead: dict[str, Any]) -> str:
+    """Return a ``## Related Context`` prompt section, or ``""`` when absent.
+
+    Folds the bead's *non-gating* context edges — ``discovered-from``,
+    ``caused-by``, ``validates``, ``related``, ``relates-to``,
+    ``tracks`` (see :data:`_CONTEXT_EDGE_GLOSSES`) — into a short block
+    so the working agent (and the LLM judges) can see the bead's
+    provenance, causal bug link, validating test, and related work
+    instead of working blind (coverage-audit gap FB-11). The block opens
+    with a one-line caveat making explicit these links are background,
+    not blockers.
+
+    Reads the ``dependencies`` array that ``bd ready --json`` already
+    hands :func:`format_bead_as_goal`. Each edge is rendered
+    ``- <gloss> <target-id>`` (with ``: <title>`` appended when the edge
+    record carries one, as ``bd show`` records do). Entries are emitted
+    grouped by :data:`_CONTEXT_EDGE_GLOSSES` insertion order, then in the
+    order they appear within the array; duplicate ``(type, target)``
+    pairs are dropped.
+
+    Contract:
+
+    * At least one recognised context edge → a block beginning with the
+      ``## Related Context`` heading, the caveat line, the edge lines,
+      then a trailing blank line so it slots between prompt sections.
+    * No ``dependencies`` / no *context* edges (only gating/structural
+      edges like ``blocks`` / ``parent-child``) / non-list / malformed →
+      ``""`` (prompt byte-for-byte unchanged).
+
+    Gating behaviour is untouched: this helper never inspects or alters
+    readiness — it is pure presentation. Pure function, trivially
+    testable.
+    """
+    deps = bead.get("dependencies")
+    if not isinstance(deps, (list, tuple)):
+        return ""
+
+    # Collect (edge_type -> list of "target[: title]" lines), de-duped.
+    seen: set[tuple[str, str]] = set()
+    by_type: dict[str, list[str]] = {}
+    for dep in deps:
+        if not isinstance(dep, dict):
+            continue
+        edge_type = _edge_type(dep)
+        if edge_type not in _CONTEXT_EDGE_GLOSSES:
+            continue
+        target = _edge_target_id(dep)
+        if not target:
+            continue
+        key = (edge_type, target)
+        if key in seen:
+            continue
+        seen.add(key)
+        title = str(dep.get("title", "")).strip()
+        suffix = f": {title}" if title else ""
+        by_type.setdefault(edge_type, []).append(f"{target}{suffix}")
+
+    if not by_type:
+        return ""
+
+    lines = [
+        "## Related Context",
+        "These links are non-gating background (provenance, causal bug "
+        "links, validating tests, related work) — they do NOT block this "
+        "bead:",
+    ]
+    for edge_type, gloss in _CONTEXT_EDGE_GLOSSES.items():
+        for entry in by_type.get(edge_type, []):
+            lines.append(f"- {gloss} {entry}")
+    return "\n".join(lines) + "\n\n"
+
+
 def _format_design_block(bead: dict[str, Any]) -> str:
     """Return a ``## Design`` prompt section, or ``""`` when absent.
 
@@ -405,6 +527,15 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
     appended to the issue-metadata block (:func:`_format_labels_line`).
     Both soft-default to no-ops when absent so existing prompts are
     byte-for-byte unchanged.
+
+    Finally (coverage-audit gap FB-11), the bead's *non-gating* context
+    edges — ``discovered-from`` / ``caused-by`` / ``validates`` /
+    ``related`` / ``relates-to`` / ``tracks`` — are folded into a
+    ``## Related Context`` block (:func:`_format_related_context_block`)
+    just after the acceptance block, so the agent can see the bead's
+    provenance, causal bug link and validating test. This is pure
+    context: gating behaviour is unchanged, and the block is ``""`` when
+    the bead carries no such edges.
     """
     bead_id = str(bead.get("id", "<unknown>"))
     title = str(bead.get("title", "")).strip() or "(no title)"
@@ -427,6 +558,13 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
     design_block = _format_design_block(bead)
     acceptance_block = _format_acceptance_criteria_block(bead)
 
+    # FB-11 (bead_chain-n57): fold the bead's non-gating context edges
+    # (discovered-from / caused-by / validates / related / relates-to /
+    # tracks) into a 'Related Context' block so the agent isn't blind to
+    # provenance, causal bug links and validating tests. "" when absent;
+    # gating behaviour is untouched.
+    related_block = _format_related_context_block(bead)
+
     preamble = ""
     if recovery:
         preamble = _RECOVERY_PREAMBLE
@@ -443,6 +581,7 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
         f"\n"
         f"{design_block}"
         f"{acceptance_block}"
+        f"{related_block}"
         f"When you believe this is done:\n"
         f"1. Run linters (`ruff check --fix`, `ruff format .`).\n"
         f"2. Run any relevant tests.\n"
