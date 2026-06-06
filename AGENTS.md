@@ -47,6 +47,56 @@ cp -rf source dest          # NOT: cp -r source dest
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
+## Session Completion — Dolt Sync Step (project-specific)
+
+> This section is **hand-authored** and intentionally lives *outside* the
+> auto-generated `BEADS INTEGRATION` block below (which `bd` regenerates from a
+> template and would otherwise clobber). It **extends** the "Session
+> Completion" / "PUSH TO REMOTE" workflow in that block.
+>
+> Per
+> [ADR 0001](docs/decisions/0001-dolt-push-lives-in-session-close.md)
+> (`bead_chain-uo4` / FB-4): durability/sync responsibility lives **here, in
+> session-close — never in bead-chain's drain path**. bead-chain is a queue
+> driver, not a sync engine, so `lifecycle.py` does not push, pull, export, or
+> import. A drain is *not* a session boundary.
+
+**Add a `bd dolt push` step immediately AFTER `git push`** in the mandatory
+session-close workflow. `git push` only carries `refs/heads/*`; it does **not**
+carry `refs/dolt/data`, where all bead state (claim/close/revert/rollup) lives.
+Without this step, every bead mutation from the session is stranded in the local
+(git-ignored) Dolt DB and invisible to other machines, CI, and disposable
+agents.
+
+The step is **gated on a configured Dolt remote** and **soft-fails** (warn, do
+not halt the session-close) when no remote is configured or the push errors:
+
+```bash
+# AFTER `git push` succeeds:
+if [ -n "$(bd dolt remote list 2>/dev/null)" ]; then
+  bd dolt push || echo "WARN: bd dolt push failed — bead state is local-only this session"
+else
+  echo "INFO: no Dolt remote configured — skipping bd dolt push (bead state stays local)"
+fi
+```
+
+**Caveats — read these:**
+
+- **Interrupted chains are local-only.** If a chain is cancelled (Ctrl+C) or an
+  agent exits without running session-close, its bead mutations stay in the
+  local Dolt DB until the *next* session-close runs `bd dolt push`. This is
+  documented, expected behavior — not silently relied upon.
+- **CI / disposable-agent environments own their own teardown.** Any
+  environment that does not run this `AGENTS.md` session-close (CI jobs,
+  ephemeral/disposable agents) is responsible for invoking `bd dolt push` in
+  its own teardown. It is simply *another caller* of the same session-close
+  durability responsibility, at the same layer — not a special case in the
+  queue driver.
+
+See [ADR 0001](docs/decisions/0001-dolt-push-lives-in-session-close.md) for the
+full rationale, rejected alternatives, and the SRP boundary
+(`maintainer/explanation/queue-driver-not-goal-engine.md`).
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
 ## Beads Issue Tracker
 
