@@ -48,6 +48,7 @@ from .beads import (
     revert_to_open,
     show,
 )
+from .execution_hints import apply_execution_hints
 from .prompt import format_bead_as_goal
 
 # Statuses that mark a picked bead as *already in flight* — i.e. residue
@@ -706,6 +707,13 @@ def activate_next_bead(
     # call (see handle_bead_chain_command for the same rationale).
 
     state.get_state().current_bead = bead
+
+    # FB-8 (bead_chain-9n3): apply the bead's recognized execution_*
+    # metadata hints (effort/model/agent_type) to the serial drive before
+    # arming wiggum. Soft-fails per hint; no-op when none are present.
+    applied_hints = apply_execution_hints(bead)
+    if applied_hints:
+        emit_info(f"\U0001f9ea execution hints: {'; '.join(applied_hints)}")
 
     goal_prompt = format_bead_as_goal(bead, recovery=recovery)
 

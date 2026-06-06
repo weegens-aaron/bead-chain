@@ -76,6 +76,7 @@ from .beads import (
     revert_to_open,
 )
 from .close_guard import on_run_shell_command as _on_run_shell_command
+from .execution_hints import apply_execution_hints
 from .lifecycle import (
     activate_next_bead,
     close_current_bead_success,
@@ -267,6 +268,14 @@ def handle_bead_chain_command(command: str) -> str | bool:
     # no-op and at worst a bd error, so we skip the call entirely.
 
     state.get_state().current_bead = bead
+
+    # FB-8 (bead_chain-9n3): map the bead's recognized execution_* metadata
+    # hints (effort/model/agent_type) onto code-puppy's serial knobs before
+    # arming wiggum, so they shape this /goal pass. Soft-fails per hint and
+    # is a no-op when the bead carries no recognized metadata.
+    applied_hints = apply_execution_hints(bead)
+    if applied_hints:
+        emit_info(f"\U0001f9ea execution hints: {'; '.join(applied_hints)}")
 
     goal_prompt = format_bead_as_goal(bead, recovery=recovery)
     wiggum_state.start(goal_prompt, mode="goal")
