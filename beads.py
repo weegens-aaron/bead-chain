@@ -75,15 +75,31 @@ def is_excluded_type(bead: dict[str, Any] | None) -> bool:
     return issue_type in EXCLUDED_TYPES
 
 
-# Dependency-edge type that means "this bead is blocked until the other
+# Dependency-edge types that mean "this bead is blocked until the other
 # one closes". bd uses the literal string ``"blocks"`` for both sides of
 # the edge (it's the edge type, not a perspective) — see repo memory
 # 'dep-edge-direction'. From a bead's *inbound* ``dependencies`` list a
 # ``blocks`` entry reads as "X blocks me", i.e. a work-time blocker.
+#
+#   * 'blocks'    — the canonical hard work-time block.
+#   * 'waits-for' — a *generic* fan-out/aggregation edge created by
+#     ``bd dep add B A --type=waits-for`` (or ``--waits-for=A``). It
+#     lands in the inbound ``dependencies`` array with
+#     ``dependency_type == "waits-for"`` and gates work exactly like
+#     ``blocks`` does. ``bd ready`` honours it server-side, but the
+#     recovery tier (which reads ``bd list --status=in_progress``,
+#     bypassing the ready frontier) did not — so a stranded in_progress
+#     bead re-gated by a generic ``waits-for`` would be re-driven, the
+#     same bdboard-oals failure class as a re-opened ``blocks`` edge
+#     (FB-10). NOTE: the molecule ``waits_for: children-of(...)`` *field*
+#     gate is a different mechanism (a marker, not an inbound edge) and
+#     is handled separately by
+#     :func:`lifecycle._has_fan_out_gate_issue`; the two don't overlap.
+#
 # ``parent-child`` / ``discovered-from`` / ``related`` edges do NOT gate
 # work, so they are deliberately excluded. Tuple-constant so adding a
 # future blocking edge type (e.g. ``"requires"``) stays a one-line edit.
-BLOCKING_DEP_TYPES: tuple[str, ...] = ("blocks",)
+BLOCKING_DEP_TYPES: tuple[str, ...] = ("blocks", "waits-for")
 
 # Statuses that mean a blocker is *satisfied* (no longer gates work).
 # Only a closed blocker is satisfied; open / in_progress / blocked all
@@ -398,16 +414,19 @@ def open_blocker_ids(bead_id: str) -> list[str]:
     """Return the ids of ``bead_id``'s **open** work-time blockers.
 
     An empty list means the bead is *ready to work* (no unresolved
-    ``blocks`` dependencies). A non-empty list names the still-open
+    work-time dependencies). A non-empty list names the still-open
     issues that gate it — exactly the set ``bd close`` would later
     refuse on.
 
-    This function checks **only** ``blocks`` edges (work-time blockers).
-    Fan-out gates (waits_for: children-of(...)) are checked separately
-    in :func:`lifecycle._has_fan_out_gate_issue` and integrated into
-    :func:`lifecycle.activate_next_bead`. This separation keeps the
-    blocker logic focused on ``blocks`` edges while fan-out gates are
-    detected and skipped at claim time.
+    This function checks every inbound edge whose ``dependency_type`` is
+    in :data:`BLOCKING_DEP_TYPES` — today ``blocks`` and the generic
+    ``waits-for`` edge (``bd dep add B A --type=waits-for``). Both gate
+    work the same way and ``bd ready`` honours both server-side; mirroring
+    them here keeps the recovery tier honest when it bypasses ``bd ready``
+    (FB-10). The molecule fan-out gate (``waits_for: children-of(...)``
+    *field*, not an inbound edge) is a different mechanism, checked
+    separately in :func:`lifecycle._has_fan_out_gate_issue` and integrated
+    into :func:`lifecycle.activate_next_bead`.
 
     Why this exists
     ---------------
