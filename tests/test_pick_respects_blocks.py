@@ -7,7 +7,7 @@ refused. These tests pin the fix at the *selection* layer
 
   * a blocked candidate from any tier is never returned, and
   * a blocked *stranded* in_progress bead (the recovery tier, which
-    reads ``bd list --status=in_progress`` and so bypasses the ready
+    reads ``bd list --status=<recoverable>`` and so bypasses the ready
     frontier) is reverted to open and never re-driven.
 
 Requires ``code_puppy`` on the path (lifecycle imports its messaging +
@@ -40,7 +40,9 @@ def _install(
     monkeypatch.setattr(beads, "open_blocker_ids", blocker_fn)
     monkeypatch.setattr(lifecycle, "open_blocker_ids", blocker_fn)
 
-    monkeypatch.setattr(lifecycle, "list_in_progress", lambda: list(in_progress))
+    monkeypatch.setattr(
+        lifecycle, "list_recoverable_strands", lambda: list(in_progress)
+    )
     monkeypatch.setattr(lifecycle, "next_blocking_bug", lambda: blocking_bug)
     monkeypatch.setattr(lifecycle, "next_ready_in_epic", lambda _e: epic_sibling)
     monkeypatch.setattr(lifecycle, "next_ready", lambda: ready)

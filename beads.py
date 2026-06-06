@@ -91,6 +91,34 @@ BLOCKING_DEP_TYPES: tuple[str, ...] = ("blocks",)
 SATISFIED_BLOCKER_STATUSES: frozenset[str] = frozenset({"closed"})
 
 
+# bd lifecycle status strings bead-chain reasons about by name. The full
+# set lives in `bd statuses`; we only name the ones the chain actually
+# inspects so a typo can't silently break a status comparison.
+IN_PROGRESS_STATUS: str = "in_progress"
+HOOKED_STATUS: str = "hooked"
+PINNED_STATUS: str = "pinned"
+
+# Statuses that represent *stranded in-flight work* the chain must be
+# able to recover (FB-12 / lifecycle#2). bd's ``wip`` category rolls up
+# ``in_progress``, ``blocked`` and ``hooked``; a bead flipped to
+# ``hooked`` by another agent/tool *after* bead-chain claimed it is real
+# partial work that would otherwise be invisible to BOTH ``bd ready``
+# (hooked is out of the ready frontier) AND the recovery tier (which
+# historically only queried ``--status=in_progress``) — so it never gets
+# resumed. We deliberately DO NOT include the frozen states here:
+#
+#   * ``blocked`` — bead-chain models blockedness via the ``blocks``
+#     edge graph (see :func:`open_blocker_ids`), never the status; a
+#     blocked strand is reverted to open, not recovered.
+#   * ``pinned`` / ``deferred`` (frozen) — a human deliberately parked
+#     these "out of the queue". Auto-recovering one would fight that
+#     intent and risk a re-pick loop. ``pinned`` is instead handled at
+#     close-time (see :func:`is_pinned`) so it can't *halt* the chain.
+#
+# One-tuple-edit to widen, mirroring :data:`EXCLUDED_TYPES`. DRY.
+RECOVERABLE_STATUSES: tuple[str, ...] = (IN_PROGRESS_STATUS, HOOKED_STATUS)
+
+
 # Issue types that count as 'bugs' for the blocking-bug priority pass.
 # A blocking bug (type in here AND dependent_count > 0) jumps the queue
 # ahead of every other selection rule because fixing it unblocks more
@@ -242,9 +270,8 @@ def list_in_progress() -> list[dict[str, Any]]:
     """Return **all** in_progress non-epic beads, in bd's listed order.
 
     Backbone for :func:`next_in_progress` (which is just the head of
-    this list) and for the chain-startup multi-stranded-bead guard
-    that auto-reverts extras to keep the one-bead-at-a-time invariant.
-    Both callers want the same `bd list --status=in_progress
+    this list) and one of the two status queries :func:`list_recoverable_strands`
+    merges. Both callers want the same `bd list --status=in_progress
     --exclude-type=epic --json` query, so we centralise it here. DRY.
 
     **Client-side epic filter.** We pass ``--exclude-type=epic`` to bd,
@@ -259,11 +286,59 @@ def list_in_progress() -> list[dict[str, Any]]:
     timeout, non-list payload, bad JSON) — same contract as the other
     list-returning helpers in this module.
     """
-    raw = _run_bd("list", "--status=in_progress", _exclude_type_arg(), "--json")
-    items = _parse_json_list(raw, "bd list --status=in_progress --json")
+    return _list_by_status(IN_PROGRESS_STATUS)
+
+
+def _list_by_status(status: str) -> list[dict[str, Any]]:
+    """Return all non-epic beads in ``status``, in bd's listed order.
+
+    DRY core of :func:`list_in_progress` and :func:`list_recoverable_strands`:
+    every stranded-work query is the same `bd list --status=<s>
+    --exclude-type=epic --json` shape with the same client-side epic
+    re-filter (the server-side flag has leaked epics in the wild — see
+    :func:`is_excluded_type`). Centralising it means a new recoverable
+    status is a one-line edit to :data:`RECOVERABLE_STATUSES`.
+    """
+    raw = _run_bd("list", f"--status={status}", _exclude_type_arg(), "--json")
+    items = _parse_json_list(raw, f"bd list --status={status} --json")
     return [
         item for item in items if isinstance(item, dict) and not is_excluded_type(item)
     ]
+
+
+def list_recoverable_strands() -> list[dict[str, Any]]:
+    """Return all non-epic beads stranded in a recoverable in-flight status.
+
+    The recovery tier's eyes (FB-12 / lifecycle#2). Historically the
+    chain only queried ``--status=in_progress``, so a bead flipped to
+    ``hooked`` mid-flight by another agent/tool was invisible to BOTH
+    ``bd ready`` (hooked is out of the ready frontier) AND recovery —
+    stranded work that no run ever resumed. We now enumerate every
+    status in :data:`RECOVERABLE_STATUSES` and merge the results.
+
+    Ordering: in_progress strands come first (their status leads the
+    tuple), preserving the prior single-status behaviour for the common
+    case; hooked strands follow. Duplicate ids across queries are
+    de-duped (first occurrence wins) — a bead can only hold one status,
+    but bd version drift could echo one twice, and the one-at-a-time
+    recovery contract must never see the same id twice.
+
+    Epics are excluded both server-side and client-side per
+    :func:`_list_by_status`. Raises :class:`BeadsError` on infra failure
+    — same soft-fail contract callers already expect from
+    :func:`list_in_progress`.
+    """
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for status in RECOVERABLE_STATUSES:
+        for bead in _list_by_status(status):
+            bead_id = str(bead.get("id", "")).strip()
+            if bead_id and bead_id in seen:
+                continue
+            if bead_id:
+                seen.add(bead_id)
+            merged.append(bead)
+    return merged
 
 
 def next_in_progress() -> dict[str, Any] | None:
@@ -398,6 +473,39 @@ def is_blocked(bead_id: str) -> bool:
     reasons (see that function's docstring).
     """
     return bool(open_blocker_ids(bead_id))
+
+
+def is_pinned(bead_id: str) -> bool:
+    """True if ``bead_id``'s **live** status is ``pinned`` (FB-12 / lifecycle#1).
+
+    Re-fetches via :func:`show` rather than trusting a cached bead dict:
+    the hazard this guards against is a bead that was ``open`` when
+    bead-chain claimed it but got flipped to ``pinned`` *mid-flight* by
+    another agent/tool. The cached ``current_bead`` still says
+    ``in_progress`` (or ``open``); only a fresh read reveals the pin.
+
+    Why it matters: closing a ``pinned`` bead **requires ``--force``**
+    (field guide §III), and bead-chain's :func:`close` never passes it.
+    So a pinned bead reaching ``close()`` would fail and halt the whole
+    loop — the same family of stall as the epic-close-fail hazard. The
+    caller (:func:`lifecycle.close_current_bead_success`) checks this
+    first and *respects the pin* (leaves it pinned, drops it as current,
+    trots on) rather than force-closing a bead a human deliberately
+    parked.
+
+    Soft-fails to ``False`` (treat as not-pinned) on any infrastructure
+    error: a transient bd blip must not block a legitimate close — the
+    worst case is the close attempt itself surfaces the real error.
+    """
+    if not bead_id:
+        return False
+    try:
+        bead = show(bead_id)
+    except BeadsError:
+        return False
+    if not bead:
+        return False
+    return str(bead.get("status", "")).strip().lower() == PINNED_STATUS
 
 
 def next_blocking_bug() -> dict[str, Any] | None:

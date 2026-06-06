@@ -31,6 +31,7 @@ from code_puppy.plugins.wiggum import state as wiggum_state
 from . import beads, state
 from .beads import (
     BeadsError,
+    RECOVERABLE_STATUSES,
     check_gates,
     claim,
     close,
@@ -38,7 +39,8 @@ from .beads import (
     extract_parent_epic_id,
     has_epic_in_progress,
     is_excluded_type,
-    list_in_progress,
+    is_pinned,
+    list_recoverable_strands,
     next_blocking_bug,
     next_ready,
     next_ready_in_epic,
@@ -48,25 +50,33 @@ from .beads import (
 )
 from .prompt import format_bead_as_goal
 
-# Status value bd assigns to a bead that's been claimed but not yet
-# closed. Used to detect *stranded* work — a bead left in this state
-# when no chain is running implies the previous run errored or was
-# cancelled before the LLM judges could rule. See :func:`is_recovery_bead`.
-_IN_PROGRESS_STATUS: str = "in_progress"
+# Statuses that mark a picked bead as *already in flight* — i.e. residue
+# from a prior run that crashed/cancelled before the LLM judges could
+# rule. A bead in any of these was claimed (or hooked) but not closed,
+# so bead-chain *recovers* it (re-drives with the recovery preamble)
+# rather than re-claiming. Sourced from :data:`beads.RECOVERABLE_STATUSES`
+# so the recovery query and the recovery-vs-fresh decision can never
+# drift apart. See :func:`is_recovery_bead`.
+_RECOVERY_STATUSES: frozenset[str] = frozenset(s.lower() for s in RECOVERABLE_STATUSES)
 
 
 def is_recovery_bead(bead: dict[str, Any] | None) -> bool:
-    """True if ``bead`` was already in_progress when bead-chain picked it.
+    """True if ``bead`` was already in flight when bead-chain picked it.
 
     The deliberate one-bead-at-a-time discipline means we should never
-    see an in_progress bead at chain-start or between-iterations — if
-    we do, it's residue from a prior crashed/cancelled run. Centralised
-    here so the recovery-mode signal stays consistent across both the
-    startup path and the mid-chain pick path. DRY.
+    see an in_progress (or hooked) bead at chain-start or between
+    iterations — if we do, it's residue from a prior crashed/cancelled
+    run, or a strand another agent left mid-flight. Centralised here so
+    the recovery-mode signal stays consistent across both the startup
+    path and the mid-chain pick path. DRY.
+
+    Membership-tests against :data:`_RECOVERY_STATUSES` (case-insensitive)
+    so a bead flipped to ``hooked`` mid-flight is recovered — not
+    re-claimed as if it were fresh (FB-12 / lifecycle#2).
     """
     if not bead:
         return False
-    return str(bead.get("status", "")) == _IN_PROGRESS_STATUS
+    return str(bead.get("status", "")).strip().lower() in _RECOVERY_STATUSES
 
 
 # ---------------------------------------------------------------------------
@@ -74,17 +84,22 @@ def is_recovery_bead(bead: dict[str, Any] | None) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _unblocked_in_progress() -> list[dict[str, Any]]:
-    """List the in_progress non-epic beads that are *actually workable*.
+def _unblocked_strands() -> list[dict[str, Any]]:
+    """List the stranded in-flight non-epic beads that are *actually workable*.
 
-    A stranded in_progress bead with open ``blocks`` dependencies must
-    **never** be re-driven — that is the bdboard-oals bug: the recovery
-    tier reads ``bd list --status=in_progress`` (which ignores the ready
-    frontier), so a bead claimed-while-ready and later re-blocked would
-    get run to completion and only trip at ``bd close``. We refuse to
-    perpetuate that: any blocked stranded bead is **reverted to open**
-    (so it re-enters the queue behind its blockers) and dropped from the
-    workable set.
+    Enumerates every recoverable status (in_progress **and** hooked —
+    see :data:`beads.RECOVERABLE_STATUSES`) via
+    :func:`beads.list_recoverable_strands`, so a bead flipped to
+    ``hooked`` mid-flight is no longer invisible to recovery (FB-12 /
+    lifecycle#2).
+
+    A stranded bead with open ``blocks`` dependencies must **never** be
+    re-driven — that is the bdboard-oals bug: the recovery tier bypasses
+    the ready frontier, so a bead claimed-while-ready and later
+    re-blocked would get run to completion and only trip at ``bd
+    close``. We refuse to perpetuate that: any blocked stranded bead is
+    **reverted to open** (so it re-enters the queue behind its blockers)
+    and dropped from the workable set.
 
     Eviction is best-effort — if the revert itself fails we log and still
     drop the bead from the workable list, so the chain never picks it up
@@ -92,9 +107,9 @@ def _unblocked_in_progress() -> list[dict[str, Any]]:
 
     Raises :class:`BeadsError` from the underlying ``bd list`` so callers
     keep the same soft-fail contract they had with
-    :func:`beads.list_in_progress`.
+    :func:`beads.list_recoverable_strands`.
     """
-    items = list_in_progress()
+    items = list_recoverable_strands()
     workable: list[dict[str, Any]] = []
     for bead in items:
         bead_id = str(bead.get("id", ""))
@@ -142,7 +157,7 @@ def enforce_single_in_progress() -> dict[str, Any] | None:
         agent must assess via the recovery preamble before doing more.
 
     Beads with open work-time blockers are filtered out (and reverted
-    to open) by :func:`_unblocked_in_progress` before any of the above
+    to open) by :func:`_unblocked_strands` before any of the above
     — a blocked stranded bead is never recovered/re-driven (bdboard-oals).
 
     Soft-fails by design: a bd outage here shouldn't block the chain
@@ -151,7 +166,7 @@ def enforce_single_in_progress() -> dict[str, Any] | None:
     see.
     """
     try:
-        items = _unblocked_in_progress()
+        items = _unblocked_strands()
     except BeadsError as exc:
         emit_warning(
             f"🔗 bead-chain: couldn't enumerate in_progress beads ({exc}); "
@@ -231,8 +246,8 @@ def close_current_bead_success() -> dict[str, Any] | None:
     #      containers, never doable work). Leaving it stranded would
     #      silently corrupt ``bd status`` displays.
     #   2. The tier-0 recovery path in :func:`pick_next_bead` reads
-    #      :func:`_unblocked_in_progress` (which wraps
-    #      :func:`beads.list_in_progress`), and that query filters epics
+    #      :func:`_unblocked_strands` (which wraps
+    #      :func:`beads.list_recoverable_strands`), and that query filters epics
     #      out via ``--exclude-type=epic``. So a stranded epic would
     #      never be picked up by the recovery preamble flow — it would
     #      just sit there forever. Reverting is the only path to sanity.
@@ -252,6 +267,29 @@ def close_current_bead_success() -> dict[str, Any] | None:
             "investigate before re-running."
         )
         state.stop()
+        state.get_state().current_bead = None
+        return just_closed
+
+    # Mid-flight pin guard (FB-12 / lifecycle#1). bead-chain claims a
+    # bead while it's open, but another agent/tool can flip it to
+    # ``pinned`` *after* the claim. Closing a pinned bead REQUIRES
+    # ``--force`` (field guide §III), which :func:`beads.close` never
+    # passes — so a pinned bead reaching close() would fail and halt the
+    # whole loop (same stall family as the epic-close-fail hazard). We
+    # re-read the live status here and, if it's been pinned, *respect
+    # the pin*: a human deliberately parked this bead to stay open
+    # indefinitely, so force-closing it would override that intent.
+    # Instead we drop it as the current bead and trot on — the chain
+    # keeps moving and the pin stands. The bead won't be re-picked
+    # (``bd ready`` and recovery both exclude ``pinned``), so this can't
+    # loop. We do NOT bump_completed: nothing was closed.
+    if is_pinned(bead_id):
+        emit_warning(
+            f"bead {bead_id} was pinned mid-flight -- respecting the pin "
+            "(closing a pinned bead needs --force, which bead-chain won't "
+            "do over a human's explicit park). Leaving it pinned and moving "
+            "on; the chain keeps trotting."
+        )
         state.get_state().current_bead = None
         return just_closed
 
@@ -440,7 +478,7 @@ def pick_next_bead(
     3. **Global ready queue.** Whatever bd hands us next.
 
     Beads with open work-time blockers are never returned: tier 0
-    reverts+drops blocked stranded beads via :func:`_unblocked_in_progress`,
+    reverts+drops blocked stranded beads via :func:`_unblocked_strands`,
     and tiers 1-3 (which come from ``bd ready`` and so *should* already
     be unblocked) get a belt-and-suspenders :func:`beads.is_blocked`
     recheck — defence-in-depth against bd version drift, mirroring the
@@ -450,7 +488,7 @@ def pick_next_bead(
     Raises :class:`BeadsError` on infrastructure failure so the caller
     can stop the chain cleanly.
     """
-    workable = _unblocked_in_progress()
+    workable = _unblocked_strands()
     if workable:
         stranded = workable[0]
         bead_id = str(stranded.get("id", "<unknown>"))
@@ -611,7 +649,7 @@ def activate_next_bead(
     # running blocked work that ``bd close`` will later reject. This is
     # the bdboard-oals fix mirrored at the activation boundary. Recovery
     # beads are exempt from the revert path here (they were already
-    # blocker-filtered in :func:`_unblocked_in_progress`); we just stop
+    # blocker-filtered in :func:`_unblocked_strands`); we just stop
     # if somehow one is blocked, leaving it in_progress for inspection.
     blockers = open_blocker_ids(bead_id)
     if blockers:
