@@ -114,6 +114,71 @@ def _format_epic_metadata_lines(bead: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _format_labels_line(bead: dict[str, Any]) -> list[str]:
+    """Return a ``- Labels: a, b, c`` metadata line, or ``[]`` when absent.
+
+    ``labels`` is a list of strings on the ``bd ready --json`` record
+    bead-chain already hands to :func:`format_bead_as_goal` (verified
+    present on this bd build — coverage-audit gap FB-7, anatomy #3), but
+    the formatter historically never read it. Labels are the bead's
+    cross-cutting tags (e.g. ``bead-chain``, ``prompt``, ``security``) —
+    cheap, high-signal context for framing the work.
+
+    Returns a single-element list so the caller can blindly ``extend()``
+    the metadata block, matching :func:`_format_epic_metadata_lines`.
+
+    Contract:
+
+    * Non-empty list of stringy labels → ``['- Labels: a, b, c']``
+      (each label stripped; empties/whitespace-only entries dropped).
+    * Missing / empty / non-list / all-empty → ``[]`` (prompt unchanged).
+
+    Pure function, trivially testable.
+    """
+    raw = bead.get("labels")
+    if not isinstance(raw, (list, tuple)):
+        return []
+    labels = [str(item).strip() for item in raw if str(item).strip()]
+    if not labels:
+        return []
+    return [f"- Labels: {', '.join(labels)}"]
+
+
+def _format_design_block(bead: dict[str, Any]) -> str:
+    """Return a ``## Design`` prompt section, or ``""`` when absent.
+
+    ``design`` is bd's ADR/design-rationale field — the conventional home
+    for ``decision``- and ``spike``-type beads (coverage-audit gap FB-7,
+    anatomy #2). Unlike ``acceptance_criteria``/``labels``, bd *omits*
+    the key entirely when it's unset, so this helper soft-defaults via
+    ``.get`` and renders only when a non-empty string is present.
+
+    Contract (mirrors :func:`_format_acceptance_criteria_block`):
+
+    * Non-empty ``design`` → a block beginning with the literal
+      ``## Design`` heading, then the design text, then a trailing blank
+      line so it slots between prompt sections.
+    * Missing / empty / whitespace-only / non-string → ``""`` (prompt
+      byte-for-byte unchanged).
+    * If the stored value already leads with a ``Design`` heading we
+      don't double it up — the value is emitted as-is.
+
+    Pure function, trivially testable.
+    """
+    raw = bead.get("design", "")
+    if not isinstance(raw, str):
+        return ""
+    design = raw.strip()
+    if not design:
+        return ""
+    heading = "## Design"
+    if design.lstrip("# ").lower().startswith("design"):
+        body = design
+    else:
+        body = f"{heading}\n{design}"
+    return f"{body}\n\n"
+
+
 # Sentinel marker injected into a bug bead's description when an agent
 # files it mid-chain via the bug-discovery protocol (see
 # :data:`_BUG_DISCOVERY_PROTOCOL`). When a *future* /bead-chain iteration
@@ -126,6 +191,14 @@ def _format_epic_metadata_lines(bead: dict[str, Any]) -> list[str]:
 #   * Labels/tags are a bd feature we haven't verified across versions.
 #   * The marker doubles as a human-readable breadcrumb in ``bd show``
 #     — anyone inspecting the bug knows immediately how it was filed.
+#
+# UPDATE (coverage-audit FB-7): ``labels`` is now *verified present* on
+# the ``bd ready``/``bd show`` JSON for this bd build, so the second
+# bullet's caveat no longer holds. A real ``bead-chain:triaged`` label
+# would be the cleaner home for this marker. We are NOT migrating yet —
+# the sentinel is wire-stable across older bead-chain versions and a
+# migration needs a compatibility window. See the recommendation in
+# ``docs/analysis/bead-chain-coverage/FB-7-triage-label-recommendation.md``.
 #
 # Keep this string stable across releases: changing it would orphan
 # every triaged bug filed by older bead-chain versions, silently
@@ -324,6 +397,14 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
     :func:`_format_acceptance_criteria_block`, so the agent is shown the
     same contract the LLM judges grade it against. Absent/empty → the
     prompt is unchanged.
+
+    Likewise (coverage-audit gap FB-7), a non-empty ``design`` field is
+    rendered as a ``## Design`` block (:func:`_format_design_block`)
+    just before the acceptance block — high-value for ``decision``/
+    ``spike`` beads whose rationale lives there — and any ``labels`` are
+    appended to the issue-metadata block (:func:`_format_labels_line`).
+    Both soft-default to no-ops when absent so existing prompts are
+    byte-for-byte unchanged.
     """
     bead_id = str(bead.get("id", "<unknown>"))
     title = str(bead.get("title", "")).strip() or "(no title)"
@@ -336,11 +417,14 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
         f"- Priority: P{priority}",
     ]
     metadata_lines.extend(_format_epic_metadata_lines(bead))
+    metadata_lines.extend(_format_labels_line(bead))
     metadata = "\n".join(metadata_lines)
 
-    # Render the bead's own acceptance_criteria (already on the bd ready
-    # dict) so the agent — and the LLM judges — grade against the same
-    # contract. Empty string when absent, so the prompt is unchanged.
+    # Render the bead's own design rationale + acceptance_criteria (both
+    # already on the bd ready dict) so the agent — and the LLM judges —
+    # work from the same context and grade against the same contract.
+    # Each is "" when absent, so the prompt is unchanged in that case.
+    design_block = _format_design_block(bead)
     acceptance_block = _format_acceptance_criteria_block(bead)
 
     preamble = ""
@@ -357,6 +441,7 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
         f"Issue metadata:\n"
         f"{metadata}\n"
         f"\n"
+        f"{design_block}"
         f"{acceptance_block}"
         f"When you believe this is done:\n"
         f"1. Run linters (`ruff check --fix`, `ruff format .`).\n"
