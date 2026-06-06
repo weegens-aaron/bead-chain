@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-OUT = Path("docs/analysis/bead-chain-coverage")
+OUT = Path("notes/analysis/bead-chain-coverage")
 
 # (num, slug, title, fg_chapter_file, fg_chapter_num, bead, modules)
 AREAS = [

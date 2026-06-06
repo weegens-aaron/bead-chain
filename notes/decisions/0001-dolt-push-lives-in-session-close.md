@@ -5,7 +5,7 @@
 | Status     | Accepted                                                              |
 | Date       | 2026-06-06                                                            |
 | Bead       | `bead_chain-uo4` (FB-4), under epic `bead_chain-2p3`                   |
-| Source     | `docs/analysis/bead-chain-coverage/08-data-layer.md` (gaps #1, #2), `GAPS.md` row 4 |
+| Source     | `notes/analysis/bead-chain-coverage/08-data-layer.md` (gaps #1, #2), `GAPS.md` row 4 |
 | Supersedes | —                                                                     |
 
 ## Context

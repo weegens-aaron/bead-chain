@@ -201,7 +201,7 @@ This is the one genuinely new bit of bookkeeping; gate it behind tests.
 - `test_revert_inactive_ancestors_on_branch_switch` (Step 4).
 
 Lifecycle decision logic is currently tangled with `emit_*` (see
-`docs/solid-review-mol-4yc.md` finding #1); these tests will be easier
+`notes/solid-review-mol-4yc.md` finding #1); these tests will be easier
 after the `reporting` seam lands, but the `beads.py` helpers (ancestor
 walk) are testable **now** without it. Land Step 1's helper + its test
 first to get value without waiting on the refactor.

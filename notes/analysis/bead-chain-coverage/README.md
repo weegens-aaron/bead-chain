@@ -20,7 +20,7 @@ deduped issues-and-gaps breakdown lives in **[`GAPS.md`](./GAPS.md)**.
 ## Where findings live
 
 ```
-docs/analysis/bead-chain-coverage/
+notes/analysis/bead-chain-coverage/
 ├── README.md          ← you are here (index + matrix skeleton)
 ├── _template.md       ← the per-section shape (underscore = not a finding)
 ├── 01-anatomy.md
@@ -70,7 +70,7 @@ noted in parentheses). The prioritized, deduped breakdown lives in
 ## How to fill a section (for audit beads)
 
 1. Open the matching `NN-<area>.md` stub (already seeded from the template).
-2. Read your field-guide chapter (the HTML files in the `docs/` dir above) for
+2. Read your field-guide chapter (the HTML files in the `notes/` dir above) for
    **AVAILABLE**.
 3. Read the listed bead-chain modules for **LEVERAGED** — cite `file:line`.
 4. Record every **GAP** with a P0–P4 severity and a one-line follow-up.

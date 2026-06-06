@@ -5,7 +5,7 @@
 | Status     | Recommended (not yet adopted)                                         |
 | Date       | 2026-06-06                                                            |
 | Bead       | `bead_chain-432` (FB-7), under epic `bead_chain-2p3`                  |
-| Source     | `docs/analysis/bead-chain-coverage/01-anatomy.md` (gap #3), `GAPS.md` |
+| Source     | `notes/analysis/bead-chain-coverage/01-anatomy.md` (gap #3), `GAPS.md` |
 | Scope      | Recommendation only — FB-7's code change surfaces `design`/`labels`;  |
 |            | the migration itself is deliberately **not** performed here.          |
 

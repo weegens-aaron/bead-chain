@@ -55,7 +55,7 @@ cp -rf source dest          # NOT: cp -r source dest
 > Completion" / "PUSH TO REMOTE" workflow in that block.
 >
 > Per
-> [ADR 0001](docs/decisions/0001-dolt-push-lives-in-session-close.md)
+> [ADR 0001](notes/decisions/0001-dolt-push-lives-in-session-close.md)
 > (`bead_chain-uo4` / FB-4): durability/sync responsibility lives **here, in
 > session-close — never in bead-chain's drain path**. bead-chain is a queue
 > driver, not a sync engine, so `lifecycle.py` does not push, pull, export, or
@@ -93,7 +93,7 @@ fi
   durability responsibility, at the same layer — not a special case in the
   queue driver.
 
-See [ADR 0001](docs/decisions/0001-dolt-push-lives-in-session-close.md) for the
+See [ADR 0001](notes/decisions/0001-dolt-push-lives-in-session-close.md) for the
 full rationale, rejected alternatives, and the SRP boundary
 (`maintainer/explanation/queue-driver-not-goal-engine.md`).
 

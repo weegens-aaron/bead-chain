@@ -4,7 +4,7 @@ Duplication pass across the six pure-Python modules of the `bead_chain`
 code-puppy plugin: `beads.py`, `lifecycle.py`, `prompt.py`,
 `register_callbacks.py`, `close_guard.py`, `state.py`.
 
-> Supersedes the line numbers in `docs/dry-triage-mol-47z.md`. The
+> Supersedes the line numbers in `notes/dry-triage-mol-47z.md`. The
 > modules have shifted since that pass (every cited line moved, and a
 > **new** internal self-clone has appeared in `lifecycle.py`). This
 > report re-ran the tool against the *current* tree and re-verified

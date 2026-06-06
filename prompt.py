@@ -409,7 +409,7 @@ def _format_design_block(bead: dict[str, Any]) -> str:
 # would be the cleaner home for this marker. We are NOT migrating yet —
 # the sentinel is wire-stable across older bead-chain versions and a
 # migration needs a compatibility window. See the recommendation in
-# ``docs/analysis/bead-chain-coverage/FB-7-triage-label-recommendation.md``.
+# ``notes/analysis/bead-chain-coverage/FB-7-triage-label-recommendation.md``.
 #
 # Keep this string stable across releases: changing it would orphan
 # every triaged bug filed by older bead-chain versions, silently

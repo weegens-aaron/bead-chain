@@ -5,7 +5,7 @@ code-puppy plugin: `beads.py`, `lifecycle.py`, `prompt.py`,
 `register_callbacks.py`, `close_guard.py`, `state.py`.
 
 > **Third pass.** Supersedes the `file:line` numbers in
-> `docs/dry-triage-mol-47z.md` and `docs/dry-triage-mol-ejq.md` — every
+> `notes/dry-triage-mol-47z.md` and `notes/dry-triage-mol-ejq.md` — every
 > module has shifted again and **two new duplications have appeared**
 > (see "What's new since mol-ejq" below). This report re-ran the tool
 > against the *current* tree and re-verified every `file:line` by hand.
