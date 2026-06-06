@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .beads import BeadsError, extract_parent_epic_id, memories, show
+from .beads import BeadsError, extract_parent_epic_id, lint_warnings, memories, show
 
 # Char cap for the epic-description excerpt injected into the goal prompt.
 # Big enough to convey purpose, small enough that ten chained beads under
@@ -115,6 +115,23 @@ def _fetch_memory_digest() -> dict[str, str]:
         return memories()
     except BeadsError:
         return {}
+
+
+def _fetch_lint_warnings(bead_id: str) -> list[str]:
+    """Return ``bd lint`` missing-section warnings for a bead, or ``[]``.
+
+    Soft-fails by design (same rationale as :func:`_fetch_memory_digest`):
+    any :class:`BeadsError` — bd missing, timeout, this bd build lacking a
+    ``lint`` subcommand, garbage JSON — yields ``[]`` so the goal prompt
+    renders without a lint block rather than crashing the chain. Running
+    the lint at prompt-build time means the *claim path* (which builds the
+    goal prompt immediately after ``bd update --claim``) always consults
+    the template contract — coverage-audit gap FB-5, ``bead_chain-vmo``.
+    """
+    try:
+        return lint_warnings(bead_id)
+    except BeadsError:
+        return []
 
 
 def _format_memory_digest_block(mems: dict[str, str]) -> str:
@@ -531,6 +548,40 @@ def _format_acceptance_criteria_block(bead: dict[str, Any]) -> str:
     return f"{body}\n\n"
 
 
+def _format_lint_warnings_block(warnings: list[str]) -> str:
+    """Return a ``## Template Lint Warnings`` block, or ``""`` when clean.
+
+    Renders the missing-section names ``bd lint`` reported for this bead
+    (coverage-audit gap FB-5, ``bead_chain-vmo``). Where
+    :func:`_format_acceptance_criteria_block` shows the agent *what's
+    present*, this block shows *what the template contract says is
+    missing* — the two pair up so the agent (and the LLM judges, who
+    grade against the same contract) aren't blind to a section a
+    ``--graph`` import silently dropped.
+
+    Contract:
+
+    * Non-empty ``warnings`` → a ``## Template Lint Warnings`` heading,
+      a one-line explanation, a bullet per missing section, then a
+      trailing blank line so it slots between prompt sections.
+    * Empty list → ``""`` (the prompt is byte-for-byte unchanged,
+      preserving old behaviour and producing nothing for clean beads).
+
+    Pure function, trivially testable.
+    """
+    if not warnings:
+        return ""
+    bullets = "\n".join(f"- {w}" for w in warnings)
+    return (
+        "## Template Lint Warnings\n"
+        "`bd lint` flagged this bead as missing recommended section(s) for "
+        "its issue type. The LLM judges grade completion against these "
+        "contracts, so treat each missing section as part of the work: "
+        "satisfy it (or its intent) before you consider the bead done.\n"
+        f"{bullets}\n\n"
+    )
+
+
 def is_triaged_bug(bead: dict[str, Any] | None) -> bool:
     """True if ``bead``'s description carries the :data:`TRIAGE_MARKER`.
 
@@ -589,8 +640,18 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
     ``## Acceptance Criteria`` section is injected just before the
     "When you believe this is done" checklist via
     :func:`_format_acceptance_criteria_block`, so the agent is shown the
-    same contract the LLM judges grade it against. Absent/empty → the
+    same contract the LLM judges grade it against. Absent/empty -> the
     prompt is unchanged.
+
+    Right after the acceptance block (coverage-audit gap FB-5,
+    ``bead_chain-vmo``), bead-chain runs ``bd lint <id>`` on the claim
+    path and folds any missing-template-section warnings into a
+    ``## Template Lint Warnings`` block (:func:`_format_lint_warnings_block`).
+    The acceptance block shows what's *present*; this shows what the
+    template contract says is *missing* (e.g. a ``--graph`` import that
+    silently dropped ``## Acceptance Criteria``). The fetch
+    (:func:`_fetch_lint_warnings`) soft-fails to ``[]`` so a bd build
+    lacking the ``lint`` subcommand leaves the prompt unchanged.
 
     Likewise (coverage-audit gap FB-7), a non-empty ``design`` field is
     rendered as a ``## Design`` block (:func:`_format_design_block`)
@@ -643,6 +704,15 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
     design_block = _format_design_block(bead)
     acceptance_block = _format_acceptance_criteria_block(bead)
 
+    # FB-5 (bead_chain-vmo): run `bd lint <id>` on the claim path and fold
+    # any missing-template-section warnings into the goal prompt. Building
+    # the prompt happens immediately after `bd update --claim`, so the
+    # lint is the claim path. Where the acceptance block above renders
+    # what's *present*, this renders what the template contract says is
+    # *missing*. Soft-fails to "" (see _fetch_lint_warnings) so a bd build
+    # without `lint` never halts the chain.
+    lint_block = _format_lint_warnings_block(_fetch_lint_warnings(bead_id))
+
     # FB-11 (bead_chain-n57): fold the bead's non-gating context edges
     # (discovered-from / caused-by / validates / related / relates-to /
     # tracks) into a 'Related Context' block so the agent isn't blind to
@@ -674,6 +744,7 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
         f"\n"
         f"{design_block}"
         f"{acceptance_block}"
+        f"{lint_block}"
         f"{related_block}"
         f"When you believe this is done:\n"
         f"1. Run linters (`ruff check --fix`, `ruff format .`).\n"

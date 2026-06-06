@@ -866,3 +866,78 @@ def _parse_gate_check_summary(raw: str) -> dict[str, int]:
         value = payload.get(key, 0)
         summary[key] = value if isinstance(value, int) else 0
     return summary
+
+
+def lint_warnings(bead_id: str) -> list[str]:
+    """Return ``bd lint`` template-contract warnings for one bead.
+
+    Wraps ``bd lint <id> --status all --json``. ``bd lint`` checks an
+    issue for the *recommended* sections its type requires (e.g. a
+    ``task`` should carry ``## Acceptance Criteria``; an ``epic`` should
+    carry ``## Success Criteria``) and reports the missing ones. The
+    coverage audit (FB-5, ``bead_chain-vmo``) found bead-chain drove
+    beads straight off ``bd ready`` without ever consulting this
+    contract, so a bead that lost its ``## Acceptance Criteria`` to a
+    ``--graph`` import would be graded by the LLM judges against a
+    section the agent was never shown was missing. Surfacing the lint
+    output into the goal prompt closes that blind spot (pairs with FB-2,
+    which renders the criteria that *are* present).
+
+    The ``--status all`` flag is belt-and-suspenders: a claimed bead is
+    ``in_progress``, and ``bd lint``'s default filter is ``open``. On
+    this bd build an explicit issue id already bypasses the status
+    filter, but a future build that honoured it would silently skip the
+    very bead we just claimed — ``--status all`` guarantees the lint
+    runs regardless of the bead's current status.
+
+    Returns the list of missing-section names for ``bead_id`` (e.g.
+    ``['## Acceptance Criteria']``), or ``[]`` when the bead is clean.
+
+    Raises :class:`BeadsError` on infrastructure failure (bd missing,
+    non-zero exit) — same contract as :func:`check_gates`, so the
+    prompt layer can soft-fail to ``[]`` when this bd build lacks the
+    ``lint`` subcommand. Unparseable-but-successful output degrades to
+    ``[]`` rather than raising: a courtesy lint shouldn't halt the
+    chain over a log-format quirk.
+    """
+    raw = _run_bd("lint", bead_id, "--status", "all", "--json")
+    return _parse_lint_missing(raw, bead_id)
+
+
+def _parse_lint_missing(raw: str, bead_id: str) -> list[str]:
+    """Extract ``bead_id``'s missing-section names from ``bd lint`` output.
+
+    ``bd lint --json`` emits ``{"total", "issues", "results": [...]}``
+    where each result is ``{"id", "title", "type", "missing": [...],
+    "warnings": N}``. We slice from the first ``{`` to the last ``}``
+    (mirroring :func:`_parse_gate_check_summary`) in case bd prefixes a
+    human-readable line, then pull the ``missing`` list off the result
+    whose ``id`` matches ``bead_id``. Filtering by id is defensive — an
+    explicit id should only ever return that one result, but we never
+    want to attribute another bead's warnings to this one. Any
+    non-JSON / non-dict / missing-key situation degrades to ``[]``.
+    """
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return []
+    try:
+        payload = json.loads(raw[start : end + 1])
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, dict):
+        return []
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return []
+    missing: list[str] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("id", "")) != bead_id:
+            continue
+        for section in item.get("missing", []) or []:
+            text = str(section).strip()
+            if text:
+                missing.append(text)
+    return missing
