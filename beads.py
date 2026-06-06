@@ -606,6 +606,65 @@ def show(bead_id: str) -> dict[str, Any] | None:
     return None
 
 
+# Keys that ``bd memories --json`` emits as bookkeeping rather than as a
+# real, agent-facing insight. We drop these so the goal-prompt digest is
+# all signal. Currently just bd's payload version stamp; extend if bd
+# starts mixing more metadata into the same object.
+_NON_MEMORY_KEYS: frozenset[str] = frozenset({"schema_version"})
+
+
+def memories() -> dict[str, str]:
+    """Return bd's persistent memories as a ``{key: insight}`` dict.
+
+    Bridges bd's memory layer (``bd remember`` / ``bd memories`` /
+    ``bd prime``'s '## Persistent Memories' section) into bead-chain so a
+    freshly-spawned working agent starts warm instead of cold
+    (coverage-audit gap FB-6, ``bead_chain-ndt``).
+
+    ``bd memories --json`` returns a JSON *object* (not a list) mapping
+    each memory's key to its insight text, plus bookkeeping keys we strip
+    (:data:`_NON_MEMORY_KEYS`). Non-string values are dropped defensively
+    so a future bd schema change can't inject junk into the prompt.
+
+    Insertion order (which bd emits sorted by key) is preserved so the
+    digest is deterministic.
+
+    Returns ``{}`` when bd reports no memories. Raises
+    :class:`BeadsError` on infrastructure failure (bd missing, timeout,
+    non-zero exit, garbage JSON, non-object payload) — same contract as
+    :func:`show`, so the prompt layer can soft-fail and never stall the
+    chain over a nice-to-have.
+    """
+    raw = _run_bd("memories", "--json").strip()
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        snippet = raw[:200].replace("\n", " ")
+        raise BeadsError(
+            f"`bd memories --json` returned non-JSON: {snippet!r}"
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise BeadsError(
+            f"`bd memories --json` returned non-object payload: "
+            f"{type(payload).__name__}"
+        )
+
+    out: dict[str, str] = {}
+    for key, value in payload.items():
+        if key in _NON_MEMORY_KEYS:
+            continue
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if not text:
+            continue
+        out[str(key)] = text
+    return out
+
+
 def claim(bead_id: str) -> None:
     """Claim a bead as in-progress for the current actor."""
     _run_bd("update", bead_id, "--claim")

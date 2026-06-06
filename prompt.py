@@ -14,12 +14,29 @@ from __future__ import annotations
 
 from typing import Any
 
-from .beads import BeadsError, extract_parent_epic_id, show
+from .beads import BeadsError, extract_parent_epic_id, memories, show
 
 # Char cap for the epic-description excerpt injected into the goal prompt.
 # Big enough to convey purpose, small enough that ten chained beads under
 # the same epic don't blow the LLM's context budget on duplicate prose.
 _EPIC_EXCERPT_LIMIT: int = 280
+
+# --- bd memory layer <-> host Kennel policy (coverage-audit gap FB-6) -------
+#
+# POLICY (one line): bead-chain surfaces *bd's* project-scoped memory
+# layer (``bd remember``/``bd memories``, which travels with the Dolt DB)
+# into the goal prompt and nudges agents to write back to it; it does NOT
+# bridge to the host runtime's Kennel — the two are deliberately separate
+# (bd memories = this project's shared facts; Kennel = the host agent's
+# cross-repo diary), and coupling them would tie bead-chain to a
+# host-specific backend. We document the split rather than bridge it.
+#
+# Caps for the persistent-memory digest injected into the goal prompt.
+# Memories are high-signal but unbounded over a project's life; we cap
+# both the count and per-entry length so a long-lived bd DB can't blow
+# the LLM context budget. Newest-by-bd-order entries win the slots.
+_MEMORY_DIGEST_MAX_ENTRIES: int = 12
+_MEMORY_EXCERPT_LIMIT: int = 280
 
 # Preamble prepended to the goal prompt when bead-chain is resuming a
 # bead that was left in_progress by a previous, errored or cancelled
@@ -82,6 +99,61 @@ def _fetch_epic_context(epic_id: str) -> tuple[str, str] | None:
     title = str(epic.get("title", "")).strip()
     excerpt = _first_paragraph_excerpt(str(epic.get("description", "")))
     return title, excerpt
+
+
+def _fetch_memory_digest() -> dict[str, str]:
+    """Return bd's persistent memories as ``{key: insight}``, or ``{}``.
+
+    Soft-fails by design (same rationale as :func:`_fetch_epic_context`):
+    any :class:`BeadsError` — bd missing, timeout, this bd build lacking
+    a ``memories`` subcommand, garbage JSON — yields ``{}`` so the goal
+    prompt renders without a memory block rather than crashing the
+    chain. The memory digest is a warm-start nicety, never a hard
+    dependency.
+    """
+    try:
+        return memories()
+    except BeadsError:
+        return {}
+
+
+def _format_memory_digest_block(mems: dict[str, str]) -> str:
+    """Render a ``## Persistent Memories`` prompt section, or ``""``.
+
+    Bridges bd's memory layer into the goal prompt so a freshly-spawned
+    working agent starts warm — it sees the project's durable insights
+    (architecture decisions, gotchas, prior-bead learnings) the same way
+    a human running ``bd prime`` would (coverage-audit gap FB-6,
+    ``bead_chain-ndt``).
+
+    Contract:
+
+    * Non-empty dict → a block beginning with the literal ``## Persistent
+      Memories`` heading, one ``- key: excerpt`` bullet per memory
+      (capped at :data:`_MEMORY_DIGEST_MAX_ENTRIES`, each excerpt
+      truncated to :data:`_MEMORY_EXCERPT_LIMIT`), then a trailing blank
+      line so it slots between prompt sections.
+    * Empty / non-dict → ``""`` (prompt byte-for-byte unchanged).
+
+    Pure function, trivially testable — the impure fetch lives in
+    :func:`_fetch_memory_digest`.
+    """
+    if not isinstance(mems, dict) or not mems:
+        return ""
+    lines = [
+        "## Persistent Memories",
+        "Durable project knowledge from bd's memory layer (`bd memories`). "
+        "Treat as background context — verify before relying on it:",
+    ]
+    for key, insight in list(mems.items())[:_MEMORY_DIGEST_MAX_ENTRIES]:
+        text = _first_paragraph_excerpt(str(insight), limit=_MEMORY_EXCERPT_LIMIT)
+        if not text:
+            continue
+        lines.append(f"- {key}: {text}")
+    # All entries truncated to nothing (pathological) -> emit nothing.
+    if len(lines) == 2:
+        return ""
+    return "\n".join(lines) + "\n\n"
 
 
 def _format_epic_metadata_lines(bead: dict[str, Any]) -> list[str]:
@@ -536,6 +608,19 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
     provenance, causal bug link and validating test. This is pure
     context: gating behaviour is unchanged, and the block is ``""`` when
     the bead carries no such edges.
+
+    Finally (coverage-audit gap FB-6, ``bead_chain-ndt``), bd's
+    persistent memory layer (``bd remember`` / ``bd memories``) is folded
+    into a ``## Persistent Memories`` block
+    (:func:`_format_memory_digest_block`) near the top of the body so a
+    freshly-spawned agent starts *warm* with the project's durable
+    insights instead of cold. The done-checklist also nudges the agent to
+    write durable learnings back via ``bd remember``, closing the loop.
+    The fetch (:func:`_fetch_memory_digest`) soft-fails to ``{}`` so the
+    prompt is unchanged when bd has no memories or lacks the subcommand.
+    Policy note: this surfaces *bd's* project-scoped memory only — it is
+    deliberately NOT bridged to the host runtime's Kennel (see the policy
+    comment near :data:`_MEMORY_DIGEST_MAX_ENTRIES`).
     """
     bead_id = str(bead.get("id", "<unknown>"))
     title = str(bead.get("title", "")).strip() or "(no title)"
@@ -565,6 +650,13 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
     # gating behaviour is untouched.
     related_block = _format_related_context_block(bead)
 
+    # FB-6 (bead_chain-ndt): warm-start the agent with bd's persistent
+    # memory layer so each bead doesn't begin cold. Soft-fails to "" when
+    # bd has no memories (or lacks the subcommand); placed at the top of
+    # the body — above the bead-specific content — because it's whole-
+    # project framing, not per-bead detail.
+    memory_block = _format_memory_digest_block(_fetch_memory_digest())
+
     preamble = ""
     if recovery:
         preamble = _RECOVERY_PREAMBLE
@@ -576,6 +668,7 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
         f"\n"
         f"{description}\n"
         f"\n"
+        f"{memory_block}"
         f"Issue metadata:\n"
         f"{metadata}\n"
         f"\n"
@@ -586,6 +679,9 @@ def format_bead_as_goal(bead: dict[str, Any], *, recovery: bool = False) -> str:
         f"1. Run linters (`ruff check --fix`, `ruff format .`).\n"
         f"2. Run any relevant tests.\n"
         f"3. Commit the work (no Claude co-author, per project rules).\n"
+        f"4. Record any durable, reusable insight you learned (a gotcha, a\n"
+        f"   design decision, a non-obvious root cause) so the next bead\n"
+        f"   starts warm: `bd remember <insight> --key=<short-slug>`.\n"
         f"\n"
         f"LLM judges will verify completion before this bead is closed."
         f"{_BUG_DISCOVERY_PROTOCOL}"
