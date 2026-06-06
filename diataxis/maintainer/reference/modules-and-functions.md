@@ -53,7 +53,8 @@ Thin subprocess wrapper. Raises `BeadsError` on infrastructure failure.
 | `revert_to_open` | `(bead_id) -> None` | `bd update <id> --status=open` |
 | `close` | `(bead_id, *, reason=None) -> None` | `bd close <id> [--reason ...]` |
 | `has_epic_in_progress` | `() -> bool` | Whether any epic is in_progress |
-| `close_eligible_epics` | `() -> list[dict]` | Roll up epics whose children are all closed |
+| `close_eligible_epics` | `() -> list[dict]` | Roll up epics whose children are all closed (dry-run-previewed; skips recurring/patrol epics) |
+| `is_recurring_epic` | `(bead) -> bool` | True if an epic is a recurring (patrol) molecule rollup must not auto-close |
 
 ## `prompt.py`
 

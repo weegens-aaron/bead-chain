@@ -88,6 +88,8 @@ At session-end (when the queue is empty), bead-chain runs `bd epic close-eligibl
 
 **Implementation note (bead_chain-tfn):** Rollup runs **once per session** at the drain pass, not after every bead close. This prevents bd's server-side cascade from unexpectedly closing unrelated epics. Parent epics may close one session later, but this trade-off prioritizes data safety over single-pass cascading.
 
+**Recurring-molecule protection (bead_chain-wot):** A poured `patrol` molecule is a *recurring* monitor — auto-closing its epic when its children finish would kill the recurrence. Since `bd epic close-eligible` has no exclude flag, rollup first **previews** the eligible set with `--dry-run` and skips any epic flagged by `is_recurring_epic` (a `patrol`/`recurring` label, or a `mol-type=patrol` field), closing only the safe ones. Ephemeral **wisps** never reach the queue at all — `bd ready` excludes them by default and bead-chain never passes `--include-ephemeral`.
+
 **Why:** Epics shouldn't linger as zombies once their work is done.
 
 ---

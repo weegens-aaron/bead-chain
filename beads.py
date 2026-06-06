@@ -51,6 +51,69 @@ _RETRY_BACKOFFS: tuple[float, ...] = (0.5, 1.0)
 # :func:`is_excluded_type` re-filters client-side. DRY.
 EXCLUDED_TYPES: tuple[str, ...] = ("epic", "milestone", "gate", "molecule")
 
+# Molecule types whose live epic must SURVIVE rollup. A poured ``patrol``
+# molecule is a *recurring* monitoring loop: once its current children
+# close, its epic is eligible for ``bd epic close-eligible`` — but closing
+# it would defeat the recurrence (coverage-audit gap formulas#2,
+# bead_chain-wot). We refuse to auto-close epics tagged as one of these.
+# Matched case-insensitively against a ``mol_type``-style field. Extend
+# this tuple if other recurring molecule types appear — one-line change.
+RECURRING_MOL_TYPES: tuple[str, ...] = ("patrol",)
+
+# Field names that *might* carry a molecule's type. bd 1.0.4 does NOT
+# surface mol-type on ``bd show`` / ``epic close-eligible --json`` (verified
+# the hard way — see bead_chain-wot), so today the *label* contract below
+# is the real signal; these keys are forward-compat for a bd that starts
+# emitting the type directly (checked both top-level and inside metadata).
+_MOL_TYPE_KEYS: tuple[str, ...] = ("mol_type", "mol-type", "molecule_type")
+
+# Labels that mark an epic as a recurring molecule that must outlive its
+# children. This is the *documented contract* for tagging a patrol/
+# recurring molecule today (the audit's "template label" path): pour the
+# molecule with one of these labels and rollup will leave its epic open.
+# Matched case-insensitively against the epic's ``labels`` list. Kept as a
+# small, extensible tuple mirroring :data:`EXCLUDED_TYPES`. DRY.
+RECURRING_EPIC_LABELS: tuple[str, ...] = ("patrol", "mol-type:patrol", "recurring")
+
+
+def _mol_type_matches(container: Any) -> bool:
+    """True if ``container`` (a dict) carries a recurring mol-type field."""
+    if not isinstance(container, dict):
+        return False
+    for key in _MOL_TYPE_KEYS:
+        if str(container.get(key, "")).strip().lower() in RECURRING_MOL_TYPES:
+            return True
+    return False
+
+
+def is_recurring_epic(bead: dict[str, Any] | None) -> bool:
+    """True if ``bead`` is a recurring molecule epic rollup must NOT close.
+
+    Two independent signals, either of which protects the epic:
+
+    1. **mol-type field** equals a value in :data:`RECURRING_MOL_TYPES`
+       (e.g. ``patrol``) — checked both top-level and inside a nested
+       ``metadata`` dict. Forward-compat: bd 1.0.4 doesn't emit this yet.
+    2. **label marker** — one of the epic's ``labels`` (case-insensitive)
+       is in :data:`RECURRING_EPIC_LABELS`. This is the signal that
+       actually fires today: tag a poured patrol molecule's epic with a
+       ``patrol`` label and rollup leaves it open for re-pour.
+
+    None/missing/non-dict input is treated as 'not recurring' (safe
+    default: an ordinary epic with no marker rolls up as before — we only
+    *withhold* closure when a recurring marker is positively present).
+    """
+    if not isinstance(bead, dict):
+        return False
+    if _mol_type_matches(bead) or _mol_type_matches(bead.get("metadata")):
+        return True
+    raw = bead.get("labels")
+    if isinstance(raw, list):
+        labels = {str(item).strip().lower() for item in raw}
+        if labels & {lbl.lower() for lbl in RECURRING_EPIC_LABELS}:
+            return True
+    return False
+
 
 def is_excluded_type(bead: dict[str, Any] | None) -> bool:
     """True if ``bead`` is a container type bead-chain must never drive.
@@ -760,15 +823,91 @@ def close_eligible_epics() -> list[dict[str, Any]]:
       * Older bd emits a bare top-level list of epic dicts.
       * Some shapes wrap each closed epic as ``{"epic": {...}}``; we
         unwrap to the inner dict.
+
+    **Recurring-molecule protection (bead_chain-wot / formulas#2):** a
+    poured ``patrol`` molecule is a *recurring* monitor — closing its
+    epic when its current children finish would kill the recurrence.
+    ``bd epic close-eligible`` has no exclude flag, so we can't tell it
+    "skip this epic". Instead we **preview** the eligible set with a
+    non-destructive ``--dry-run`` first (:func:`_preview_close_eligible`)
+    and check each candidate via :func:`is_recurring_epic`:
+
+      * No recurring epic eligible → fast path: run bd's native one-shot
+        cascade (preserves the bead_chain-tfn once-per-session
+        behaviour and every existing rollup test).
+      * ≥1 recurring epic eligible → we must NOT run the bulk close (it
+        would sweep the patrol epic too). Close each *non*-recurring
+        candidate individually and leave the recurring ones open for
+        their next pour.
     """
+    candidates = _preview_close_eligible()
+    if not any(is_recurring_epic(epic) for epic in candidates):
+        # Common case: nothing to protect. Let bd cascade natively.
+        return _bulk_close_eligible()
+    # A recurring (patrol) epic is in the eligible set — bypass the bulk
+    # cascade and close only the safe ones, one by one.
+    return _close_non_recurring(candidates)
+
+
+def _preview_close_eligible() -> list[dict[str, Any]]:
+    """Return the epics ``bd epic close-eligible`` *would* close, non-destructively.
+
+    Wraps ``bd epic close-eligible --dry-run --json``. bd emits a list of
+    ``{"epic": {...full record incl labels...}, "eligible_for_close":
+    true}`` envelopes; :func:`_normalise_closed_epic` unwraps each to the
+    inner epic dict (so :func:`is_recurring_epic` sees its ``labels``).
+    Returns ``[]`` on empty / unparseable output — same silent-success
+    contract as the live close path.
+    """
+    raw = _run_bd("epic", "close-eligible", "--dry-run", "--json").strip()
+    return _parse_close_eligible_payload(raw)
+
+
+def _bulk_close_eligible() -> list[dict[str, Any]]:
+    """Run the destructive ``bd epic close-eligible`` and return what closed."""
     raw = _run_bd("epic", "close-eligible", "--json").strip()
+    return _parse_close_eligible_payload(raw)
+
+
+def _close_non_recurring(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Close every non-recurring epic in ``candidates`` one at a time.
+
+    Used only when a recurring (patrol) epic is in the eligible set, so
+    we can't trust bd's bulk cascade not to sweep it up. Recurring epics
+    are skipped (left open for re-pour). Per-epic close failures are
+    swallowed — a single stubborn epic must not strand the rest of the
+    rollup; the next session's pass retries it.
+    """
+    closed: list[dict[str, Any]] = []
+    for epic in candidates:
+        if is_recurring_epic(epic):
+            continue
+        epic_id = str(epic.get("id", "")).strip()
+        if not epic_id:
+            continue
+        try:
+            close(epic_id, reason="all children complete (bead-chain rollup)")
+        except BeadsError:
+            # Soft-fail this one; rollup is courtesy cleanup, not core.
+            continue
+        closed.append(epic)
+    return closed
+
+
+def _parse_close_eligible_payload(raw: str) -> list[dict[str, Any]]:
+    """Normalise any ``epic close-eligible`` JSON shape into epic dicts.
+
+    Shared by the dry-run preview and the live close so both speak the
+    same dialect. See :func:`close_eligible_epics` for the tolerated
+    shapes. Empty / non-JSON / unexpected payloads degrade to ``[]``.
+    """
     if not raw:
         return []
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
-        # Rollup ran; output format just wasn't JSON we recognise.
-        # Treat as silent success — see docstring.
+        # Rollup ran (or dry-run produced no parseable list); treat as
+        # silent success — see close_eligible_epics docstring.
         return []
 
     if isinstance(payload, list):
