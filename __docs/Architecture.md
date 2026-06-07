@@ -91,7 +91,7 @@ graph TD
 | Dependency | Used for | Failure Impact |
 |------------|----------|----------------|
 | `bd` (beads) CLI | All bead reads/writes (ready, show, claim, close, epic rollup). | Hard stop — bead-chain can do nothing without `bd`; calls raise `BeadsError`. |
-| Dolt DB (behind `bd`) | Durable bead state synced on `refs/dolt/data`. | Local-only state if unsynced; bead-chain itself never pushes (session-close does). |
+| Dolt DB (behind `bd`) | Durable bead state synced on `refs/dolt/data`. | Local-only state if unsynced; bead-chain itself never pushes ([session-close does](Concepts/SessionCloseDurability.md)). |
 | wiggum `/goal` mode | Executes and LLM-judges each bead. | No work gets driven; chaining cannot proceed past claim. |
 | Code Puppy host (plugin API) | Slash-command registration + hook lifecycle. | Plugin never loads; `/bead-chain` unavailable. |
 

@@ -175,6 +175,7 @@ proof against a real `bd`.
 - [Epic Rollup](../Features/EpicRollup.md)
 - [Session-End Epic Rollup](../Flows/SessionEndEpicRollup.md)
 - [Container Type Exclusion](ContainerTypeExclusion.md)
+- [Session Close Durability](SessionCloseDurability.md)
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

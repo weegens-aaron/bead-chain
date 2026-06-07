@@ -247,6 +247,7 @@ to `bd` any other way:
 - [ExecutionHints](ExecutionHints.md)
 - [ContainerTypeExclusion](ContainerTypeExclusion.md)
 - [QueueDriverNotGoalEngine](QueueDriverNotGoalEngine.md)
+- [SessionCloseDurability](SessionCloseDurability.md)
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)
