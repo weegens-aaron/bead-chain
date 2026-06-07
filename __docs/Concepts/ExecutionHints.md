@@ -200,6 +200,7 @@ is emitted, and the chain proceeds with `model → gpt-5` still applied.
 - [GoalPromptConstruction](../Flows/GoalPromptConstruction.md)
 - [BdSubprocessTransport](BdSubprocessTransport.md)
 - [QueueDriverNotGoalEngine](QueueDriverNotGoalEngine.md)
+- [ChainStateSingleton](ChainStateSingleton.md)
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)
