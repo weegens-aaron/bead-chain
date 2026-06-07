@@ -168,6 +168,9 @@ tier, but the singleton resets to idle.
   serial contract.
 - [ExecutionHints](ExecutionHints.md) — hints are applied right after the bead
   is stored in `current_bead`, on the same path in both activation sites.
+- [GoalPromptConstruction](../Flows/GoalPromptConstruction.md) — the
+  `current_bead` dict held here is the exact record that flow formats into the
+  `/goal` prompt, immediately after it's stored.
 
 ## Conventions
 
@@ -215,6 +218,7 @@ tier, but the singleton resets to idle.
 - [RecoveryMode](../Features/RecoveryMode.md)
 - [QueueDriverNotGoalEngine](QueueDriverNotGoalEngine.md)
 - [ExecutionHints](ExecutionHints.md)
+- [GoalPromptConstruction](../Flows/GoalPromptConstruction.md)
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)
