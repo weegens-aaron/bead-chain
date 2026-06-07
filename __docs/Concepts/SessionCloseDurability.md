@@ -143,7 +143,9 @@ not a bug, and not something bead-chain silently relies on.
 
 ## Where Used
 
-- [Session-End Epic Rollup](../Flows/SessionEndEpicRollup.md) — the drain-time
+- [Session-End Epic Rollup](../Flows/SessionEndEpicRollup.md)
+- [StrandedBeadRecovery](../Flows/StrandedBeadRecovery.md) — flips bead status
+  on recovery/revert but, like this concept, never pushes bead state. — the drain-time
   flow whose mutations (`rollup_completed_epics`) are exactly the local-only
   writes that SessionCloseDurability later ships via `bd dolt push`.
 - [Bead Chaining](../Features/BeadChaining.md) — the core loop whose every

@@ -210,6 +210,8 @@ closed-epic dicts plus log lines. The hops:
   triggers this flow.
 - [NextBeadSelectionWaterfall](NextBeadSelectionWaterfall.md) — returns `None`
   (empty queue), the precondition that hands control to this rollup.
+- [StrandedBeadRecovery](StrandedBeadRecovery.md) — tier 0 of that same
+  waterfall; both are consulted before the drain pass reaches this rollup.
 - [RecurringMoleculeProtection](../Concepts/RecurringMoleculeProtection.md) —
   the preview-then-partition guard that keeps `patrol` epics open.
 - [ContainerTypeExclusion](../Concepts/ContainerTypeExclusion.md) — why epics

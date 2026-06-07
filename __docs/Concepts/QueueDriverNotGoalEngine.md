@@ -206,6 +206,9 @@ This boundary is the reason these features/flows are shaped the way they are:
   contract when refusing to honor parallel/alternate run modes.
 - [BdSubprocessTransport](BdSubprocessTransport.md) — how "storage is owned by
   `bd`, not the driver" is implemented (single `_run_bd` chokepoint).
+- [StrandedBeadRecovery](../Flows/StrandedBeadRecovery.md) — re-drives crashed
+  work but never owns durability; the driver-not-engine boundary applied to
+  recovery.
 - [Bead Chaining](../Features/BeadChaining.md)
 - [Close Guard](../Features/CloseGuard.md)
 - [Chain Iteration Loop](../Flows/ChainIterationLoop.md)

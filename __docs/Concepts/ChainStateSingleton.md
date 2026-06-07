@@ -154,7 +154,10 @@ tier, but the singleton resets to idle.
 - [ChainIterationLoop](../Flows/ChainIterationLoop.md) — the turn-end loop reads
   `state.is_active()` / `wiggum_state.is_active()` each turn and advances the
   singleton bead-to-bead.
-- [BeadClaimAndBlockerRecheck](../Flows/BeadClaimAndBlockerRecheck.md) —
+- [BeadClaimAndBlockerRecheck](../Flows/BeadClaimAndBlockerRecheck.md)
+- [StrandedBeadRecovery](../Flows/StrandedBeadRecovery.md) — reads
+  `current_bead` / `current_bead_id` when the cancel hook leaves a bead
+  stranded for the next run. —
   `activate_next_bead` stores each newly-claimed bead in `current_bead` after
   the blocker/gate guards pass.
 - [SessionEndEpicRollup](../Flows/SessionEndEpicRollup.md) — the drain pass that
