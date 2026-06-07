@@ -55,6 +55,17 @@ If a previous run crashed or was cancelled mid-bead, `/bead-chain` detects the s
 
 **Why:** Partial work stays paired with its bead — no orphaning, no duplicate effort.
 
+### Work-Time Blocker Gate
+bead-chain only works beads on the `bd ready` frontier — it respects `blocks` dependencies at **claim/start time**, not just at close time. A bead with an open `DEPENDS ON` (inbound `blocks`) edge is never claimed or driven.
+
+This matters because two paths can otherwise surface a blocked bead:
+- the **recovery tier** reads `bd list --status=in_progress`, which ignores the ready frontier — a bead claimed-while-ready and later re-blocked would be re-driven; and
+- **bd version drift** could let `bd ready` leak a blocked bead.
+
+At every claim site the chain rechecks blockers (via `bd show`); a blocked stranded bead is reverted to `open` (re-entering the queue behind its blockers) rather than re-run.
+
+**Why:** Running blocked work to completion wastes cycles on stale inputs and only trips at `bd close` ("blocked by open issues") — far too late. The close-time guard is a safety net; this is the prevention (bdboard-oals).
+
 ### Epic Affinity
 After closing a bead, bead-chain prefers the next ready sibling **under the same parent epic** before falling back to the global queue.
 
@@ -73,7 +84,11 @@ While bead-chain is active, agent attempts to run `bd close` or `bd update --sta
 **Why:** Only the LLM judges should close a bead. Agents doing their own closing short-circuits the quality gate.
 
 ### Epic Rollup
-After each bead closes, bead-chain runs `bd epic close-eligible` to auto-close any parent epics whose children are now all complete. Cascades are handled by bd.
+At session-end (when the queue is empty), bead-chain runs `bd epic close-eligible` to auto-close any epics whose children are now all complete.
+
+**Implementation note (bead_chain-tfn):** Rollup runs **once per session** at the drain pass, not after every bead close. This prevents bd's server-side cascade from unexpectedly closing unrelated epics. Parent epics may close one session later, but this trade-off prioritizes data safety over single-pass cascading.
+
+**Recurring-molecule protection (bead_chain-wot):** A poured `patrol` molecule is a *recurring* monitor — auto-closing its epic when its children finish would kill the recurrence. Since `bd epic close-eligible` has no exclude flag, rollup first **previews** the eligible set with `--dry-run` and skips any epic flagged by `is_recurring_epic` (a `patrol`/`recurring` label, or a `mol-type=patrol` field), closing only the safe ones. Ephemeral **wisps** never reach the queue at all — `bd ready` excludes them by default and bead-chain never passes `--include-ephemeral`.
 
 **Why:** Epics shouldn't linger as zombies once their work is done.
 
@@ -130,7 +145,7 @@ bead_chain/
 - `bd` command timeout: 30 seconds  
 - Retry policy: 3 attempts with 0.5s/1.0s backoff (timeout only, not errors)
 
-**Excluded types:** Epics are filtered out both server-side (`--exclude-type=epic`) and client-side. bead-chain never tries to drive container beads — only leaf work items.
+**Excluded types:** Container / handle types — `epic`, `milestone`, `gate`, `molecule` — are filtered out both server-side (`--exclude-type=...`) and client-side. bead-chain never tries to drive container beads — only leaf work items.
 
 ---
 

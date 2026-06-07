@@ -67,15 +67,22 @@ from code_puppy.messaging import (
 from code_puppy.plugins.wiggum import state as wiggum_state
 
 from . import state
-from .beads import BeadsError, claim, is_excluded_type, next_ready
+from .beads import (
+    BeadsError,
+    claim,
+    is_excluded_type,
+    next_ready,
+    open_blocker_ids,
+    revert_to_open,
+)
 from .close_guard import on_run_shell_command as _on_run_shell_command
+from .execution_hints import apply_execution_hints
 from .lifecycle import (
     activate_next_bead,
     close_current_bead_success,
-    ensure_epic_in_progress,
     enforce_single_in_progress,
+    ensure_epic_in_progress,
     is_recovery_bead,
-    rollup_completed_epics,
 )
 from .prompt import format_bead_as_goal
 
@@ -207,10 +214,33 @@ def handle_bead_chain_command(command: str) -> str | bool:
         )
         return True
 
+    # Last-line-of-defence assertion: matches the same check in
+    # :func:`lifecycle.activate_next_bead`. ``bd ready`` filters blocked
+    # beads server-side and the recovery path
+    # (:func:`lifecycle.enforce_single_in_progress`) reverts+drops any
+    # blocked stranded bead, so this should never fire. If it does — bd
+    # version drift, or a ``blocks`` edge wired between the probe and now
+    # — we refuse to start work that ``bd close`` will later reject. This
+    # is the bdboard-oals fix: respect work-time blocks at claim time.
+    blockers = open_blocker_ids(bead_id)
+    if blockers:
+        emit_warning(
+            f"bead-chain refused to start with {bead_id}: it has open "
+            f"blocker(s) [{', '.join(blockers)}]. Respecting work-time blocks "
+            "at claim time, not just at close."
+        )
+        if not is_recovery_bead(bead):
+            try:
+                revert_to_open(bead_id)
+                emit_info(f"reverted {bead_id} to open")
+            except BeadsError as exc:
+                emit_warning(f"also couldn't revert {bead_id}: {exc}")
+        return True
+
     recovery = is_recovery_bead(bead)
     if recovery:
         emit_warning(
-            f"⚠️ Recovering stranded in_progress bead {bead_id} — "
+            f"Recovering stranded in_progress bead {bead_id} -- "
             "agent will assess current state before doing new work."
         )
 
@@ -238,6 +268,14 @@ def handle_bead_chain_command(command: str) -> str | bool:
     # no-op and at worst a bd error, so we skip the call entirely.
 
     state.get_state().current_bead = bead
+
+    # FB-8 (bead_chain-9n3): map the bead's recognized execution_* metadata
+    # hints (effort/model/agent_type) onto code-puppy's serial knobs before
+    # arming wiggum, so they shape this /goal pass. Soft-fails per hint and
+    # is a no-op when the bead carries no recognized metadata.
+    applied_hints = apply_execution_hints(bead)
+    if applied_hints:
+        emit_info(f"\U0001f9ea execution hints: {'; '.join(applied_hints)}")
 
     goal_prompt = format_bead_as_goal(bead, recovery=recovery)
     wiggum_state.start(goal_prompt, mode="goal")
@@ -295,11 +333,24 @@ async def _on_interactive_turn_end(
     # bead on top of the one we couldn't close.
     if not state.is_active():
         return None
-    # Rollup runs *between* close and next-pick so logs read linearly:
-    # closed bead → rolled-up epic(s) → started epic → picked next bead.
-    # Only worth attempting when we actually closed something this turn.
-    if just_closed is not None:
-        rollup_completed_epics()
+    # NOTE: Per-bead rollup removed (bead_chain-tfn fix).
+    #
+    # The cascade mechanism in ``bd epic close-eligible`` runs server-side:
+    # closing A's last child closes A, then checks if A's parent B is now
+    # eligible, closes B, checks parent C, etc. Called after EVERY bead
+    # close, this cascade can unexpectedly close unrelated epics.
+    #
+    # Example: closing bead N in molecule-epic A triggers rollup, which
+    # cascades to close A's parent (epic B), which was the last child of
+    # an unrelated epic C. Closing C closes all its orphaned children,
+    # including three tracking beads that had no relationship to A or N.
+    #
+    # Fix: Only call rollup_completed_epics() ONCE, at the end of the
+    # session, when the queue is empty. See activate_next_bead() for the
+    # final rollup call. This prevents multiple cascade iterations from
+    # sweeping up unrelated beads. The trade-off: parent epics may not
+    # close until the next session's rollup, but we gain data safety.
+    #
     # Note: starting the next bead's parent epic is handled inside
     # activate_next_bead, where we actually know which bead got
     # claimed. Doing it here would be premature.

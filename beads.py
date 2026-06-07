@@ -35,10 +35,84 @@ MAX_ATTEMPTS: int = 3  # initial try + up to (MAX_ATTEMPTS - 1) retries
 _RETRY_BACKOFFS: tuple[float, ...] = (0.5, 1.0)
 
 # Bead types that /bead-chain must never try to drive directly.
-# 'epic' is a container of child issues — we want the children, not
-# the epic itself. Extend this tuple if other purely-organizational
-# types appear (e.g. 'milestone'). One-line change, by design. DRY.
-EXCLUDED_TYPES: tuple[str, ...] = ("epic",)
+# These are container / handle types: they organise or gate *other*
+# work and have no code work of their own, so handing one to /goal
+# produces a bead that can't be completed — close_guard then refuses
+# the close and the whole chain stalls.
+#
+#   * 'epic'      — container of child issues (anatomy); drive children
+#   * 'milestone' — container/handle (anatomy#4)
+#   * 'gate'      — gating handle (gates#2)
+#   * 'molecule'  — swarm container/handle (swarms#1)
+#
+# Extend this tuple if other purely-organizational/handle types appear.
+# One-line change, by design — :func:`_exclude_type_arg` builds the
+# server-side ``--exclude-type`` arg from this tuple and
+# :func:`is_excluded_type` re-filters client-side. DRY.
+EXCLUDED_TYPES: tuple[str, ...] = ("epic", "milestone", "gate", "molecule")
+
+# Molecule types whose live epic must SURVIVE rollup. A poured ``patrol``
+# molecule is a *recurring* monitoring loop: once its current children
+# close, its epic is eligible for ``bd epic close-eligible`` — but closing
+# it would defeat the recurrence (coverage-audit gap formulas#2,
+# bead_chain-wot). We refuse to auto-close epics tagged as one of these.
+# Matched case-insensitively against a ``mol_type``-style field. Extend
+# this tuple if other recurring molecule types appear — one-line change.
+RECURRING_MOL_TYPES: tuple[str, ...] = ("patrol",)
+
+# Field names that *might* carry a molecule's type. bd 1.0.4 does NOT
+# surface mol-type on ``bd show`` / ``epic close-eligible --json`` (verified
+# the hard way — see bead_chain-wot), so today the *label* contract below
+# is the real signal; these keys are forward-compat for a bd that starts
+# emitting the type directly (checked both top-level and inside metadata).
+_MOL_TYPE_KEYS: tuple[str, ...] = ("mol_type", "mol-type", "molecule_type")
+
+# Labels that mark an epic as a recurring molecule that must outlive its
+# children. This is the *documented contract* for tagging a patrol/
+# recurring molecule today (the audit's "template label" path): pour the
+# molecule with one of these labels and rollup will leave its epic open.
+# Matched case-insensitively against the epic's ``labels`` list. Kept as a
+# small, extensible tuple mirroring :data:`EXCLUDED_TYPES`. DRY.
+RECURRING_EPIC_LABELS: tuple[str, ...] = ("patrol", "mol-type:patrol", "recurring")
+
+
+def _mol_type_matches(container: Any) -> bool:
+    """True if ``container`` (a dict) carries a recurring mol-type field."""
+    if not isinstance(container, dict):
+        return False
+    for key in _MOL_TYPE_KEYS:
+        if str(container.get(key, "")).strip().lower() in RECURRING_MOL_TYPES:
+            return True
+    return False
+
+
+def is_recurring_epic(bead: dict[str, Any] | None) -> bool:
+    """True if ``bead`` is a recurring molecule epic rollup must NOT close.
+
+    Two independent signals, either of which protects the epic:
+
+    1. **mol-type field** equals a value in :data:`RECURRING_MOL_TYPES`
+       (e.g. ``patrol``) — checked both top-level and inside a nested
+       ``metadata`` dict. Forward-compat: bd 1.0.4 doesn't emit this yet.
+    2. **label marker** — one of the epic's ``labels`` (case-insensitive)
+       is in :data:`RECURRING_EPIC_LABELS`. This is the signal that
+       actually fires today: tag a poured patrol molecule's epic with a
+       ``patrol`` label and rollup leaves it open for re-pour.
+
+    None/missing/non-dict input is treated as 'not recurring' (safe
+    default: an ordinary epic with no marker rolls up as before — we only
+    *withhold* closure when a recurring marker is positively present).
+    """
+    if not isinstance(bead, dict):
+        return False
+    if _mol_type_matches(bead) or _mol_type_matches(bead.get("metadata")):
+        return True
+    raw = bead.get("labels")
+    if isinstance(raw, list):
+        labels = {str(item).strip().lower() for item in raw}
+        if labels & {lbl.lower() for lbl in RECURRING_EPIC_LABELS}:
+            return True
+    return False
 
 
 def is_excluded_type(bead: dict[str, Any] | None) -> bool:
@@ -62,6 +136,66 @@ def is_excluded_type(bead: dict[str, Any] | None) -> bool:
         return False
     issue_type = str(bead.get("issue_type", "")).strip().lower()
     return issue_type in EXCLUDED_TYPES
+
+
+# Dependency-edge types that mean "this bead is blocked until the other
+# one closes". bd uses the literal string ``"blocks"`` for both sides of
+# the edge (it's the edge type, not a perspective) — see repo memory
+# 'dep-edge-direction'. From a bead's *inbound* ``dependencies`` list a
+# ``blocks`` entry reads as "X blocks me", i.e. a work-time blocker.
+#
+#   * 'blocks'    — the canonical hard work-time block.
+#   * 'waits-for' — a *generic* fan-out/aggregation edge created by
+#     ``bd dep add B A --type=waits-for`` (or ``--waits-for=A``). It
+#     lands in the inbound ``dependencies`` array with
+#     ``dependency_type == "waits-for"`` and gates work exactly like
+#     ``blocks`` does. ``bd ready`` honours it server-side, but the
+#     recovery tier (which reads ``bd list --status=in_progress``,
+#     bypassing the ready frontier) did not — so a stranded in_progress
+#     bead re-gated by a generic ``waits-for`` would be re-driven, the
+#     same bdboard-oals failure class as a re-opened ``blocks`` edge
+#     (FB-10). NOTE: the molecule ``waits_for: children-of(...)`` *field*
+#     gate is a different mechanism (a marker, not an inbound edge) and
+#     is handled separately by
+#     :func:`lifecycle._has_fan_out_gate_issue`; the two don't overlap.
+#
+# ``parent-child`` / ``discovered-from`` / ``related`` edges do NOT gate
+# work, so they are deliberately excluded. Tuple-constant so adding a
+# future blocking edge type (e.g. ``"requires"``) stays a one-line edit.
+BLOCKING_DEP_TYPES: tuple[str, ...] = ("blocks", "waits-for")
+
+# Statuses that mean a blocker is *satisfied* (no longer gates work).
+# Only a closed blocker is satisfied; open / in_progress / blocked all
+# still gate. Case-insensitive comparison, see :func:`open_blocker_ids`.
+SATISFIED_BLOCKER_STATUSES: frozenset[str] = frozenset({"closed"})
+
+
+# bd lifecycle status strings bead-chain reasons about by name. The full
+# set lives in `bd statuses`; we only name the ones the chain actually
+# inspects so a typo can't silently break a status comparison.
+IN_PROGRESS_STATUS: str = "in_progress"
+HOOKED_STATUS: str = "hooked"
+PINNED_STATUS: str = "pinned"
+
+# Statuses that represent *stranded in-flight work* the chain must be
+# able to recover (FB-12 / lifecycle#2). bd's ``wip`` category rolls up
+# ``in_progress``, ``blocked`` and ``hooked``; a bead flipped to
+# ``hooked`` by another agent/tool *after* bead-chain claimed it is real
+# partial work that would otherwise be invisible to BOTH ``bd ready``
+# (hooked is out of the ready frontier) AND the recovery tier (which
+# historically only queried ``--status=in_progress``) — so it never gets
+# resumed. We deliberately DO NOT include the frozen states here:
+#
+#   * ``blocked`` — bead-chain models blockedness via the ``blocks``
+#     edge graph (see :func:`open_blocker_ids`), never the status; a
+#     blocked strand is reverted to open, not recovered.
+#   * ``pinned`` / ``deferred`` (frozen) — a human deliberately parked
+#     these "out of the queue". Auto-recovering one would fight that
+#     intent and risk a re-pick loop. ``pinned`` is instead handled at
+#     close-time (see :func:`is_pinned`) so it can't *halt* the chain.
+#
+# One-tuple-edit to widen, mirroring :data:`EXCLUDED_TYPES`. DRY.
+RECOVERABLE_STATUSES: tuple[str, ...] = (IN_PROGRESS_STATUS, HOOKED_STATUS)
 
 
 # Issue types that count as 'bugs' for the blocking-bug priority pass.
@@ -215,9 +349,8 @@ def list_in_progress() -> list[dict[str, Any]]:
     """Return **all** in_progress non-epic beads, in bd's listed order.
 
     Backbone for :func:`next_in_progress` (which is just the head of
-    this list) and for the chain-startup multi-stranded-bead guard
-    that auto-reverts extras to keep the one-bead-at-a-time invariant.
-    Both callers want the same `bd list --status=in_progress
+    this list) and one of the two status queries :func:`list_recoverable_strands`
+    merges. Both callers want the same `bd list --status=in_progress
     --exclude-type=epic --json` query, so we centralise it here. DRY.
 
     **Client-side epic filter.** We pass ``--exclude-type=epic`` to bd,
@@ -232,11 +365,59 @@ def list_in_progress() -> list[dict[str, Any]]:
     timeout, non-list payload, bad JSON) — same contract as the other
     list-returning helpers in this module.
     """
-    raw = _run_bd("list", "--status=in_progress", _exclude_type_arg(), "--json")
-    items = _parse_json_list(raw, "bd list --status=in_progress --json")
+    return _list_by_status(IN_PROGRESS_STATUS)
+
+
+def _list_by_status(status: str) -> list[dict[str, Any]]:
+    """Return all non-epic beads in ``status``, in bd's listed order.
+
+    DRY core of :func:`list_in_progress` and :func:`list_recoverable_strands`:
+    every stranded-work query is the same `bd list --status=<s>
+    --exclude-type=epic --json` shape with the same client-side epic
+    re-filter (the server-side flag has leaked epics in the wild — see
+    :func:`is_excluded_type`). Centralising it means a new recoverable
+    status is a one-line edit to :data:`RECOVERABLE_STATUSES`.
+    """
+    raw = _run_bd("list", f"--status={status}", _exclude_type_arg(), "--json")
+    items = _parse_json_list(raw, f"bd list --status={status} --json")
     return [
         item for item in items if isinstance(item, dict) and not is_excluded_type(item)
     ]
+
+
+def list_recoverable_strands() -> list[dict[str, Any]]:
+    """Return all non-epic beads stranded in a recoverable in-flight status.
+
+    The recovery tier's eyes (FB-12 / lifecycle#2). Historically the
+    chain only queried ``--status=in_progress``, so a bead flipped to
+    ``hooked`` mid-flight by another agent/tool was invisible to BOTH
+    ``bd ready`` (hooked is out of the ready frontier) AND recovery —
+    stranded work that no run ever resumed. We now enumerate every
+    status in :data:`RECOVERABLE_STATUSES` and merge the results.
+
+    Ordering: in_progress strands come first (their status leads the
+    tuple), preserving the prior single-status behaviour for the common
+    case; hooked strands follow. Duplicate ids across queries are
+    de-duped (first occurrence wins) — a bead can only hold one status,
+    but bd version drift could echo one twice, and the one-at-a-time
+    recovery contract must never see the same id twice.
+
+    Epics are excluded both server-side and client-side per
+    :func:`_list_by_status`. Raises :class:`BeadsError` on infra failure
+    — same soft-fail contract callers already expect from
+    :func:`list_in_progress`.
+    """
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for status in RECOVERABLE_STATUSES:
+        for bead in _list_by_status(status):
+            bead_id = str(bead.get("id", "")).strip()
+            if bead_id and bead_id in seen:
+                continue
+            if bead_id:
+                seen.add(bead_id)
+            merged.append(bead)
+    return merged
 
 
 def next_in_progress() -> dict[str, Any] | None:
@@ -290,6 +471,123 @@ def extract_parent_epic_id(bead: dict[str, Any] | None) -> str | None:
         if value:
             return str(value)
     return None
+
+
+def open_blocker_ids(bead_id: str) -> list[str]:
+    """Return the ids of ``bead_id``'s **open** work-time blockers.
+
+    An empty list means the bead is *ready to work* (no unresolved
+    work-time dependencies). A non-empty list names the still-open
+    issues that gate it — exactly the set ``bd close`` would later
+    refuse on.
+
+    This function checks every inbound edge whose ``dependency_type`` is
+    in :data:`BLOCKING_DEP_TYPES` — today ``blocks`` and the generic
+    ``waits-for`` edge (``bd dep add B A --type=waits-for``). Both gate
+    work the same way and ``bd ready`` honours both server-side; mirroring
+    them here keeps the recovery tier honest when it bypasses ``bd ready``
+    (FB-10). The molecule fan-out gate (``waits_for: children-of(...)``
+    *field*, not an inbound edge) is a different mechanism, checked
+    separately in :func:`lifecycle._has_fan_out_gate_issue` and integrated
+    into :func:`lifecycle.activate_next_bead`.
+
+    Why this exists
+    ---------------
+    ``bd ready`` already filters blocked beads server-side, but two
+    chain paths bypass it and can therefore surface a blocked bead:
+
+      1. The **recovery tier** reads ``bd list --status=in_progress``,
+         which does NOT honour the ready frontier. A bead claimed while
+         ready, then re-blocked (blocker reopened, or a ``blocks`` edge
+         wired after the claim), would be re-driven to completion and
+         only trip at ``bd close`` — the exact bug in bdboard-oals.
+      2. **bd version drift.** Same defence-in-depth rationale as the
+         epic ``--exclude-type`` filter: if a future ``bd ready`` ever
+         leaked a blocked bead, we still refuse to drive it.
+
+    We re-fetch via :func:`show` because only ``bd show <id> --json``
+    carries each dependency's *status* + *dependency_type*; the
+    ``dependencies`` array on ``bd ready`` / ``bd list`` output is a
+    list of bare edge records (no status), so it can't tell us whether
+    a blocker is still open.
+
+    Soft-fails to ``[]`` (treat as not-blocked) on any infrastructure
+    error: a transient bd blip must not strand the chain, and the
+    close-time guard remains as the final safety net.
+    """
+    if not bead_id:
+        return []
+    try:
+        bead = show(bead_id)
+    except BeadsError:
+        # Can't determine blockers — don't strand the chain on a blip;
+        # the close-time guard still backstops us.
+        return []
+    if not bead:
+        return []
+
+    deps = bead.get("dependencies")
+    if not isinstance(deps, list):
+        return []
+
+    blockers: list[str] = []
+    for dep in deps:
+        if not isinstance(dep, dict):
+            continue
+        dep_type = str(dep.get("dependency_type", "")).strip().lower()
+        if dep_type not in BLOCKING_DEP_TYPES:
+            continue
+        status = str(dep.get("status", "")).strip().lower()
+        if status in SATISFIED_BLOCKER_STATUSES:
+            continue
+        dep_id = str(dep.get("id", "")).strip()
+        if dep_id:
+            blockers.append(dep_id)
+
+    return blockers
+
+
+def is_blocked(bead_id: str) -> bool:
+    """True if ``bead_id`` has at least one open work-time blocker.
+
+    Thin convenience wrapper over :func:`open_blocker_ids` for callers
+    that only need the boolean. Soft-fails to ``False`` for the same
+    reasons (see that function's docstring).
+    """
+    return bool(open_blocker_ids(bead_id))
+
+
+def is_pinned(bead_id: str) -> bool:
+    """True if ``bead_id``'s **live** status is ``pinned`` (FB-12 / lifecycle#1).
+
+    Re-fetches via :func:`show` rather than trusting a cached bead dict:
+    the hazard this guards against is a bead that was ``open`` when
+    bead-chain claimed it but got flipped to ``pinned`` *mid-flight* by
+    another agent/tool. The cached ``current_bead`` still says
+    ``in_progress`` (or ``open``); only a fresh read reveals the pin.
+
+    Why it matters: closing a ``pinned`` bead **requires ``--force``**
+    (field guide §III), and bead-chain's :func:`close` never passes it.
+    So a pinned bead reaching ``close()`` would fail and halt the whole
+    loop — the same family of stall as the epic-close-fail hazard. The
+    caller (:func:`lifecycle.close_current_bead_success`) checks this
+    first and *respects the pin* (leaves it pinned, drops it as current,
+    trots on) rather than force-closing a bead a human deliberately
+    parked.
+
+    Soft-fails to ``False`` (treat as not-pinned) on any infrastructure
+    error: a transient bd blip must not block a legitimate close — the
+    worst case is the close attempt itself surfaces the real error.
+    """
+    if not bead_id:
+        return False
+    try:
+        bead = show(bead_id)
+    except BeadsError:
+        return False
+    if not bead:
+        return False
+    return str(bead.get("status", "")).strip().lower() == PINNED_STATUS
 
 
 def next_blocking_bug() -> dict[str, Any] | None:
@@ -371,6 +669,65 @@ def show(bead_id: str) -> dict[str, Any] | None:
     return None
 
 
+# Keys that ``bd memories --json`` emits as bookkeeping rather than as a
+# real, agent-facing insight. We drop these so the goal-prompt digest is
+# all signal. Currently just bd's payload version stamp; extend if bd
+# starts mixing more metadata into the same object.
+_NON_MEMORY_KEYS: frozenset[str] = frozenset({"schema_version"})
+
+
+def memories() -> dict[str, str]:
+    """Return bd's persistent memories as a ``{key: insight}`` dict.
+
+    Bridges bd's memory layer (``bd remember`` / ``bd memories`` /
+    ``bd prime``'s '## Persistent Memories' section) into bead-chain so a
+    freshly-spawned working agent starts warm instead of cold
+    (coverage-audit gap FB-6, ``bead_chain-ndt``).
+
+    ``bd memories --json`` returns a JSON *object* (not a list) mapping
+    each memory's key to its insight text, plus bookkeeping keys we strip
+    (:data:`_NON_MEMORY_KEYS`). Non-string values are dropped defensively
+    so a future bd schema change can't inject junk into the prompt.
+
+    Insertion order (which bd emits sorted by key) is preserved so the
+    digest is deterministic.
+
+    Returns ``{}`` when bd reports no memories. Raises
+    :class:`BeadsError` on infrastructure failure (bd missing, timeout,
+    non-zero exit, garbage JSON, non-object payload) — same contract as
+    :func:`show`, so the prompt layer can soft-fail and never stall the
+    chain over a nice-to-have.
+    """
+    raw = _run_bd("memories", "--json").strip()
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        snippet = raw[:200].replace("\n", " ")
+        raise BeadsError(
+            f"`bd memories --json` returned non-JSON: {snippet!r}"
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise BeadsError(
+            f"`bd memories --json` returned non-object payload: "
+            f"{type(payload).__name__}"
+        )
+
+    out: dict[str, str] = {}
+    for key, value in payload.items():
+        if key in _NON_MEMORY_KEYS:
+            continue
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if not text:
+            continue
+        out[str(key)] = text
+    return out
+
+
 def claim(bead_id: str) -> None:
     """Claim a bead as in-progress for the current actor."""
     _run_bd("update", bead_id, "--claim")
@@ -429,10 +786,23 @@ def has_epic_in_progress() -> bool:
 def close_eligible_epics() -> list[dict[str, Any]]:
     """Close every epic whose children are all complete; return the closed ones.
 
-    Wraps ``bd epic close-eligible --json``. Idempotent: a no-op when no
-    epics are eligible. Handles cascading rollups server-side — if
-    closing epic A's last child makes epic A complete, and A was the
-    last child of epic B, bd closes both in one shot.
+    **Conservative approach (bead_chain-tfn fix):** The original cascade
+    mechanism in ``bd epic close-eligible`` was too aggressive, sweeping up
+    unrelated epics and their children when closing a set of molecule beads.
+
+    The fix is simple but effective: call ``bd epic close-eligible`` once,
+    but DISABLE the iteration loop. bd's cascade closes A → checks if parent
+    B is now eligible → closes B → checks parent C, etc. This cascade can
+    unexpectedly pull in unrelated epics that happen to have no open children.
+
+    By calling close-eligible only once per session (at the end of a drain
+    pass in :func:`lifecycle.activate_next_bead`), we limit the scope: only
+    epics that were eligible *at that moment* are closed. Subsequent runs
+    will handle parent eligibility if needed. This sacrifices one-shot
+    cascading for data safety.
+
+    Idempotent: a no-op when no epics are eligible. Return value always
+    contains dicts with at least an ``id`` key.
 
     Older / unexpected bd versions may emit non-JSON output even with
     ``--json``; in that case the rollup *still happened*, we just can't
@@ -449,22 +819,95 @@ def close_eligible_epics() -> list[dict[str, Any]]:
       * bd 1.0.4 wraps a list of bare **string ids** under ``closed``:
         ``{"closed": ["abc-1", "abc-2"], "count": 2}``. Each id is
         normalised to ``{"id": "abc-1"}`` so callers can uniformly do
-        ``epic.get("id")`` / ``epic.get("title")``. (Before this
-        normalisation the ``isinstance(item, dict)`` filter dropped
-        every string, so rollups closed epics *silently* with no log
-        line — bdboard-rzxb.)
+        ``epic.get("id")`` / ``epic.get("title")``.
       * Older bd emits a bare top-level list of epic dicts.
       * Some shapes wrap each closed epic as ``{"epic": {...}}``; we
         unwrap to the inner dict.
+
+    **Recurring-molecule protection (bead_chain-wot / formulas#2):** a
+    poured ``patrol`` molecule is a *recurring* monitor — closing its
+    epic when its current children finish would kill the recurrence.
+    ``bd epic close-eligible`` has no exclude flag, so we can't tell it
+    "skip this epic". Instead we **preview** the eligible set with a
+    non-destructive ``--dry-run`` first (:func:`_preview_close_eligible`)
+    and check each candidate via :func:`is_recurring_epic`:
+
+      * No recurring epic eligible → fast path: run bd's native one-shot
+        cascade (preserves the bead_chain-tfn once-per-session
+        behaviour and every existing rollup test).
+      * ≥1 recurring epic eligible → we must NOT run the bulk close (it
+        would sweep the patrol epic too). Close each *non*-recurring
+        candidate individually and leave the recurring ones open for
+        their next pour.
     """
+    candidates = _preview_close_eligible()
+    if not any(is_recurring_epic(epic) for epic in candidates):
+        # Common case: nothing to protect. Let bd cascade natively.
+        return _bulk_close_eligible()
+    # A recurring (patrol) epic is in the eligible set — bypass the bulk
+    # cascade and close only the safe ones, one by one.
+    return _close_non_recurring(candidates)
+
+
+def _preview_close_eligible() -> list[dict[str, Any]]:
+    """Return the epics ``bd epic close-eligible`` *would* close, non-destructively.
+
+    Wraps ``bd epic close-eligible --dry-run --json``. bd emits a list of
+    ``{"epic": {...full record incl labels...}, "eligible_for_close":
+    true}`` envelopes; :func:`_normalise_closed_epic` unwraps each to the
+    inner epic dict (so :func:`is_recurring_epic` sees its ``labels``).
+    Returns ``[]`` on empty / unparseable output — same silent-success
+    contract as the live close path.
+    """
+    raw = _run_bd("epic", "close-eligible", "--dry-run", "--json").strip()
+    return _parse_close_eligible_payload(raw)
+
+
+def _bulk_close_eligible() -> list[dict[str, Any]]:
+    """Run the destructive ``bd epic close-eligible`` and return what closed."""
     raw = _run_bd("epic", "close-eligible", "--json").strip()
+    return _parse_close_eligible_payload(raw)
+
+
+def _close_non_recurring(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Close every non-recurring epic in ``candidates`` one at a time.
+
+    Used only when a recurring (patrol) epic is in the eligible set, so
+    we can't trust bd's bulk cascade not to sweep it up. Recurring epics
+    are skipped (left open for re-pour). Per-epic close failures are
+    swallowed — a single stubborn epic must not strand the rest of the
+    rollup; the next session's pass retries it.
+    """
+    closed: list[dict[str, Any]] = []
+    for epic in candidates:
+        if is_recurring_epic(epic):
+            continue
+        epic_id = str(epic.get("id", "")).strip()
+        if not epic_id:
+            continue
+        try:
+            close(epic_id, reason="all children complete (bead-chain rollup)")
+        except BeadsError:
+            # Soft-fail this one; rollup is courtesy cleanup, not core.
+            continue
+        closed.append(epic)
+    return closed
+
+
+def _parse_close_eligible_payload(raw: str) -> list[dict[str, Any]]:
+    """Normalise any ``epic close-eligible`` JSON shape into epic dicts.
+
+    Shared by the dry-run preview and the live close so both speak the
+    same dialect. See :func:`close_eligible_epics` for the tolerated
+    shapes. Empty / non-JSON / unexpected payloads degrade to ``[]``.
+    """
     if not raw:
         return []
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
-        # Rollup ran; output format just wasn't JSON we recognise.
-        # Treat as silent success — see docstring.
+        # Rollup ran (or dry-run produced no parseable list); treat as
+        # silent success — see close_eligible_epics docstring.
         return []
 
     if isinstance(payload, list):
@@ -502,3 +945,138 @@ def _normalise_closed_epic(item: Any) -> dict[str, Any]:
     if isinstance(inner, dict):
         return inner
     return item
+
+
+# Summary keys bd emits from ``gate check --json``. Centralised so the
+# parser and its zero-default fallback stay in lock-step.
+_GATE_COUNT_KEYS: tuple[str, ...] = ("checked", "resolved", "escalated", "errors")
+
+
+def check_gates() -> dict[str, int]:
+    """Evaluate all open gates, close the resolved ones, return the counts.
+
+    Wraps ``bd gate check --json``. Resolvable gate types — ``timer``,
+    ``gh:run``, ``gh:pr``, ``bead`` — keep their *target* issues out of
+    ``bd ready`` until the gate closes. bead-chain never polls these on
+    its own, so a gate that has *become* satisfied can sit closeable-but-
+    open and strand its target, stopping the chain short of ready-
+    pending-poll work. Asking bd to re-evaluate every open gate closes
+    the satisfied ones, which re-opens their targets for the next
+    ``bd ready`` pick.
+
+    Returns the summary counts ``{"checked", "resolved", "escalated",
+    "errors"}`` (any missing key defaults to 0). ``resolved > 0`` means
+    at least one gate closed this pass — the caller should re-probe the
+    ready queue rather than declare the chain done.
+
+    Raises :class:`BeadsError` on infrastructure failure (bd missing,
+    non-zero exit) — same contract as :func:`close_eligible_epics`, so
+    the caller can soft-fail. Unparseable-but-successful output degrades
+    to all-zero counts rather than raising: a courtesy probe shouldn't
+    halt the chain over a log-format quirk.
+    """
+    raw = _run_bd("gate", "check", "--json")
+    return _parse_gate_check_summary(raw)
+
+
+def _parse_gate_check_summary(raw: str) -> dict[str, int]:
+    """Extract ``{checked,resolved,escalated,errors}`` from bd's output.
+
+    bd 1.0.x prints a human-readable summary line *before* the JSON
+    object even under ``--json`` (e.g. ``Checked 3 gates: 1 resolved,
+    0 escalated, 0 errors`` then ``{...}``), so we slice from the first
+    ``{`` to the last ``}`` rather than parsing the whole payload. Any
+    non-JSON / non-dict / missing-key situation degrades to zeros so a
+    courtesy gate probe never raises on a log-format quirk.
+    """
+    zeros = {key: 0 for key in _GATE_COUNT_KEYS}
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return zeros
+    try:
+        payload = json.loads(raw[start : end + 1])
+    except json.JSONDecodeError:
+        return zeros
+    if not isinstance(payload, dict):
+        return zeros
+    summary: dict[str, int] = {}
+    for key in _GATE_COUNT_KEYS:
+        value = payload.get(key, 0)
+        summary[key] = value if isinstance(value, int) else 0
+    return summary
+
+
+def lint_warnings(bead_id: str) -> list[str]:
+    """Return ``bd lint`` template-contract warnings for one bead.
+
+    Wraps ``bd lint <id> --status all --json``. ``bd lint`` checks an
+    issue for the *recommended* sections its type requires (e.g. a
+    ``task`` should carry ``## Acceptance Criteria``; an ``epic`` should
+    carry ``## Success Criteria``) and reports the missing ones. The
+    coverage audit (FB-5, ``bead_chain-vmo``) found bead-chain drove
+    beads straight off ``bd ready`` without ever consulting this
+    contract, so a bead that lost its ``## Acceptance Criteria`` to a
+    ``--graph`` import would be graded by the LLM judges against a
+    section the agent was never shown was missing. Surfacing the lint
+    output into the goal prompt closes that blind spot (pairs with FB-2,
+    which renders the criteria that *are* present).
+
+    The ``--status all`` flag is belt-and-suspenders: a claimed bead is
+    ``in_progress``, and ``bd lint``'s default filter is ``open``. On
+    this bd build an explicit issue id already bypasses the status
+    filter, but a future build that honoured it would silently skip the
+    very bead we just claimed — ``--status all`` guarantees the lint
+    runs regardless of the bead's current status.
+
+    Returns the list of missing-section names for ``bead_id`` (e.g.
+    ``['## Acceptance Criteria']``), or ``[]`` when the bead is clean.
+
+    Raises :class:`BeadsError` on infrastructure failure (bd missing,
+    non-zero exit) — same contract as :func:`check_gates`, so the
+    prompt layer can soft-fail to ``[]`` when this bd build lacks the
+    ``lint`` subcommand. Unparseable-but-successful output degrades to
+    ``[]`` rather than raising: a courtesy lint shouldn't halt the
+    chain over a log-format quirk.
+    """
+    raw = _run_bd("lint", bead_id, "--status", "all", "--json")
+    return _parse_lint_missing(raw, bead_id)
+
+
+def _parse_lint_missing(raw: str, bead_id: str) -> list[str]:
+    """Extract ``bead_id``'s missing-section names from ``bd lint`` output.
+
+    ``bd lint --json`` emits ``{"total", "issues", "results": [...]}``
+    where each result is ``{"id", "title", "type", "missing": [...],
+    "warnings": N}``. We slice from the first ``{`` to the last ``}``
+    (mirroring :func:`_parse_gate_check_summary`) in case bd prefixes a
+    human-readable line, then pull the ``missing`` list off the result
+    whose ``id`` matches ``bead_id``. Filtering by id is defensive — an
+    explicit id should only ever return that one result, but we never
+    want to attribute another bead's warnings to this one. Any
+    non-JSON / non-dict / missing-key situation degrades to ``[]``.
+    """
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return []
+    try:
+        payload = json.loads(raw[start : end + 1])
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, dict):
+        return []
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return []
+    missing: list[str] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("id", "")) != bead_id:
+            continue
+        for section in item.get("missing", []) or []:
+            text = str(section).strip()
+            if text:
+                missing.append(text)
+    return missing
