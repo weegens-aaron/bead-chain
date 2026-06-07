@@ -11,8 +11,8 @@ it finishes its item, ticks the box `[x]` and bumps the counters below.
 ## Progress
 
 - **Total:** 22
-- **Done:** 5
-- **Remaining:** 17
+- **Done:** 6
+- **Remaining:** 16
 
 ---
 
@@ -48,7 +48,7 @@ _None — bead-chain has no web views/pages._
 ## Concepts (080+)
 
 - [ ] 080 | Concept: QueueDriverNotGoalEngine -> [QueueDriverNotGoalEngine](Concepts/QueueDriverNotGoalEngine.md)
-- [ ] 081 | Concept: ContainerTypeExclusion -> [ContainerTypeExclusion](Concepts/ContainerTypeExclusion.md)
+- [x] 081 | Concept: ContainerTypeExclusion -> [ContainerTypeExclusion](Concepts/ContainerTypeExclusion.md)
 - [x] 082 | Concept: SessionCloseDurability -> [SessionCloseDurability](Concepts/SessionCloseDurability.md)
 - [x] 083 | Concept: BdSubprocessTransport -> [BdSubprocessTransport](Concepts/BdSubprocessTransport.md)
 - [x] 084 | Concept: ChainStateSingleton -> [ChainStateSingleton](Concepts/ChainStateSingleton.md)
