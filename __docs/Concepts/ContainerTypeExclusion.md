@@ -175,6 +175,9 @@ container.
 - [Bead Chaining](../Features/BeadChaining.md)
 - [Close Guard](../Features/CloseGuard.md)
 - [Next-Bead Selection Waterfall](../Flows/NextBeadSelectionWaterfall.md)
+- [Session-End Epic Rollup](../Flows/SessionEndEpicRollup.md) — closes epic
+  *containers* at drain (the one place bead-chain acts on a container without
+  driving it as work).
 - [Recurring Molecule Protection](RecurringMoleculeProtection.md)
 - [Bd Subprocess Transport](BdSubprocessTransport.md) — `_exclude_type_arg`'s
   flag is passed into `_run_bd`, the single bd-spawn chokepoint.
