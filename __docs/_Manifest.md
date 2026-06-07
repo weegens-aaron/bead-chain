@@ -11,8 +11,8 @@ it finishes its item, ticks the box `[x]` and bumps the counters below.
 ## Progress
 
 - **Total:** 22
-- **Done:** 0
-- **Remaining:** 22
+- **Done:** 1
+- **Remaining:** 21
 
 ---
 
@@ -53,4 +53,4 @@ _None — bead-chain has no web views/pages._
 - [ ] 083 | Concept: BdSubprocessTransport -> [BdSubprocessTransport](Concepts/BdSubprocessTransport.md)
 - [ ] 084 | Concept: ChainStateSingleton -> [ChainStateSingleton](Concepts/ChainStateSingleton.md)
 - [ ] 085 | Concept: ExecutionHints -> [ExecutionHints](Concepts/ExecutionHints.md)
-- [ ] 086 | Concept: RecurringMoleculeProtection -> [RecurringMoleculeProtection](Concepts/RecurringMoleculeProtection.md)
+- [x] 086 | Concept: RecurringMoleculeProtection -> [RecurringMoleculeProtection](Concepts/RecurringMoleculeProtection.md)
