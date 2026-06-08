@@ -11,14 +11,14 @@ it finishes its item, ticks the box `[x]` and bumps the counters below.
 ## Progress
 
 - **Total:** 22
-- **Done:** 21
-- **Remaining:** 1
+- **Done:** 22
+- **Remaining:** 0
 
 ---
 
 ## Features (001+)
 
-- [ ] 001 | Feature: BeadChaining -> [BeadChaining](Features/BeadChaining.md)
+- [x] 001 | Feature: BeadChaining -> [BeadChaining](Features/BeadChaining.md)
 - [x] 002 | Feature: RecoveryMode -> [RecoveryMode](Features/RecoveryMode.md)
 - [x] 003 | Feature: WorkTimeBlockerGate -> [WorkTimeBlockerGate](Features/WorkTimeBlockerGate.md)
 - [x] 004 | Feature: EpicAffinity -> [EpicAffinity](Features/EpicAffinity.md)
