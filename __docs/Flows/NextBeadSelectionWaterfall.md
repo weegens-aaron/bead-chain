@@ -282,6 +282,8 @@ claim, hint application, and `/goal` arming happen downstream in
 - [SessionEndEpicRollup](SessionEndEpicRollup.md) — what runs when the waterfall
   returns `None` (after the gate re-probe): the session-end drain + rollup.
 - [EpicRollup](../Features/EpicRollup.md) — the feature that drain runs once the waterfall returns `None`.
+- [BlockingBugPriority](../Features/BlockingBugPriority.md) — tier 1 of this
+  waterfall in feature form: how/why a ready bug with dependents jumps the queue.
 - [ContainerTypeExclusion](../Concepts/ContainerTypeExclusion.md) — why
   epics/milestones/gates/molecules are filtered out of every tier's query.
 - [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md) — the transport

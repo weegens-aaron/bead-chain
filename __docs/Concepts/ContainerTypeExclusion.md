@@ -129,7 +129,10 @@ container.
   next-bead queries are exactly the ones this exclusion guards.
 - [Close Guard](../Features/CloseGuard.md) — the stall this exclusion prevents
   is the `cannot close epic` failure the close-guard family would otherwise hit.
-- [Next-Bead Selection Waterfall](../Flows/NextBeadSelectionWaterfall.md) —
+- [Next-Bead Selection Waterfall](../Flows/NextBeadSelectionWaterfall.md)
+- [BlockingBugPriority](../Features/BlockingBugPriority.md) — the tier-1 escalation
+  whose `bd ready --type=bug` query threads `_exclude_type_arg` so containers
+  can't escalate as bugs. —
   every tier of the picker filters containers out via this concept.
 - [Bead Claim And Blocker Recheck](../Flows/BeadClaimAndBlockerRecheck.md) — the
   activation boundary re-asserts the invariant here before claiming.

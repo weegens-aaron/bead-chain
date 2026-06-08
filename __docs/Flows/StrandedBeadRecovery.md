@@ -269,6 +269,9 @@ element (the strand list `_list_by_status` returns):
 - [BugDiscoveryProtocol](../Features/BugDiscoveryProtocol.md) — triaged bugs and
   recovery beads can collide; the recovery preamble wins precedence over the
   triage preamble.
+- [BlockingBugPriority](../Features/BlockingBugPriority.md) — tier 1, the next
+  tier this flow (tier 0) outranks: a stranded bug is recovered before it can
+  escalate as a blocking bug.
 - [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md) — the transport
   behind the `bd list` / `bd show` / `bd update` spawns this flow makes.
 - [ContainerTypeExclusion](../Concepts/ContainerTypeExclusion.md) — why epics

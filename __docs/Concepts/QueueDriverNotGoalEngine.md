@@ -212,6 +212,9 @@ This boundary is the reason these features/flows are shaped the way they are:
 - [BugDiscoveryProtocol](../Features/BugDiscoveryProtocol.md) — "file, don't
   close" is this boundary applied to defects: the driver instructs, the judges
   (not the agent) close.
+- [BlockingBugPriority](../Features/BlockingBugPriority.md) — re-ranking by blast
+  radius while trusting bd's own priority order is this boundary applied to
+  selection: the driver picks from bd's frontier, it never invents goals.
 - [Bead Chaining](../Features/BeadChaining.md)
 - [Close Guard](../Features/CloseGuard.md)
 - [Chain Iteration Loop](../Flows/ChainIterationLoop.md)

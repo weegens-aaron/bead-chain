@@ -172,7 +172,8 @@ to `bd` any other way:
   `claim` / `close` calls are all `_run_bd` invocations.
 - [ChainIterationLoop](../Flows/ChainIterationLoop.md) — each iteration's bead
   pick + claim is a transport round-trip.
-- [NextBeadSelectionWaterfall](../Flows/NextBeadSelectionWaterfall.md) — the
+- [NextBeadSelectionWaterfall](../Flows/NextBeadSelectionWaterfall.md)
+- [BlockingBugPriority](../Features/BlockingBugPriority.md) — its `bd ready --type=bug` / `bd show` escalation spawns ride this transport. — the
   waterfall's `next_ready` / `next_ready_in_epic` / `next_blocking_bug` /
   `next_in_progress` queries are all transport reads.
 - [BeadClaimAndBlockerRecheck](../Flows/BeadClaimAndBlockerRecheck.md) —

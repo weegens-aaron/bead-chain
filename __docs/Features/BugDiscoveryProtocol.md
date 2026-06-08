@@ -247,6 +247,9 @@ Run the whole suite with `pytest -q` (245 tests).
 
 ## Related
 
+- [BlockingBugPriority](BlockingBugPriority.md) — the *consumer* half: how the
+  tier-1 waterfall escalates the blocking bug this protocol tells the agent to
+  file (P1 + `--blocks`).
 - [GoalPromptEnrichment](GoalPromptEnrichment.md) — the umbrella feature whose
   `format_bead_as_goal` appends this protocol and selects the preamble.
 - [GoalPromptConstruction](../Flows/GoalPromptConstruction.md) — the flow that
