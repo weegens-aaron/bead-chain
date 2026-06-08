@@ -181,7 +181,8 @@ to `bd` any other way:
   `list_recoverable_strands` and `revert_to_open` ride the transport.
 - [SessionEndEpicRollup](../Flows/SessionEndEpicRollup.md) —
   `close_eligible_epics` / `has_epic_in_progress` are transport reads + writes.
-- [GoalPromptConstruction](../Flows/GoalPromptConstruction.md) — `show`,
+- [GoalPromptConstruction](../Flows/GoalPromptConstruction.md)
+- [BugDiscoveryProtocol](../Features/BugDiscoveryProtocol.md) — the agent's `bd create` filing and the `next_blocking_bug` query both ride this transport. — `show`,
   `memories`, and `lint_warnings` enrich the goal prompt via the transport.
 - [ExecutionHints](ExecutionHints.md) — `_resolve_metadata` re-fetches missing
   `metadata` via `beads.show`, i.e. another `_run_bd` call.

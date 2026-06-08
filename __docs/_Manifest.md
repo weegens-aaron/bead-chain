@@ -11,8 +11,8 @@ it finishes its item, ticks the box `[x]` and bumps the counters below.
 ## Progress
 
 - **Total:** 22
-- **Done:** 14
-- **Remaining:** 8
+- **Done:** 15
+- **Remaining:** 7
 
 ---
 
@@ -25,7 +25,7 @@ it finishes its item, ticks the box `[x]` and bumps the counters below.
 - [ ] 005 | Feature: BlockingBugPriority -> [BlockingBugPriority](Features/BlockingBugPriority.md)
 - [ ] 006 | Feature: CloseGuard -> [CloseGuard](Features/CloseGuard.md)
 - [ ] 007 | Feature: EpicRollup -> [EpicRollup](Features/EpicRollup.md)
-- [ ] 008 | Feature: BugDiscoveryProtocol -> [BugDiscoveryProtocol](Features/BugDiscoveryProtocol.md)
+- [x] 008 | Feature: BugDiscoveryProtocol -> [BugDiscoveryProtocol](Features/BugDiscoveryProtocol.md)
 - [x] 009 | Feature: GoalPromptEnrichment -> [GoalPromptEnrichment](Features/GoalPromptEnrichment.md)
 
 ## Flows (010+)

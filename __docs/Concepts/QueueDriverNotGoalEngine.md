@@ -209,6 +209,9 @@ This boundary is the reason these features/flows are shaped the way they are:
 - [StrandedBeadRecovery](../Flows/StrandedBeadRecovery.md) — re-drives crashed
   work but never owns durability; the driver-not-engine boundary applied to
   recovery.
+- [BugDiscoveryProtocol](../Features/BugDiscoveryProtocol.md) — "file, don't
+  close" is this boundary applied to defects: the driver instructs, the judges
+  (not the agent) close.
 - [Bead Chaining](../Features/BeadChaining.md)
 - [Close Guard](../Features/CloseGuard.md)
 - [Chain Iteration Loop](../Flows/ChainIterationLoop.md)
