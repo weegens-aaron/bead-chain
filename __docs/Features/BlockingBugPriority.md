@@ -265,6 +265,9 @@ and call `beads.next_blocking_bug()` — it should return the dict; flip
   behind the `bd ready --type=bug` and `bd show` spawns this feature makes.
 - [EpicAffinity](EpicAffinity.md) — tier 2, which this feature outranks: a
   ready bug with dependents jumps ahead of staying inside an epic.
+- [WorkTimeBlockerGate](WorkTimeBlockerGate.md) — escalation never overrides a
+  work-time block: a blocking bug that is itself blocked is skipped by
+  `_reject_if_blocked` and falls through to the next tier.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

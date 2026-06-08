@@ -283,6 +283,9 @@ The continuation dict this flow returns to the runner on a successful claim:
   milestones / gates / molecules are refused at the activation boundary.
 - [ExecutionHints](../Concepts/ExecutionHints.md) — the `execution_*` metadata
   applied to the serial drive right after the claim, before arming `/goal`.
+- [WorkTimeBlockerGate](../Features/WorkTimeBlockerGate.md) — the feature whose
+  claim-time blocker recheck (`open_blocker_ids` + revert) this flow performs at
+  both the startup and mid-chain activation sites.
 - [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md) — the transport
   behind the `bd show` / `bd list` / `bd update` spawns this flow makes.
 - [ChainStateSingleton](../Concepts/ChainStateSingleton.md) — holds

@@ -189,6 +189,9 @@ container.
 - [Queue Driver Not Goal Engine](QueueDriverNotGoalEngine.md)
 - [EpicAffinity](../Features/EpicAffinity.md) — its per-epic ready query applies
   this same container double-filter so no container sibling is ever driven.
+- [WorkTimeBlockerGate](../Features/WorkTimeBlockerGate.md) — the sibling
+  defence-in-depth gate: same belt-and-suspenders pattern (server-side filter +
+  client-side recheck) applied to work-time blockers rather than container types.
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

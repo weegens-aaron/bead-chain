@@ -264,6 +264,9 @@ rather than an unrelated ready bead. Run the whole suite with `pytest -q`.
   dict that seeds affinity into `activate_next_bead`.
 - [BeadClaimAndBlockerRecheck](../Flows/BeadClaimAndBlockerRecheck.md) — the
   activation gauntlet that claims the sibling affinity selects.
+- [WorkTimeBlockerGate](WorkTimeBlockerGate.md) — the gate that rechecks the
+  affinity sibling via `_reject_if_blocked`; a blocked sibling is skipped and
+  affinity falls through to the global ready queue.
 - [ContainerTypeExclusion](../Concepts/ContainerTypeExclusion.md) — why the
   per-epic ready query skips container-type siblings.
 - [QueueDriverNotGoalEngine](../Concepts/QueueDriverNotGoalEngine.md) — the SRP

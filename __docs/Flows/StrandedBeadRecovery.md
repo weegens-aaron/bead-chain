@@ -272,6 +272,9 @@ element (the strand list `_list_by_status` returns):
 - [BlockingBugPriority](../Features/BlockingBugPriority.md) — tier 1, the next
   tier this flow (tier 0) outranks: a stranded bug is recovered before it can
   escalate as a blocking bug.
+- [WorkTimeBlockerGate](../Features/WorkTimeBlockerGate.md) — the feature that
+  reverts+drops a blocked stranded bead here (`_unblocked_strands`) instead of
+  re-driving it; this flow is one of its enforcement sites.
 - [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md) — the transport
   behind the `bd list` / `bd show` / `bd update` spawns this flow makes.
 - [ContainerTypeExclusion](../Concepts/ContainerTypeExclusion.md) — why epics

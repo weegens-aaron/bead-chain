@@ -11,8 +11,8 @@ it finishes its item, ticks the box `[x]` and bumps the counters below.
 ## Progress
 
 - **Total:** 22
-- **Done:** 19
-- **Remaining:** 3
+- **Done:** 20
+- **Remaining:** 2
 
 ---
 
@@ -20,7 +20,7 @@ it finishes its item, ticks the box `[x]` and bumps the counters below.
 
 - [ ] 001 | Feature: BeadChaining -> [BeadChaining](Features/BeadChaining.md)
 - [ ] 002 | Feature: RecoveryMode -> [RecoveryMode](Features/RecoveryMode.md)
-- [ ] 003 | Feature: WorkTimeBlockerGate -> [WorkTimeBlockerGate](Features/WorkTimeBlockerGate.md)
+- [x] 003 | Feature: WorkTimeBlockerGate -> [WorkTimeBlockerGate](Features/WorkTimeBlockerGate.md)
 - [x] 004 | Feature: EpicAffinity -> [EpicAffinity](Features/EpicAffinity.md)
 - [x] 005 | Feature: BlockingBugPriority -> [BlockingBugPriority](Features/BlockingBugPriority.md)
 - [x] 006 | Feature: CloseGuard -> [CloseGuard](Features/CloseGuard.md)
