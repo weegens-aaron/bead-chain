@@ -8,6 +8,7 @@ FlowDoc-style maintainer documentation for **bead-chain** — what the code
 - [Architecture](Architecture.md) — system overview, tech stack, diagrams, directory guide.
 - [_FlowDocGuide](_FlowDocGuide.md) — the authoring contract for every doc.
 - [_Manifest](_Manifest.md) — full inventory + progress counters.
+- [Troubleshooting](Troubleshooting.md) — symptom-first diagnostic guide for maintainers.
 
 ## Sections
 
@@ -22,5 +23,5 @@ FlowDoc-style maintainer documentation for **bead-chain** — what the code
 ## Related
 
 - [Repo README](../README.md) — project front page.
-- [User docs](../docs/index.md) — task-oriented user guides.
+- [User docs](../docs/README.md) — task-oriented user guides.
 - [AGENTS.md](../AGENTS.md) — `bd` issue-tracker instructions.
