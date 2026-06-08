@@ -11,8 +11,8 @@ it finishes its item, ticks the box `[x]` and bumps the counters below.
 ## Progress
 
 - **Total:** 22
-- **Done:** 16
-- **Remaining:** 6
+- **Done:** 17
+- **Remaining:** 5
 
 ---
 
@@ -23,7 +23,7 @@ it finishes its item, ticks the box `[x]` and bumps the counters below.
 - [ ] 003 | Feature: WorkTimeBlockerGate -> [WorkTimeBlockerGate](Features/WorkTimeBlockerGate.md)
 - [ ] 004 | Feature: EpicAffinity -> [EpicAffinity](Features/EpicAffinity.md)
 - [ ] 005 | Feature: BlockingBugPriority -> [BlockingBugPriority](Features/BlockingBugPriority.md)
-- [ ] 006 | Feature: CloseGuard -> [CloseGuard](Features/CloseGuard.md)
+- [x] 006 | Feature: CloseGuard -> [CloseGuard](Features/CloseGuard.md)
 - [x] 007 | Feature: EpicRollup -> [EpicRollup](Features/EpicRollup.md)
 - [x] 008 | Feature: BugDiscoveryProtocol -> [BugDiscoveryProtocol](Features/BugDiscoveryProtocol.md)
 - [x] 009 | Feature: GoalPromptEnrichment -> [GoalPromptEnrichment](Features/GoalPromptEnrichment.md)

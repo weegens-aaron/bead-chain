@@ -281,6 +281,8 @@ Run the whole suite with `pytest -q` (245 tests).
   drain pass triggers this feature.
 - [NextBeadSelectionWaterfall](../Flows/NextBeadSelectionWaterfall.md) — returns
   `None` (empty queue), the precondition that hands control to rollup.
+- [CloseGuard](CloseGuard.md) — the contrast case: rollup's epic closes go
+  through `beads.close`/`subprocess.run` and so bypass the agent-close guard.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)
