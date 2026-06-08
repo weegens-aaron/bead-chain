@@ -251,6 +251,8 @@ to `bd` any other way:
 - [ContainerTypeExclusion](ContainerTypeExclusion.md)
 - [QueueDriverNotGoalEngine](QueueDriverNotGoalEngine.md)
 - [SessionCloseDurability](SessionCloseDurability.md)
+- [EpicAffinity](../Features/EpicAffinity.md) — its `bd ready --parent` lookup
+  rides this subprocess transport.
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

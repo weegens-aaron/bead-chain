@@ -254,6 +254,8 @@ the function is pure given its (mockable) `bd` fetches.
   `current_bead` whose dict feeds the enricher.
 - [BeadClaimAndBlockerRecheck](../Flows/BeadClaimAndBlockerRecheck.md) — the
   claim step that runs just before enrichment.
+- [EpicAffinity](EpicAffinity.md) — the other consumer of
+  `extract_parent_epic_id`: it routes selection to a sibling under the same epic.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

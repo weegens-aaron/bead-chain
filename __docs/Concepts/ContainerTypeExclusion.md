@@ -187,6 +187,8 @@ container.
 - [Bd Subprocess Transport](BdSubprocessTransport.md) — `_exclude_type_arg`'s
   flag is passed into `_run_bd`, the single bd-spawn chokepoint.
 - [Queue Driver Not Goal Engine](QueueDriverNotGoalEngine.md)
+- [EpicAffinity](../Features/EpicAffinity.md) — its per-epic ready query applies
+  this same container double-filter so no container sibling is ever driven.
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

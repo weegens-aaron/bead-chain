@@ -221,6 +221,8 @@ This boundary is the reason these features/flows are shaped the way they are:
 - [Goal Prompt Construction](../Flows/GoalPromptConstruction.md)
 - [Epic Rollup](../Features/EpicRollup.md) — the drain-time cleanup whose SRP boundary this concept defines (a drain is not a session boundary).
 - [Session-End Epic Rollup](../Flows/SessionEndEpicRollup.md)
+- [EpicAffinity](../Features/EpicAffinity.md) — reorders bd's frontier by
+  preference (stay-in-epic) without ever inventing goals — the boundary in action.
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

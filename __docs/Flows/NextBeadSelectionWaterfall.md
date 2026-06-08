@@ -297,6 +297,8 @@ claim, hint application, and `/goal` arming happen downstream in
   flow only reverts status and never pushes bead state.
 - [RecurringMoleculeProtection](../Concepts/RecurringMoleculeProtection.md) —
   related molecule/fan-out handling beyond the simple blocker rechecks here.
+- [EpicAffinity](../Features/EpicAffinity.md) — tier 2 of this waterfall in
+  feature form: prefer the next ready sibling under the just-closed bead's epic.
 - [Flows Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

@@ -263,6 +263,8 @@ and call `beads.next_blocking_bug()` — it should return the dict; flip
   the chain picks from bd's frontier, it never invents goals.
 - [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md) — the transport
   behind the `bd ready --type=bug` and `bd show` spawns this feature makes.
+- [EpicAffinity](EpicAffinity.md) — tier 2, which this feature outranks: a
+  ready bug with dependents jumps ahead of staying inside an epic.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

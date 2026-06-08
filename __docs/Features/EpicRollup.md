@@ -283,6 +283,8 @@ Run the whole suite with `pytest -q` (245 tests).
   `None` (empty queue), the precondition that hands control to rollup.
 - [CloseGuard](CloseGuard.md) — the contrast case: rollup's epic closes go
   through `beads.close`/`subprocess.run` and so bypass the agent-close guard.
+- [EpicAffinity](EpicAffinity.md) — drains an epic's children before this
+  drain-time rollup closes the now-empty container.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

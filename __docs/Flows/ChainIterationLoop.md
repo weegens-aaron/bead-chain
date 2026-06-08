@@ -324,6 +324,8 @@ the continuation dict above (new bead).
   how the empty-queue rollup avoids closing recurring/patrol molecule epics.
 - [ExecutionHints](../Concepts/ExecutionHints.md) — the `execution_*` metadata
   this loop applies to each bead before arming wiggum.
+- [EpicAffinity](../Features/EpicAffinity.md) — uses the just-closed dict this
+  loop captures to prefer a sibling under the same epic next iteration.
 - [Flows Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)
