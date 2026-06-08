@@ -305,6 +305,7 @@ the continuation dict above (new bead).
   resumes it.
 - [SessionEndEpicRollup](SessionEndEpicRollup.md) — the empty-queue drain
   (gate re-probe + once-per-session epic rollup) this loop runs before stopping.
+- [EpicRollup](../Features/EpicRollup.md) — the feature that empty-queue drain triggers to auto-close completed epics.
 - [GoalPromptConstruction](GoalPromptConstruction.md) — renders the bead this
   loop activates into the `/goal` prompt string handed to wiggum.
 - [QueueDriverNotGoalEngine](../Concepts/QueueDriverNotGoalEngine.md) — the SRP

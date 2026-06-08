@@ -174,6 +174,8 @@ container.
 
 - [Bead Chaining](../Features/BeadChaining.md)
 - [Close Guard](../Features/CloseGuard.md)
+- [Epic Rollup](../Features/EpicRollup.md) — closes epic *containers* at drain
+  (the rollup feature that acts on a container without driving it as work).
 - [Next-Bead Selection Waterfall](../Flows/NextBeadSelectionWaterfall.md)
 - [Session-End Epic Rollup](../Flows/SessionEndEpicRollup.md) — closes epic
   *containers* at drain (the one place bead-chain acts on a container without

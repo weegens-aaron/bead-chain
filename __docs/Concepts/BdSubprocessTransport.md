@@ -243,6 +243,7 @@ to `bd` any other way:
 - [NextBeadSelectionWaterfall](../Flows/NextBeadSelectionWaterfall.md)
 - [BeadClaimAndBlockerRecheck](../Flows/BeadClaimAndBlockerRecheck.md)
 - [StrandedBeadRecovery](../Flows/StrandedBeadRecovery.md)
+- [EpicRollup](../Features/EpicRollup.md) — the rollup feature whose `epic close-eligible` / `close` calls ride this transport.
 - [SessionEndEpicRollup](../Flows/SessionEndEpicRollup.md)
 - [GoalPromptConstruction](../Flows/GoalPromptConstruction.md)
 - [ExecutionHints](ExecutionHints.md)

@@ -202,6 +202,7 @@ not a bug, and not something bead-chain silently relies on.
   drain-time concept; shares the "a drain is not a session boundary" + soft-fail
   posture.
 - [Session-End Epic Rollup](../Flows/SessionEndEpicRollup.md)
+- [Epic Rollup](../Features/EpicRollup.md) — the drain-time feature that closes epics but, per this concept, never pushes bead state.
 - [Next Bead Selection Waterfall](../Flows/NextBeadSelectionWaterfall.md) — the
   pick-time flow that mutates bead status (tier-0 revert) but, like everything
   else in bead-chain, never pushes/persists — durability stays here.

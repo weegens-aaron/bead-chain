@@ -281,6 +281,7 @@ claim, hint application, and `/goal` arming happen downstream in
   waterfall selects into the `/goal` prompt.
 - [SessionEndEpicRollup](SessionEndEpicRollup.md) — what runs when the waterfall
   returns `None` (after the gate re-probe): the session-end drain + rollup.
+- [EpicRollup](../Features/EpicRollup.md) — the feature that drain runs once the waterfall returns `None`.
 - [ContainerTypeExclusion](../Concepts/ContainerTypeExclusion.md) — why
   epics/milestones/gates/molecules are filtered out of every tier's query.
 - [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md) — the transport
