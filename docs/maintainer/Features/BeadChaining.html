@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BeadChaining — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="../Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="../Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="../Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="../Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="../Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="../Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="index.html">Index</a>
+<a href="BeadChaining.html" class="active">Bead Chaining</a>
+<a href="BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="CloseGuard.html">Close Guard</a>
+<a href="EpicAffinity.html">Epic Affinity</a>
+<a href="EpicRollup.html">Epic Rollup</a>
+<a href="GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="RecoveryMode.html">Recovery Mode</a>
+<a href="WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="beadchaining">BeadChaining</h1>
+<h2 id="what-it-does">What It Does</h2>
+<p>BeadChaining drives your entire <code>bd ready</code> queue through wiggum's <code>/goal</code> mode <strong>one bead at a time</strong> — probing for the next ready bead, claiming it, handing it to the LLM-judged goal loop, closing it when the judges pass, and trotting on to the next — until the queue drains (or a <code>--max=N</code> cap, an empty-queue, or <code>Ctrl+C</code> halts it).</p>
+<h2 id="why-it-exists">Why It Exists</h2>
+<p><code>bd ready</code> knows <em>what</em> should be worked next; wiggum's <code>/goal</code> mode knows <em>how</em> to drive a single task to LLM-judged completion. Nothing connected the two — a human had to eyeball <code>bd ready</code>, copy a bead's prompt into <code>/goal</code>, wait for the judges, run <code>bd close</code>, and repeat by hand for every bead. BeadChaining is that missing belt: it turns a queue plus a goal engine into an unattended, steady-progress worker that respects beads' own ordering (priority, blockers, gates) and never closes a bead the judges didn't sign off on.</p>
+<p>Crucially, BeadChaining is <strong>a queue driver, not a goal engine</strong> — it owns only the boundaries <em>between</em> beads (pick → claim → close → next) and delegates the work-and-grade loop to wiggum. That single boundary is the design spine of the whole plugin (see <a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a>): the driver must never grade completion itself, and must stop anyone <em>else</em> from grading by fiat (that enforcement is <a href="CloseGuard.html">CloseGuard</a>).</p>
+<h2 id="how-it-works">How It Works</h2>
+<h3 id="user-perspective">User Perspective</h3>
+<p>The user types <code>/bead-chain</code> (optionally <code>/bead-chain --max=N</code>) from any repo that uses <code>bd</code>. bead-chain announces itself, names the first bead, and then the familiar <code>/goal</code> stream takes over. From there it is hands-off: each time a bead's goal completes, bead-chain closes it and announces the next one. The user sees a running tally (<code>#N completed this run</code>), epic start/rollup notices, and — on drain — a <code>Good boy!</code> sign-off. <code>Ctrl+C</code> halts the chain at any point and leaves the in-flight bead <code>in_progress</code> for recovery on the next run.</p>
+<pre><code>bead-chain starting…
+BEAD-CHAIN ENGAGED!
+First bead: bead_chain-mol-bps.1 — FlowDoc maintainer: Feature: BeadChaining
+Will claim → /goal → close → repeat until `bd ready` is empty.
+Press Ctrl+C to halt.
+…(/goal stream for bead 1)…
+bead-chain closed bead_chain-mol-bps.1 (#1 completed this run)
+bead-chain claimed bead_chain-xyz — Next ready bead
+…
+bead-chain: no more ready beads. Closed 7 this run. Good boy!</code></pre>
+<h3 id="system-perspective">System Perspective</h3>
+<p>BeadChaining is a three-phase state machine wired entirely in <code>register_callbacks.py</code> and implemented in <code>lifecycle.py</code>:</p>
+<ol>
+<li><strong>Engage (once).</strong> <code>handle_bead_chain_command</code> parses <code>--max=N</code>, runs the recovery/ready probe (<code>enforce_single_in_progress</code> → <code>next_ready</code>), runs the activation gauntlet (excluded-type refusal, work-time blocker recheck, recovery detection), <strong>lazily registers</strong> the turn-end / cancel hooks (so they land <em>after</em> wiggum's startup-registered hook), claims the bead, applies execution hints, arms <code>wiggum_state.start(prompt, mode="goal")</code>, and <em>returns the goal-prompt string</em> — the CLI runs it as the user's prompt, kicking off iteration 1.</li>
+<li><strong>Iterate (every turn).</strong> wiggum's <code>interactive_turn_end</code> hook runs first; bead-chain's <code>_on_interactive_turn_end</code> runs <strong>after</strong> and reads <code>wiggum_state.is_active()</code>. Still active ⇒ return <code>None</code>, let wiggum's continuation win. Just stopped ⇒ the judges passed, so <code>close_current_bead_success</code> closes the bead, then <code>activate_next_bead</code> picks the next via the four-tier waterfall (recovery → blocking bug → epic affinity → global ready), claims it, and returns a continuation dict.</li>
+<li><strong>Halt.</strong> Queue empties (<code>activate_next_bead</code> probes resolved gates, rolls up eligible epics, stops), the <code>--max=N</code> cap trips, or the user hits <code>Ctrl+C</code> (<code>_on_interactive_turn_cancel</code> stops the chain and leaves the bead <code>in_progress</code>).</li>
+</ol>
+<pre class="mermaid">
+sequenceDiagram
+    participant User
+    participant Cmd as handle_bead_chain_command
+    participant BD as beads.py (bd CLI)
+    participant State as state (BeadChainState)
+    participant Wiggum as wiggum /goal + LLM judges
+    participant Hook as _on_interactive_turn_end
+    participant LC as lifecycle (close/pick/activate)
+
+    User-&gt;&gt;Cmd: /bead-chain [--max=N]
+    Cmd-&gt;&gt;BD: enforce_single_in_progress() / next_ready()
+    BD--&gt;&gt;Cmd: ready bead dict (or None)
+    Cmd-&gt;&gt;BD: claim(bead_id) (bd update --claim)
+    Cmd-&gt;&gt;State: start(); current_bead = bead
+    Cmd-&gt;&gt;Wiggum: wiggum_state.start(goal_prompt, mode="goal")
+    Cmd--&gt;&gt;User: returns goal prompt → CLI runs it
+    loop every interactive turn
+        Wiggum-&gt;&gt;Hook: interactive_turn_end fires (wiggum first)
+        Hook-&gt;&gt;State: is_active()? / wiggum_state.is_active()?
+        alt wiggum still cooking
+            Hook--&gt;&gt;Wiggum: return None (let /goal continue)
+        else wiggum stopped (judges passed)
+            Hook-&gt;&gt;LC: close_current_bead_success()
+            LC-&gt;&gt;BD: close(bead_id) (bd close --reason)
+            Hook-&gt;&gt;LC: activate_next_bead(just_closed)
+            LC-&gt;&gt;BD: pick_next_bead waterfall + claim
+            alt next bead found
+                LC-&gt;&gt;Wiggum: wiggum_state.start(next prompt)
+                LC--&gt;&gt;Hook: continuation dict
+            else queue empty
+                LC-&gt;&gt;BD: probe_resolved_gates() + rollup_completed_epics()
+                LC-&gt;&gt;State: stop()
+                LC--&gt;&gt;Hook: None
+            end
+        end
+    end
+    User--&gt;&gt;Hook: Ctrl+C → interactive_turn_cancel → state.stop() (bead left in_progress)
+</pre>
+<h2 id="key-data-shapes">Key Data Shapes</h2>
+<p>bead-chain never invents its own schema — it consumes the JSON <code>bd</code> emits and produces exactly one dict (the runner continuation). A <strong>ready/show bead dict</strong> (the shape <code>next_ready</code>, <code>show</code>, and <code>current_bead</code> carry) looks like:</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-mol-bps.1",
+  "title": "FlowDoc maintainer: Feature: BeadChaining",
+  "issue_type": "task",
+  "status": "open",
+  "priority": 2,
+  "parent": "bead_chain-mol-bps",
+  "dependent_count": 0,
+  "waits_for": null,
+  "labels": ["discover", "docs", "flowdoc"],
+  "description": "Write __docs/Features/BeadChaining.md …",
+  "acceptance_criteria": "file exists … manifest updated"
+}</code></pre>
+<p>The <strong>continuation dict</strong> bead-chain returns from <code>activate_next_bead</code> to hand wiggum the next bead (the only object bead-chain authors):</p>
+<pre><code class="language-json">{
+  "prompt": "&lt;the next bead's /goal prompt string&gt;",
+  "clear_context": true,
+  "delay": 0.5,
+  "reason": "bead_chain"
+}</code></pre>
+<p>The in-process <strong>chain state</strong> singleton (<code>state.BeadChainState</code>) that gates every turn:</p>
+<pre><code class="language-json">{
+  "active": true,
+  "current_bead": { "id": "bead_chain-mol-bps.1", "...": "full bead dict" },
+  "completed_count": 1,
+  "max_iterations": null
+}</code></pre>
+<h2 id="api-surface">API Surface</h2>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>bead-chain is a terminal Code Puppy plugin with <strong>no HTTP endpoints</strong> (see the Endpoints note in the FlowDoc Manifest). Its "surface" is one slash command plus host hooks and the <code>bd</code> subprocess contract, so the <code>-&gt; Endpoint doc</code> column is N/A by design.</p></div>
+<table><thead><tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+<th>-&gt; Endpoint doc</th>
+</tr></thead><tbody>
+<tr>
+<td><code>command</code></td>
+<td><code>/bead-chain [--max=N]</code> → `register_callbacks.handle_bead_chain_command(command) -&gt; str \</td>
+<td>bool`</td>
+<td>Engage the chain: probe, claim first bead, arm wiggum, return the goal prompt</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>hook</code></td>
+<td>`register_callbacks._on_interactive_turn_end(agent, prompt, result, *, success, error) -&gt; dict \</td>
+<td>None`</td>
+<td>Per-turn driver: close on judge-pass, pick + claim + arm next bead</td>
+<td>N/A — host hook</td>
+</tr>
+<tr>
+<td><code>hook</code></td>
+<td><code>register_callbacks._on_interactive_turn_cancel(prompt, *, reason) -&gt; None</code></td>
+<td>Ctrl+C handler: stop the chain, leave the in-flight bead <code>in_progress</code></td>
+<td>N/A — host hook</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td>`lifecycle.close_current_bead_success() -&gt; dict \</td>
+<td>None`</td>
+<td>Close the just-finished bead (or halt on close-failure / pin / epic leak)</td>
+<td>N/A — in-process</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td>`lifecycle.activate_next_bead(just_closed) -&gt; dict \</td>
+<td>None`</td>
+<td>Pick → claim → arm next bead, or drain (gate probe + epic rollup) and stop</td>
+<td>N/A — in-process</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td>`lifecycle.pick_next_bead(just_closed) -&gt; dict \</td>
+<td>None`</td>
+<td>Four-tier selection waterfall (recovery → blocking bug → epic affinity → global)</td>
+<td>N/A — in-process</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td>`beads.next_ready() -&gt; dict \</td>
+<td>None`</td>
+<td><code>bd ready --exclude-type=… --json</code>, epic-refiltered client-side</td>
+<td>N/A — <code>bd</code> subprocess</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td><code>beads.claim(id)</code> / <code>beads.close(id, reason=…)</code> / <code>beads.revert_to_open(id)</code></td>
+<td><code>bd update --claim</code> / <code>bd close --reason</code> / <code>bd update --status=open</code></td>
+<td>N/A — <code>bd</code> subprocess</td>
+</tr>
+</tbody></table>
+<h2 id="implementation-map">Implementation Map</h2>
+<table><thead><tr>
+<th>Responsibility</th>
+<th>File path</th>
+<th>Symbol</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/bead-chain</code> entry: parse <code>--max</code>, probe, gauntlet, claim, arm wiggum, return prompt</td>
+<td><code>register_callbacks.py</code></td>
+<td><code>handle_bead_chain_command</code></td>
+</tr>
+<tr>
+<td><code>--max=N</code> flag parsing (<code>None</code> / int / <code>_PARSE_ERROR</code> sentinel)</td>
+<td><code>register_callbacks.py</code></td>
+<td><code>_parse_max_iterations</code></td>
+</tr>
+<tr>
+<td>Lazy hook registration <em>after</em> wiggum (load-bearing ordering)</td>
+<td><code>register_callbacks.py</code></td>
+<td><code>_ensure_hooks_registered</code></td>
+</tr>
+<tr>
+<td>Per-turn driver loop (close → next)</td>
+<td><code>register_callbacks.py</code></td>
+<td><code>_on_interactive_turn_end</code></td>
+</tr>
+<tr>
+<td>Ctrl+C handler: stop chain, leave bead <code>in_progress</code></td>
+<td><code>register_callbacks.py</code></td>
+<td><code>_on_interactive_turn_cancel</code></td>
+</tr>
+<tr>
+<td>Close the just-finished bead; halt on close-failure / pin / epic-leak</td>
+<td><code>lifecycle.py</code></td>
+<td><code>close_current_bead_success</code></td>
+</tr>
+<tr>
+<td>Pick → claim → arm next; drain (gate probe + rollup) + cap check</td>
+<td><code>lifecycle.py</code></td>
+<td><code>activate_next_bead</code></td>
+</tr>
+<tr>
+<td>Four-tier next-bead waterfall</td>
+<td><code>lifecycle.py</code></td>
+<td><code>pick_next_bead</code></td>
+</tr>
+<tr>
+<td>Startup single-in_progress invariant guard</td>
+<td><code>lifecycle.py</code></td>
+<td><code>enforce_single_in_progress</code></td>
+</tr>
+<tr>
+<td>Recovery-vs-fresh decision (status ∈ recoverable)</td>
+<td><code>lifecycle.py</code></td>
+<td><code>is_recovery_bead</code></td>
+</tr>
+<tr>
+<td>Parent-first epic claim for a true "what am I on" signal</td>
+<td><code>lifecycle.py</code></td>
+<td><code>ensure_epic_in_progress</code></td>
+</tr>
+<tr>
+<td><code>bd ready</code> head, epic-refiltered</td>
+<td><code>beads.py</code></td>
+<td><code>next_ready</code></td>
+</tr>
+<tr>
+<td><code>bd update --claim</code> / <code>bd close --reason</code> / <code>bd update --status=open</code></td>
+<td><code>beads.py</code></td>
+<td><code>claim</code> / <code>close</code> / <code>revert_to_open</code></td>
+</tr>
+<tr>
+<td>Single subprocess chokepoint (timeout + retry + JSON)</td>
+<td><code>beads.py</code></td>
+<td><code>_run_bd</code></td>
+</tr>
+<tr>
+<td>Container-type refusal (epic/milestone/gate/molecule)</td>
+<td><code>beads.py</code></td>
+<td><code>is_excluded_type</code> / <code>EXCLUDED_TYPES</code></td>
+</tr>
+<tr>
+<td>Chain state singleton (<code>active</code>, <code>current_bead</code>, <code>completed_count</code>, <code>max_iterations</code>)</td>
+<td><code>state.py</code></td>
+<td><code>BeadChainState</code></td>
+</tr>
+<tr>
+<td>Per-bead execution hints (effort/model/agent_type) applied before arming</td>
+<td><code>execution_hints.py</code></td>
+<td><code>apply_execution_hints</code></td>
+</tr>
+<tr>
+<td>Bead-dict → <code>/goal</code> prompt (+ recovery preamble)</td>
+<td><code>prompt.py</code></td>
+<td><code>format_bead_as_goal</code></td>
+</tr>
+</tbody></table>
+<h2 id="configuration">Configuration</h2>
+<table><thead><tr>
+<th>Key</th>
+<th>Default</th>
+<th>Effect</th>
+</tr></thead><tbody>
+<tr>
+<td><code>--max=N</code> (CLI flag)</td>
+<td><code>None</code> (no cap)</td>
+<td>Stop the chain after <code>N</code> beads complete this run; invalid/zero/negative values refuse to start (<code>_PARSE_ERROR</code>)</td>
+</tr>
+<tr>
+<td><code>EXCLUDED_TYPES</code> (<code>beads.py</code>)</td>
+<td><code>("epic", "milestone", "gate", "molecule")</code></td>
+<td>Container types filtered from <code>bd ready</code> server-side <strong>and</strong> re-filtered client-side; never claimed/closed</td>
+</tr>
+<tr>
+<td><code>DEFAULT_TIMEOUT</code> (<code>beads.py</code>)</td>
+<td><code>30.0</code> (seconds)</td>
+<td>Per-<code>bd</code>-invocation timeout in <code>_run_bd</code></td>
+</tr>
+<tr>
+<td><code>MAX_ATTEMPTS</code> (<code>beads.py</code>)</td>
+<td><code>3</code></td>
+<td>Initial try + up to 2 retries on <strong>timeout only</strong> (not on errors), with backoff</td>
+</tr>
+<tr>
+<td><code>state.max_iterations</code></td>
+<td><code>None</code></td>
+<td>In-memory mirror of <code>--max=N</code>; reset to <code>None</code> on every <code>stop()</code></td>
+</tr>
+<tr>
+<td><code>state.completed_count</code></td>
+<td><code>0</code></td>
+<td>Per-run tally; reset on every <code>start()</code>, bumped only on a successful <code>close</code></td>
+</tr>
+</tbody></table>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>There is no config file, env var, or <code>pyproject.toml</code>. The only runtime knob is <code>--max=N</code>; everything else is a module-level constant a maintainer edits in source. <code>bd</code> itself inherits the local user's repo + Dolt credentials.</p></div>
+<h2 id="edge-cases">Edge Cases</h2>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>Hook registration order is load-bearing.</strong> The turn-end hook is registered <em>lazily</em> on the first <code>/bead-chain</code> (<code>_ensure_hooks_registered</code>) precisely so it appends <strong>after</strong> wiggum's startup-registered hook. Register it eagerly at import and the order flips — bead-chain would read <code>wiggum_state.is_active()</code> <em>before</em> wiggum decides its fate and close every bead a turn early.</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>**An excluded container type must never reach <code>/goal</code>.** Driving wiggum at an epic/milestone/gate/molecule produces the <code>cannot close epic: N open child issue(s)</code> failure that halts the chain after wasted tokens. <code>is_excluded_type</code> is asserted at <em>three</em> boundaries (startup, pick, activate) as belt-and- suspenders against <code>bd ready</code> server-side filter leaks (see <a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a>).</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>A bead can be re-blocked or pinned <em>after</em> it was claimed.</strong> <code>bd ready</code> filters blockers server-side, but a <code>blocks</code> edge or <code>pinned</code> flag can land between probe and claim. bead-chain rechecks <code>open_blocker_ids</code> at claim and activate time (reverting non-recovery blocked beads to <code>open</code>) and re-reads <code>is_pinned</code> at close time (respecting the pin, dropping the bead, trotting on without bumping the count) — see <a href="WorkTimeBlockerGate.html">WorkTimeBlockerGate</a>.</p></div>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p><strong>bead-chain's own closes bypass CloseGuard, but agent-issued ones don't.</strong> <code>beads.close</code> shells out via <code>subprocess.run</code>, never traversing code_puppy's command runner, so <a href="CloseGuard.html">CloseGuard</a> never fires on the chain's legitimate close. Any <em>agent</em>-issued <code>bd close</code> during a run is blocked — only the LLM judges (via this loop) may close a bead.</p></div>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p><strong>A drain is not a session boundary — bead state stays local until session close.</strong> The loop never runs <code>bd dolt push</code>. Durability/sync is session-close's job, so an interrupted (Ctrl+C) chain's mutations live only in the local Dolt DB until the next session-close pushes them (see <a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a>).</p></div>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p><strong>Epic rollup runs ONCE per session, at drain — never per-bead.</strong> Calling <code>bd epic close-eligible</code> after every child close let its server-side cascade sweep up unrelated epics (over-close bug <code>bead_chain-tfn</code>). The trade-off: parent epics may not close until the next session's rollup.</p></div>
+<h2 id="error-scenarios">Error Scenarios</h2>
+<table><thead><tr>
+<th>Trigger</th>
+<th>Behavior</th>
+<th>User sees</th>
+</tr></thead><tbody>
+<tr>
+<td><code>bd</code> unreachable during the startup probe</td>
+<td><code>enforce_single_in_progress</code>/<code>next_ready</code> raise <code>BeadsError</code>; command bails before claiming anything</td>
+<td><code>bead-chain can't reach \</code>bd\<code>: …</code></td>
+</tr>
+<tr>
+<td><code>bd ready</code> empty at start</td>
+<td>Probe returns <code>None</code>; chain never engages</td>
+<td><code>No ready beads — bead-chain has nothing to fetch.</code></td>
+</tr>
+<tr>
+<td>First/next bead is an excluded container type</td>
+<td><code>is_excluded_type</code> true → refuse to arm wiggum; chain stops (or never starts)</td>
+<td><code>bead-chain refused … excluded container type (epic) …</code></td>
+</tr>
+<tr>
+<td>Bead has open work-time blockers at claim/activate</td>
+<td>Reverted to <code>open</code> (unless recovery), chain refuses/stops</td>
+<td><code>bead-chain refused … open blocker(s) […]</code></td>
+</tr>
+<tr>
+<td><code>bd close</code> fails after judges pass</td>
+<td>Bead left <code>in_progress</code>; chain stops for inspection; recovered next run</td>
+<td><code>bead-chain couldn't close &lt;id&gt;: …</code> + <code>Bead … left in_progress</code></td>
+</tr>
+<tr>
+<td>Bead pinned mid-flight</td>
+<td>Pin respected; bead dropped as current, count <strong>not</strong> bumped; chain keeps trotting</td>
+<td><code>bead &lt;id&gt; was pinned mid-flight -- respecting the pin …</code></td>
+</tr>
+<tr>
+<td>User hits <code>Ctrl+C</code></td>
+<td><code>_on_interactive_turn_cancel</code> stops the chain; bead stays <code>in_progress</code></td>
+<td><code>bead-chain halted due to cancelled.</code> + <code>Bead … left in_progress</code></td>
+</tr>
+<tr>
+<td><code>--max=N</code> cap reached</td>
+<td><code>activate_next_bead</code> stops before picking another bead</td>
+<td><code>bead-chain: --max=N cap reached … Good boy!</code></td>
+</tr>
+<tr>
+<td><code>--max</code> value invalid (non-int / ≤0)</td>
+<td><code>_parse_max_iterations</code> returns <code>_PARSE_ERROR</code>; refuse to start</td>
+<td><code>bead-chain: --max requires a positive integer …</code></td>
+</tr>
+<tr>
+<td>Queue empties (clean drain)</td>
+<td>Gate re-probe → epic rollup → <code>state.stop()</code></td>
+<td><code>bead-chain: no more ready beads. Closed N this run. Good boy!</code></td>
+</tr>
+</tbody></table>
+<h2 id="testing">Testing</h2>
+<p>The suite is hermetic — it mocks the <code>bd</code> subprocess, so no live <code>bd</code> is needed: <code>python -m pytest -q</code>. Key suites that exercise BeadChaining's behavior:</p>
+<ul>
+<li><code>tests/test_pick_respects_blocks.py</code> — the four-tier waterfall honors work-time blockers across tiers.</li>
+<li><code>tests/test_over_close_bug.py</code> / <code>tests/test_over_close_bug_e2e.py</code> — the once-per-session rollup (no per-bead cascade).</li>
+<li><code>tests/test_hooked_pinned_strands.py</code> — recovery includes <code>hooked</code> strands; mid-flight pins are respected.</li>
+<li><code>tests/test_gate_check_empty_queue.py</code> — empty-queue gate re-probe before declaring the chain done.</li>
+<li><code>tests/test_excluded_container_types.py</code> — epics/milestones/gates/molecules never reach <code>/goal</code>.</li>
+<li><code>tests/test_execution_hints.py</code> — hints applied before arming wiggum.</li>
+</ul>
+<p>To smoke-test end to end: from a repo with at least one <code>bd ready</code> bead, run <code>/bead-chain --max=1</code> and confirm it claims one bead, drives <code>/goal</code>, closes on judge-pass, and stops at the cap with the <code> … cap reached</code> message.</p>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the SRP boundary BeadChaining embodies: own the bead boundaries, delegate grading.</li>
+<li><a href="../Concepts/ChainStateSingleton.html">ChainStateSingleton</a> — the two singletons (<code>state</code> + <code>wiggum_state</code>) every turn is gated on.</li>
+<li><a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a> — why epics never enter the chain (the three-boundary refusal).</li>
+<li><a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a> — the <code>_run_bd</code> chokepoint behind every <code>bd</code> call.</li>
+<li><a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a> — why the loop never pushes Dolt; durability is session-close's job.</li>
+<li><a href="../Concepts/ExecutionHints.html">ExecutionHints</a> — per-bead hints applied before arming wiggum.</li>
+<li><a href="RecoveryMode.html">RecoveryMode</a> — how a stranded <code>in_progress</code> bead is resumed.</li>
+<li><a href="WorkTimeBlockerGate.html">WorkTimeBlockerGate</a> — claim-time blocker recheck.</li>
+<li><a href="EpicAffinity.html">EpicAffinity</a> — staying inside an epic between beads.</li>
+<li><a href="BlockingBugPriority.html">BlockingBugPriority</a> — bugs with dependents cut the line.</li>
+<li><a href="CloseGuard.html">CloseGuard</a> — blocks agent-issued closes mid-chain.</li>
+<li><a href="EpicRollup.html">EpicRollup</a> — once-per-session drain-time epic auto-close.</li>
+<li><a href="BugDiscoveryProtocol.html">BugDiscoveryProtocol</a> — file-don't-close bug handling baked into every prompt.</li>
+<li><a href="GoalPromptEnrichment.html">GoalPromptEnrichment</a> — what <code>format_bead_as_goal</code> injects.</li>
+<li><a href="../Flows/ChainIterationLoop.html">ChainIterationLoop</a> — the step-by-step flow of this loop.</li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — the pick waterfall in detail.</li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> — atomic claim + blocker safety.</li>
+<li><a href="../Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> — startup recovery of in-progress work.</li>
+<li><a href="../Flows/SessionEndEpicRollup.html">SessionEndEpicRollup</a> — drain-time rollup flow.</li>
+<li><a href="../Flows/GoalPromptConstruction.html">GoalPromptConstruction</a> — assembling the <code>/goal</code> prompt.</li>
+<li><a href="index.html">Features Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

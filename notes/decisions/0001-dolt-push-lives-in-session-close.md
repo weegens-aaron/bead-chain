@@ -57,7 +57,7 @@ Concretely:
 
 - **Single Responsibility.** bead-chain is a *queue driver*, not a sync engine —
   a deliberate boundary codified in
-  `maintainer/explanation/queue-driver-not-goal-engine.md`. Pushing on drain
+  [QueueDriverNotGoalEngine](../../__docs/Concepts/QueueDriverNotGoalEngine.md). Pushing on drain
   would force the driver to own sync *policy* it has no business owning: which
   remote, push cadence (every bead? once per drain?), and whether to
   `bd dolt pull` on start. Durability is a different axis than queue-draining.

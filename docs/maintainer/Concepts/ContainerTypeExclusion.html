@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ContainerTypeExclusion — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="index.html">Index</a>
+<a href="BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="ChainStateSingleton.html">Chain State Singleton</a>
+<a href="ContainerTypeExclusion.html" class="active">Container Type Exclusion</a>
+<a href="ExecutionHints.html">Execution Hints</a>
+<a href="QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="containertypeexclusion">ContainerTypeExclusion</h1>
+<h2 id="what-is-it">What Is It</h2>
+<p>A defence-in-depth filter that keeps <strong>container / handle</strong> bead types — <code>epic</code>, <code>milestone</code>, <code>gate</code>, <code>molecule</code> — out of every queue bead-chain drives. Container beads are <em>anatomy</em>, not <em>work</em>: they organise or gate other issues but have nothing to actually do. bead-chain only ever activates <strong>leaf work items</strong> (<code>task</code>, <code>bug</code>, <code>chore</code>, <code>feature</code>, …); the exclusion is enforced <em>twice</em> — once server-side as a <code>--exclude-type=...</code> flag on every <code>bd ready</code> / <code>bd list</code> query, and again client-side via a <code>is_excluded_type()</code> re-filter on the returned payload — because the server-side flag has been observed to leak epics through in the wild.</p>
+<h2 id="why-this-approach">Why This Approach</h2>
+<p>The coverage audit (gap <code>formulas#1</code>, the synthesis's #1 finding) traced a whole family of chain <strong>stalls</strong> to a single hole. Before the fix, <code>EXCLUDED_TYPES</code> was just <code>("epic",)</code>, so three other container/handle types — <code>milestone</code>, <code>gate</code>, <code>molecule</code> — could surface on <code>bd ready</code> and be picked as the "next bead." bead-chain would arm wiggum at a container, the agent would do nothing closable, and then <code>bd close</code> would fail with <code>cannot close epic: N open child issue(s)</code> (or the equivalent for a handle) — which <code>close_guard</code> turns into a hard chain <strong>halt</strong> after wasted token spend.</p>
+<p>Two design choices fell out of that:</p>
+<ol>
+<li><strong>Widen the tuple, not the logic.</strong> All four container types share one property — "purely organisational/handle, never doable" — so they belong in one tuple (<code>EXCLUDED_TYPES</code>), consumed by one arg-builder (<code>_exclude_type_arg</code>) and one predicate (<code>is_excluded_type</code>). Adding a future container type is a <strong>one-line edit</strong> to the tuple. (DRY / open-closed.)</li>
+<li><strong>Filter twice — belt <em>and</em> suspenders.</strong> The server-side <code>--exclude-type=...</code> flag <em>should</em> be sufficient, but bd version drift and JSON-casing differences have leaked epics through in production. So every query that builds the flag <em>also</em> re-filters its result through <code>is_excluded_type()</code>. Even if every server-side filter failed open, a container can never reach <code>/goal</code> as drivable work.</li>
+</ol>
+<p>The predicate is deliberately <strong>fail-open on shape, fail-closed on type</strong>: a <code>None</code> / non-dict / mis-shaped bead is treated as <em>not</em> excluded (so a busted record surfaces for a human to handle rather than vanishing silently), while the <code>issue_type</code> match is <strong>case-insensitive</strong> so an upstream bd that suddenly emits <code>"Epic"</code> instead of <code>"epic"</code> doesn't start leaking.</p>
+<h2 id="how-it-works">How It Works</h2>
+<p><code>EXCLUDED_TYPES = ("epic", "milestone", "gate", "molecule")</code> is the single source of truth (<code>beads.py:EXCLUDED_TYPES</code>). Two helpers consume it:</p>
+<ul>
+<li>**<code>_exclude_type_arg()</code>** joins the tuple into the literal CLI string <code>--exclude-type=epic,milestone,gate,molecule</code>, which every queue function passes to <code>bd</code>.</li>
+<li>**<code>is_excluded_type(bead)</code>** lowercases the bead's <code>issue_type</code> field and returns <code>True</code> if it is in <code>EXCLUDED_TYPES</code>.</li>
+</ul>
+<p>Every read path that could surface a container applies <strong>both</strong> layers, and every <em>activation</em> boundary asserts the invariant one last time before arming wiggum:</p>
+<pre class="mermaid">
+flowchart TD
+    Q[bd ready / bd list query] --&gt; Arg["_exclude_type_arg()&lt;br/&gt;--exclude-type=epic,milestone,gate,molecule"]
+    Arg --&gt; BD[bd CLI applies server-side filter]
+    BD --&gt; Raw[JSON payload]
+    Raw --&gt; CF{"is_excluded_type(item)?&lt;br/&gt;(client-side re-filter)"}
+    CF --&gt;|yes — leaked container| Drop[drop item / skip]
+    CF --&gt;|no — leaf work item| Pass[surface as candidate]
+    Pass --&gt; Pick[picker selects next bead]
+    Pick --&gt; Assert{"is_excluded_type(bead)?&lt;br/&gt;(last-line-of-defence assertion)"}
+    Assert --&gt;|yes — leak detected| Refuse["emit_warning + revert_to_open&lt;br/&gt;+ state.stop()&lt;br/&gt;(epic-leak = a bug)"]
+    Assert --&gt;|no| Activate[arm wiggum / claim &amp; drive]
+</pre>
+<h3 id="concrete-example">Concrete example</h3>
+<p><code>next_ready()</code> runs the query with the exclusion flag baked in:</p>
+<pre><code class="language-text">bd ready --exclude-type=epic,milestone,gate,molecule --json</code></pre>
+<p>Suppose bd version drift leaks a <code>milestone</code> through the server-side flag anyway, so the payload is:</p>
+<pre><code class="language-json">[
+  {"id": "bead_chain-mol-bps", "issue_type": "milestone", "parent": null, "labels": ["flowdoc"]},
+  {"id": "bead_chain-x3g", "issue_type": "task", "parent": "bead_chain-2p3", "labels": ["docs"]}
+]</code></pre>
+<p><code>next_ready()</code> iterates the list and calls <code>is_excluded_type()</code> on each item. For the first, <code>str(bead.get("issue_type", "")).strip().lower()</code> is <code>"milestone"</code>, which is in <code>EXCLUDED_TYPES</code>, so it is <strong>skipped</strong>. The second is <code>"task"</code> — not excluded — so it is returned as the next drivable bead:</p>
+<pre><code class="language-json">{"id": "bead_chain-x3g", "issue_type": "task", "parent": "bead_chain-2p3", "labels": ["docs"]}</code></pre>
+<p>Had the picker <em>somehow</em> still handed a container to the activation boundary (<code>lifecycle.activate_next_bead</code> / <code>register_callbacks._on_interactive_turn_end</code> / <code>lifecycle.close_current_bead</code>), the last-line-of-defence <code>if is_excluded_type(bead):</code> assertion fires: it emits a " ... an upstream filter leaked an epic into the chain — this is a bug" warning, <strong>reverts</strong> an in-flight epic back to open (so it doesn't sit corruptingly <code>in_progress</code>), and <strong>stops</strong> the chain for inspection rather than wasting tokens driving a container.</p>
+<h3 id="implementation-references">Implementation references</h3>
+<table><thead><tr>
+<th>Responsibility</th>
+<th>File:Symbol</th>
+</tr></thead><tbody>
+<tr>
+<td>Container/handle type tuple (single source of truth)</td>
+<td><code>beads.py:EXCLUDED_TYPES</code> (<code>("epic", "milestone", "gate", "molecule")</code>)</td>
+</tr>
+<tr>
+<td>Build the <code>--exclude-type=...</code> CLI arg</td>
+<td><code>beads.py:_exclude_type_arg</code></td>
+</tr>
+<tr>
+<td>Case-insensitive client-side predicate</td>
+<td><code>beads.py:is_excluded_type</code></td>
+</tr>
+<tr>
+<td>Top ready bead query (server + client filter)</td>
+<td><code>beads.py:next_ready</code></td>
+</tr>
+<tr>
+<td>Status query core (server + client filter)</td>
+<td><code>beads.py:_list_by_status</code></td>
+</tr>
+<tr>
+<td>In-progress / stranded queries (inherit filter)</td>
+<td><code>beads.py:list_in_progress</code>, <code>beads.py:list_recoverable_strands</code></td>
+</tr>
+<tr>
+<td>Per-epic ready query (server + client filter)</td>
+<td><code>beads.py:next_ready_in_epic</code></td>
+</tr>
+<tr>
+<td>Activation-boundary assertion (revert epic + stop)</td>
+<td><code>lifecycle.py:activate_next_bead</code></td>
+</tr>
+<tr>
+<td>Close-time assertion (refuse + revert + stop)</td>
+<td><code>lifecycle.py:close_current_bead</code></td>
+</tr>
+<tr>
+<td>Turn-start assertion (refuse early)</td>
+<td><code>register_callbacks.py:_on_interactive_turn_end</code></td>
+</tr>
+</tbody></table>
+<h2 id="where-used">Where Used</h2>
+<ul>
+<li><a href="../Features/BeadChaining.html">Bead Chaining</a> — the core feature; its next-bead queries are exactly the ones this exclusion guards.</li>
+<li><a href="../Features/CloseGuard.html">Close Guard</a> — the stall this exclusion prevents is the <code>cannot close epic</code> failure the close-guard family would otherwise hit.</li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">Next-Bead Selection Waterfall</a></li>
+<li><a href="../Features/BlockingBugPriority.html">BlockingBugPriority</a> — the tier-1 escalation whose <code>bd ready --type=bug</code> query threads <code>_exclude_type_arg</code> so containers can't escalate as bugs. — every tier of the picker filters containers out via this concept.</li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a> — the activation boundary re-asserts the invariant here before claiming.</li>
+<li><a href="../Features/RecoveryMode.html">RecoveryMode</a> — relies on epics being filtered out of the recoverable strand set.</li>
+<li><a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a> — the recovery query (<code>list_recoverable_strands</code>) excludes containers too, so a stranded epic is reverted rather than re-driven.</li>
+</ul>
+<h2 id="conventions">Conventions</h2>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>- **Widen <code>EXCLUDED_TYPES</code>, never the logic.<em>* A new purely-organisational /   handle type is a </em>one-line* tuple edit — <code>_exclude_type_arg</code> and   <code>is_excluded_type</code> pick it up automatically (the same one-tuple-edit pattern   as <code>RECURRING_MOL_TYPES</code> and <code>RECOVERABLE_STATUSES</code>). DRY. - <strong>Always filter on BOTH sides.</strong> Pass <code>_exclude_type_arg()</code> to the <code>bd</code>   query <em>and</em> re-filter the payload with <code>is_excluded_type()</code>. The server-side   flag has leaked epics in prod; the client-side pass is what makes the   invariant ironclad. - <strong>Keep the type match case-insensitive.</strong> <code>is_excluded_type</code> lowercases   <code>issue_type</code> so an upstream bd emitting <code>"Epic"</code> can't start leaking. - <strong>Treat an activation-boundary leak as a bug, loudly.</strong> If   <code>is_excluded_type(bead)</code> is ever <code>True</code> at an activation/close boundary,   warn, revert the bead to open, and stop the chain — don't silently drop it.</p></div>
+<h2 id="anti-patterns">Anti-Patterns</h2>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p>- **Don't trust the server-side <code>--exclude-type</code> flag alone.** It has been   observed to leak epics through (bd version drift, JSON casing). Removing the   client-side <code>is_excluded_type</code> re-filter re-opens the stall hole. - **Don't add a per-type <code>if issue_type == "epic" / "milestone" / ...</code> ladder.<strong>   That duplicates the contract across call sites and rots; route everything   through the one tuple + the two helpers. - </strong>Don't drive a container bead "just to close it."** A <code>bd close</code> on an epic   fails with <code>cannot close epic: N open child issue(s)</code> and halts the chain.   Drive the <em>children</em>, never the container. - **Don't make <code>is_excluded_type</code> fail-closed on shape.** A <code>None</code> / non-dict   bead must be treated as <em>not</em> excluded so a mis-shaped record surfaces for a   human rather than vanishing silently.</p></div>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Features/BeadChaining.html">Bead Chaining</a></li>
+<li><a href="../Features/CloseGuard.html">Close Guard</a></li>
+<li><a href="../Features/EpicRollup.html">Epic Rollup</a> — closes epic <em>containers</em> at drain (the rollup feature that acts on a container without driving it as work).</li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">Next-Bead Selection Waterfall</a></li>
+<li><a href="../Flows/SessionEndEpicRollup.html">Session-End Epic Rollup</a> — closes epic <em>containers</em> at drain (the one place bead-chain acts on a container without driving it as work).</li>
+<li><a href="RecurringMoleculeProtection.html">Recurring Molecule Protection</a></li>
+<li><a href="BdSubprocessTransport.html">Bd Subprocess Transport</a> — <code>_exclude_type_arg</code>'s flag is passed into <code>_run_bd</code>, the single bd-spawn chokepoint.</li>
+<li><a href="QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a></li>
+<li><a href="../Features/EpicAffinity.html">EpicAffinity</a> — its per-epic ready query applies this same container double-filter so no container sibling is ever driven.</li>
+<li><a href="../Features/WorkTimeBlockerGate.html">WorkTimeBlockerGate</a> — the sibling defence-in-depth gate: same belt-and-suspenders pattern (server-side filter + client-side recheck) applied to work-time blockers rather than container types.</li>
+<li><a href="../Features/BlockingBugPriority.html">BlockingBugPriority</a> — why <code>_exclude_type_arg</code> keeps containers out of the <code>bd ready --type=bug</code> escalation query.</li>
+<li><a href="../Features/RecoveryMode.html">RecoveryMode</a> — why epics are filtered out of the recoverable set (a stranded container is reverted, never recovered).</li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> — the activation gauntlet that refuses container types at the claim boundary.</li>
+<li><a href="../Flows/ChainIterationLoop.html">ChainIterationLoop</a> — why a container never becomes a <code>current_bead</code> the loop drives.</li>
+<li><a href="../Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> — why a stranded epic is reverted, never recovered (containers excluded from the recoverable set).</li>
+<li><a href="index.html">Concepts Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

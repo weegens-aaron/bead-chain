@@ -43,6 +43,30 @@ class CloseGuardMatch:
 # aren't a pattern agents reach for in practice. YAGNI.
 _COMMAND_BOUNDARY = r"(?:^|&&|\|\||;|\|)\s*"
 
+# Quoted-segment matcher used to blank out shell string literals before
+# the boundary scan. Single-quoted strings are literal (no escapes);
+# double-quoted strings honour backslash escapes. We replace each quoted
+# run — quotes included — with same-length whitespace so that:
+#   * a ``bd close`` line *inside* a quoted arg (e.g. a git commit
+#     message body) is no longer at a real command boundary, and
+#   * a genuine ``bd close`` on its own line *outside* quotes still is.
+# This is what lets us keep ``re.MULTILINE`` (so newline-separated
+# commands are caught) without the false-positive in ``bead_chain-21d``.
+_QUOTED_SEGMENT_RE = re.compile(r"""(?:'[^']*'|"(?:\\.|[^"\\])*")""", re.DOTALL)
+
+
+def _blank_quoted(command: str) -> str:
+    """Replace quoted string literals with equal-length whitespace.
+
+    Keeps overall length/offsets stable (handy for debugging) while
+    ensuring text *inside* quotes can never satisfy ``_COMMAND_BOUNDARY``.
+    Newlines inside a quoted run become spaces, so an embedded
+    ``\nbd close`` no longer looks like a fresh command; newlines
+    *outside* quotes are untouched and still act as separators.
+    """
+    return _QUOTED_SEGMENT_RE.sub(lambda m: " " * len(m.group(0)), command)
+
+
 # Optional path prefix (``/usr/local/bin/``, ``./``, ``$BEADS_BIN/``...).
 # Anything non-whitespace ending in a slash is fine; the basename has to
 # be exactly ``bd``.
@@ -80,12 +104,19 @@ def detect_premature_close(command: str) -> CloseGuardMatch | None:
     if "bd" not in command:
         return None
 
-    if _BD_CLOSE_RE.search(command):
+    # Blank out quoted string literals first so text inside an argument
+    # (e.g. a multi-line git commit message that happens to start a line
+    # with "bd close") can never be mistaken for a real command at a
+    # boundary. Real, unquoted invocations are unaffected. See
+    # ``bead_chain-21d`` for the re.MULTILINE false-positive this guards.
+    scannable = _blank_quoted(command)
+
+    if _BD_CLOSE_RE.search(scannable):
         return CloseGuardMatch(
             pattern_name="bd close",
             description="Direct `bd close` bypasses the LLM judges.",
         )
-    if _BD_UPDATE_STATUS_CLOSED_RE.search(command):
+    if _BD_UPDATE_STATUS_CLOSED_RE.search(scannable):
         return CloseGuardMatch(
             pattern_name="bd update --status=closed",
             description=("Setting status=closed on a bead bypasses the LLM judges."),

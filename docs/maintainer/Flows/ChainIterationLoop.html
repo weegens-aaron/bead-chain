@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChainIterationLoop — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="../Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="../Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="../Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="../Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="../Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="../Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="index.html">Index</a>
+<a href="BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="ChainIterationLoop.html" class="active">Chain Iteration Loop</a>
+<a href="GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="chainiterationloop">ChainIterationLoop</h1>
+<h2 id="what-happens">What Happens</h2>
+<p>The <strong>ChainIterationLoop</strong> is bead-chain's master cycle: the <em>probe → claim → /goal → close → next</em> heartbeat that drains your <code>bd ready</code> queue one bead at a time. It is <strong>not</strong> a goal engine — it is a queue driver that <em>delegates</em> the LLM-judged completion decision to wiggum's <code>/goal</code> mode and only steps in at the boundaries between beads (see <a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a>).</p>
+<p>The loop has three observable phases, all wired in <code>register_callbacks.py</code>:</p>
+<ol>
+<li><strong>Engage (once).</strong> <code>/bead-chain</code> → <code>register_callbacks.handle_bead_chain_command</code> probes for the first bead (recovery first, then <code>bd ready</code>), runs the activation gauntlet, arms wiggum goal mode, and <em>returns the goal prompt string</em> — the CLI runs that string as the user's prompt, kicking off iteration 1.</li>
+<li><strong>Iterate (every turn).</strong> wiggum's <code>interactive_turn_end</code> hook runs first each turn; bead-chain's <code>_on_interactive_turn_end</code> runs <strong>after</strong> it (the hooks are registered lazily so we always land behind wiggum). bead-chain reads <code>wiggum_state.is_active()</code>: - <strong>wiggum still active</strong> ⇒ the current bead's <code>/goal</code> isn't done ⇒ return <code>None</code>, let wiggum's continuation win. - <strong>wiggum just stopped</strong> ⇒ the bead is done (judges passed) ⇒ close it via <code>close_current_bead_success</code>, then <code>activate_next_bead(just_closed)</code> to pick + claim + arm the next one. The next bead's continuation dict is returned to the runner.</li>
+<li><strong>Halt.</strong> Either the queue empties (<code>activate_next_bead</code> returns <code>None</code>, stops the chain after a gate re-probe + epic rollup drain) or the user hits Ctrl+C (<code>_on_interactive_turn_cancel</code> stops the chain and leaves the in-flight bead <code>in_progress</code> for recovery next run).</li>
+</ol>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p><strong>Hook ordering is load-bearing.</strong> bead-chain registers its turn-end hook <em>lazily</em>, on the first <code>/bead-chain</code> invocation (<code>register_callbacks._ensure_hooks_registered</code>), specifically so it appends <strong>after</strong> wiggum's hook (which loads at startup). That guarantees wiggum has already decided its fate for the turn by the time bead-chain checks <code>wiggum_state.is_active()</code>. Register eagerly at import time and the order flips — bead-chain would close beads a turn early. The <code>run_shell_command</code> close-guard hook, by contrast, <em>is</em> registered eagerly because it has no ordering dependency.</p></div>
+<h2 id="trigger">Trigger</h2>
+<table><thead><tr>
+<th>Trigger</th>
+<th>Entry point</th>
+<th>Fires</th>
+</tr></thead><tbody>
+<tr>
+<td>User types <code>/bead-chain [--max=N]</code></td>
+<td><code>register_callbacks.handle_bead_chain_command</code> (<code>register_callbacks.py:138</code>)</td>
+<td>once, to engage the chain</td>
+</tr>
+<tr>
+<td>Any interactive turn ends while the chain is active</td>
+<td><code>register_callbacks._on_interactive_turn_end</code> (<code>register_callbacks.py:289</code>)</td>
+<td>every turn, after wiggum's hook</td>
+</tr>
+<tr>
+<td>User cancels (Ctrl+C) while the chain is active</td>
+<td><code>register_callbacks._on_interactive_turn_cancel</code> (<code>register_callbacks.py:359</code>)</td>
+<td>once per cancel</td>
+</tr>
+</tbody></table>
+<p>The loop is gated on <strong>two</strong> singletons every turn: <code>state.is_active()</code> (is bead-chain engaged?) and <code>wiggum_state.is_active()</code> (is the current bead's <code>/goal</code> still cooking?). Both must be read in that order — if bead-chain isn't active the hook is an immediate no-op; if wiggum is still active bead-chain defers. See <a href="../Concepts/ChainStateSingleton.html">ChainStateSingleton</a>.</p>
+<h2 id="outcome">Outcome</h2>
+<ul>
+<li><strong>Steady state:</strong> one bead is <code>closed</code> per loop turn and the next is <code>claimed</code></li>
+<li>armed, with <code>state.completed_count</code> incremented and <code>state.current_bead</code> swapped to the new bead. The runner receives a continuation dict and runs the next bead's goal prompt.</li>
+<li><strong>Queue empty:</strong> the chain runs the empty-queue gate re-probe (<code>probe_resolved_gates</code>) and, if nothing reopens, the session-end epic rollup drain (<code>rollup_completed_epics</code>), emits <code>no more ready beads … Good boy!</code>, and <code>state.stop()</code>s.</li>
+<li>**<code>--max=N</code> cap hit:** <code>activate_next_bead</code> stops <em>before</em> picking, emitting the cap message — no further bead is claimed.</li>
+<li><strong>Cancelled:</strong> the chain stops; the in-flight bead stays <code>in_progress</code> so the next <code>/bead-chain</code> run recovers it with the recovery preamble.</li>
+<li><strong>Close failure / infra error:</strong> the chain stops loudly, leaving the bead <code>in_progress</code>; nothing new is claimed on top of the un-closeable bead.</li>
+</ul>
+<p>No source files are touched. The only persisted mutations are bd state transitions (<code>bd update --claim</code>, <code>bd close</code>, <code>bd update --status=open</code>) — the loop never pushes/pulls/exports bead state; durability is a session-close concern (<a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a>).</p>
+<pre class="mermaid">
+flowchart TD
+    Cmd([/bead-chain --max=N&lt;br/&gt;handle_bead_chain_command]) --&gt; Active1{state.is_active&lt;br/&gt;already?}
+    Active1 --&gt;|Yes| AlreadyRun([emit 'already running'&lt;br/&gt;return True])
+    Active1 --&gt;|No| ParseMax[_parse_max_iterations]
+    ParseMax --&gt;|invalid| Bail([warn + return True])
+    ParseMax --&gt;|ok| Probe[enforce_single_in_progress&lt;br/&gt;then next_ready]
+    Probe --&gt;|None| NoBeads([emit 'No ready beads'&lt;br/&gt;return True])
+    Probe --&gt;|bead| Gauntlet[container + blocker checks&lt;br/&gt;ensure_epic_in_progress&lt;br/&gt;claim + apply_execution_hints]
+    Gauntlet --&gt; Arm1[wiggum_state.start goal&lt;br/&gt;state.start + set current_bead]
+    Arm1 --&gt; RetPrompt([return goal_prompt str&lt;br/&gt;CLI runs iteration 1])
+
+    RetPrompt -.next turn.-&gt; Turn([_on_interactive_turn_end])
+    Turn --&gt; ChainActive{state.is_active?}
+    ChainActive --&gt;|No| Noop([return None])
+    ChainActive --&gt;|Yes| WigActive{wiggum_state.is_active?}
+    WigActive --&gt;|Yes: goal still cooking| Defer([return None&lt;br/&gt;wiggum continuation wins])
+    WigActive --&gt;|No: goal done| Close[close_current_bead_success&lt;br/&gt;bd close + bump_completed]
+    Close --&gt; StillActive{state.is_active&lt;br/&gt;after close?}
+    StillActive --&gt;|No: close failed| StopClean([return None])
+    StillActive --&gt;|Yes| Activate[activate_next_bead just_closed]
+    Activate --&gt; MaxCap{completed+1 &gt; max?}
+    MaxCap --&gt;|Yes| StopCap([emit cap msg&lt;br/&gt;state.stop, return None])
+    MaxCap --&gt;|No| Pick[pick_next_bead waterfall]
+    Pick --&gt;|bead| ArmN[gauntlet + claim + arm wiggum&lt;br/&gt;return continuation dict]
+    Pick --&gt;|None| GateProbe[probe_resolved_gates]
+    GateProbe --&gt;|resolved| Pick
+    GateProbe --&gt;|none| Drain[rollup_completed_epics&lt;br/&gt;emit 'Good boy!' + stop]
+    ArmN -.next turn.-&gt; Turn
+
+    Cancel([_on_interactive_turn_cancel]) --&gt; CancelActive{state.is_active?}
+    CancelActive --&gt;|No| CancelNoop([return])
+    CancelActive --&gt;|Yes| StopCancel[state.stop&lt;br/&gt;leave bead in_progress&lt;br/&gt;emit recovery note]
+</pre>
+<h2 id="step-by-step">Step-by-Step</h2>
+<table><thead><tr>
+<th>#</th>
+<th>What</th>
+<th>Where (file:symbol)</th>
+<th>Failure mode</th>
+</tr></thead><tbody>
+<tr>
+<td>1</td>
+<td>Refuse to double-engage; emit immediate <code>starting…</code> ack before any (slow) <code>bd</code> probe</td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> (<code>state.is_active()</code> guard)</td>
+<td>Already active ⇒ emit <code>already running</code>, return <code>True</code> (no-op)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Parse <code>--max=N</code> / <code>--max N</code> before touching bd</td>
+<td><code>register_callbacks.py:_parse_max_iterations</code></td>
+<td>Missing/non-int/≤0 value ⇒ <code>_PARSE_ERROR</code> sentinel ⇒ warn + return <code>True</code>, nothing claimed</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Probe for the first bead: recovery strand first, else <code>bd ready</code> head</td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> → <code>lifecycle.enforce_single_in_progress</code> → <code>beads.next_ready</code></td>
+<td><code>BeadsError</code> ⇒ <code>can't reach bd</code> warn + return <code>True</code>; <code>None</code> ⇒ <code>No ready beads</code> + return <code>True</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Activation gauntlet on the first bead (container reject, blocker reject+revert, fan-out gate not applicable at startup), then lazily register hooks, <code>state.start()</code>, set <code>max_iterations</code></td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> + <code>_ensure_hooks_registered</code></td>
+<td>Excluded type or open blocker ⇒ warn (+ revert if not recovery) + return <code>True</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>Walk hierarchy top-down: claim parent epic, then claim child (skipped for recovery beads), apply execution hints, format goal prompt, arm wiggum, <strong>return the prompt string</strong></td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> → <code>lifecycle.ensure_epic_in_progress</code> / <code>beads.claim</code> / <code>execution_hints.apply_execution_hints</code> / <code>prompt.format_bead_as_goal</code> / <code>wiggum_state.start</code></td>
+<td><code>claim</code> <code>BeadsError</code> ⇒ warn + <code>state.stop()</code> + return <code>True</code>; epic claim + hints soft-fail (log only)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Each turn-end: bail if chain inactive</td>
+<td><code>register_callbacks.py:_on_interactive_turn_end</code> (<code>state.is_active()</code>)</td>
+<td>Inactive ⇒ return <code>None</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td>Defer to wiggum while goal mode is live (we run after wiggum by registration order)</td>
+<td><code>register_callbacks.py:_on_interactive_turn_end</code> (<code>wiggum_state.is_active()</code>)</td>
+<td>wiggum active ⇒ return <code>None</code>, its continuation wins</td>
+</tr>
+<tr>
+<td>8</td>
+<td>wiggum stopped ⇒ close the current bead and capture the just-closed dict for epic-affinity routing</td>
+<td><code>lifecycle.close_current_bead_success</code> → <code>beads.close</code></td>
+<td>Container leak ⇒ revert + stop; pinned mid-flight ⇒ respect pin, drop current, keep trotting; <code>bd close</code> <code>BeadsError</code> ⇒ leave <code>in_progress</code> + <code>state.stop()</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td>Bow out if the close step stopped the chain (don't claim on top of an un-closeable bead)</td>
+<td><code>register_callbacks.py:_on_interactive_turn_end</code> (<code>state.is_active()</code> recheck)</td>
+<td>Chain stopped ⇒ return <code>None</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td>Pick + activate the next bead</td>
+<td><code>register_callbacks.py:_on_interactive_turn_end</code> → <code>lifecycle.activate_next_bead</code></td>
+<td>See rows 11-14</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Safety brake: stop before picking if <code>completed_count + 1 &gt; max_iterations</code></td>
+<td><code>lifecycle.activate_next_bead</code> (<code>state.max_iterations</code> check)</td>
+<td>Cap reached ⇒ emit cap msg + <code>state.stop()</code> + return <code>None</code></td>
+</tr>
+<tr>
+<td>12</td>
+<td>Run the four-tier waterfall to choose one bead</td>
+<td><code>lifecycle.pick_next_bead</code> (<code>lifecycle.py:460</code>)</td>
+<td><code>BeadsError</code> ⇒ <code>bd ready failed</code> warn + <code>state.stop()</code> + return <code>None</code></td>
+</tr>
+<tr>
+<td>13</td>
+<td>On empty pick, re-probe gates once; if any resolved, re-run the waterfall</td>
+<td><code>lifecycle.probe_resolved_gates</code> → <code>beads.check_gates</code></td>
+<td>Still empty ⇒ fall to drain (row 14); gate check soft-fails to <code>False</code></td>
+</tr>
+<tr>
+<td>14</td>
+<td>On final empty, run session-end epic rollup drain, emit <code>Good boy!</code>, stop</td>
+<td><code>lifecycle.rollup_completed_epics</code> → <code>beads.close_eligible_epics</code></td>
+<td>Rollup soft-fails (log + continue); chain stops cleanly either way</td>
+</tr>
+<tr>
+<td>15</td>
+<td>Activate the chosen bead: container/blocker/fan-out-gate gauntlet, claim (skip for recovery), apply hints, arm wiggum, return continuation dict</td>
+<td><code>lifecycle.activate_next_bead</code> → <code>ensure_epic_in_progress</code>/<code>claim</code>/<code>apply_execution_hints</code>/<code>format_bead_as_goal</code>/<code>wiggum_state.start</code></td>
+<td>Any reject ⇒ warn (+ revert if not recovery) + <code>state.stop()</code> + return <code>None</code></td>
+</tr>
+<tr>
+<td>16</td>
+<td>Cancel path: stop the chain, leave the in-flight bead <code>in_progress</code>, emit recovery note</td>
+<td><code>register_callbacks.py:_on_interactive_turn_cancel</code></td>
+<td>Inactive ⇒ return early; no current bead ⇒ stop without recovery note</td>
+</tr>
+</tbody></table>
+<h2 id="data-transformations">Data Transformations</h2>
+<p>The loop threads a small set of shapes from bd JSON → singleton state → wiggum:</p>
+<ul>
+<li>**<code>/bead-chain [--max=N]</code> command string → <code>int | None | _PARSE_ERROR</code>.** <code>_parse_max_iterations</code> tokenises the slash-command and extracts the cap. A valid positive int arms <code>state.max_iterations</code>; <code>None</code> means "no cap"; <code>_PARSE_ERROR</code> aborts the engage.</li>
+<li>**<code>bd ready</code> / recovery <code>bd list</code> JSON → bead dict → <code>state.current_bead</code>.** The picked bead dict (full record, not just id) is stored on the singleton so later hops read <code>current_bead["parent"]</code> etc. without re-fetching. The <code>current_bead_id</code> property derives <code>str(current_bead["id"])</code> on demand.</li>
+<li><strong>just-closed bead dict → epic-affinity key (next iteration).</strong> <code>close_current_bead_success</code> returns the bead it <em>intended</em> to close; <code>activate_next_bead</code> passes it to <code>pick_next_bead</code>, where <code>extract_parent_epic_id</code> reads <code>parent</code> (fallbacks <code>parent_id</code>/<code>epic_id</code>) to bias tier 2. See <a href="NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a>.</li>
+<li><strong>bead dict → goal prompt string.</strong> <code>prompt.format_bead_as_goal(bead, recovery=...)</code> renders the bead (title, acceptance criteria, persistent memories, recovery preamble when applicable) into the <code>/goal</code> prompt. See <a href="GoalPromptConstruction.html">GoalPromptConstruction</a>.</li>
+<li><strong>chosen bead → runner continuation dict.</strong> <code>activate_next_bead</code> returns the one object the CLI runner consumes to drive the next turn:</li>
+</ul>
+<pre><code class="language-json">{
+  "prompt": "&lt;the format_bead_as_goal output&gt;",
+  "clear_context": true,
+  "delay": 0.5,
+  "reason": "bead_chain"
+}</code></pre>
+<p>A representative <code>state.current_bead</code> value (a <code>bd ready</code>/<code>bd show</code> element the loop carries through a turn — the loop reads <code>id</code>, <code>issue_type</code>, <code>status</code>, <code>title</code>, <code>parent</code>):</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-mol-bps.10",
+  "issue_type": "task",
+  "status": "in_progress",
+  "priority": 2,
+  "title": "FlowDoc maintainer: Flow: ChainIterationLoop",
+  "parent": "bead_chain-mol-bps"
+}</code></pre>
+<p>The engage path returns a <strong>bare string</strong> (the goal prompt) rather than a continuation dict — that is the CLI's signal to run it as the user's prompt and start iteration 1. Every subsequent turn returns either <code>None</code> (defer/stop) or the continuation dict above (new bead).</p>
+<h2 id="performance-characteristics">Performance Characteristics</h2>
+<ul>
+<li><strong>Event-driven, one turn at a time.</strong> There is no busy loop. The cycle is driven by code_puppy's interactive turn lifecycle: each <code>/goal</code> turn ends, fires <code>interactive_turn_end</code>, and bead-chain either defers (cheap, two in-memory singleton reads) or does one close + one pick.</li>
+<li><strong>The hot path is a no-op.</strong> While a bead's <code>/goal</code> is still running, every turn-end is just <code>state.is_active()</code> + <code>wiggum_state.is_active()</code> → return <code>None</code>. Zero <code>bd</code> traffic, zero allocations of note. bead-chain only spends <code>bd</code> round-trips at bead <strong>boundaries</strong>.</li>
+<li>**Per-boundary <code>bd</code> cost.** A close+advance turn costs: 1 <code>bd close</code> (+ a <code>bd show</code> pin recheck), the waterfall's bounded probes (see <a href="NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — typically ~2 <code>bd list</code> + 1-2 <code>bd ready</code> + a <code>bd show</code> blocker recheck), an <code>ensure_epic_in_progress</code> check (<code>has_epic_in_progress</code> + optional <code>bd show</code> title + <code>claim</code>), and 1 <code>bd update --claim</code>. All short-circuiting.</li>
+<li><strong>Synchronous, single-threaded.</strong> <code>_on_interactive_turn_end</code> is <code>async</code> (hook contract) but does no concurrency itself; the <code>bd</code> calls are blocking subprocess spawns on the calling thread.</li>
+<li><strong>Every spawn rides one chokepoint.</strong> All <code>bd</code> calls funnel through <code>beads._run_bd</code> (<code>beads.py:280</code>) with <code>DEFAULT_TIMEOUT = 30.0</code> and retry backoff — see <a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a>. The loop adds no caching beyond holding the current bead dict in memory.</li>
+<li><strong>No N+1 over the queue.</strong> The loop processes exactly one bead per boundary; it never enumerates the whole queue per bead (the waterfall reads list heads).</li>
+<li><strong>Bounded run length.</strong> <code>--max=N</code> caps total iterations; otherwise the loop runs until <code>bd ready</code> (+ gate re-probe) is genuinely empty.</li>
+</ul>
+<h2 id="failure-handling">Failure Handling</h2>
+<ul>
+<li><strong>wiggum-vs-cancel disambiguation.</strong> When the turn-end hook sees wiggum inactive it <em>assumes success</em> — because <code>interactive_turn_cancel</code> fires on cancellation and would have already <code>state.stop()</code>ped the chain. So reaching the close branch with <code>state.is_active()</code> still <code>True</code> implies the judges passed, not a cancel.</li>
+<li><strong>Close failure stops, never orphans.</strong> If <code>bd close</code> raises, <code>close_current_bead_success</code> leaves the bead <code>in_progress</code>, stops the chain, and emits the recovery note. The turn-end handler then rechecks <code>state.is_active()</code> and bows out <em>before</em> <code>activate_next_bead</code>, so no new bead is claimed on top of the un-closeable one.</li>
+<li><strong>Container leak self-heals.</strong> An epic that somehow reaches <code>current_bead</code> is refused at close time and <strong>reverted to open</strong> (containers are filtered out of recovery, so leaving one stranded would corrupt status forever). At activation time a leaked container is refused and the chain stops. See <a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a>.</li>
+<li><strong>Mid-flight pin is respected.</strong> If a bead is <code>pinned</code> after claim but before close, <code>is_pinned</code> short-circuits close (force-closing would override a human's deliberate park): drop it as current, do <strong>not</strong> bump <code>completed</code>, keep trotting. <code>bd ready</code>/recovery both exclude <code>pinned</code>, so it can't loop.</li>
+<li><strong>Blocker / fan-out gate refusal at claim time.</strong> <code>activate_next_bead</code> runs a belt-and-suspenders <code>open_blocker_ids</code> recheck and a <code>_has_fan_out_gate_issue</code> probe; either ⇒ revert (if not recovery) + stop. This is the bdboard-oals fix mirrored at the activation boundary. See <a href="BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a>.</li>
+<li><strong>Infra errors stop the loop, not the process.</strong> A <code>BeadsError</code> from <code>pick_next_bead</code> is caught in <code>activate_next_bead</code>, which emits <code>bd ready failed</code>, <code>state.stop()</code>s, and returns <code>None</code>.</li>
+<li><strong>Courtesy steps soft-fail.</strong> <code>probe_resolved_gates</code>, <code>rollup_completed_epics</code>, <code>ensure_epic_in_progress</code>, and <code>apply_execution_hints</code> all log-and-continue on <code>BeadsError</code> — losing a gate probe / rollup / status update / hint is far less bad than stalling the queue.</li>
+<li><strong>No retries in the loop itself.</strong> Retry/backoff lives in <code>_run_bd</code>. The loop's only "retry" is the single post-gate-reprobe re-run of the waterfall.</li>
+<li><strong>Cancel leaves a clean recovery point.</strong> <code>_on_interactive_turn_cancel</code> only halts the loop; the bead's <code>in_progress</code> status is the deliberate handoff to the next run's recovery tier. See <a href="StrandedBeadRecovery.html">StrandedBeadRecovery</a>.</li>
+</ul>
+<h2 id="key-log-messages">Key Log Messages</h2>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>Several live log strings are emoji-prefixed in source (chain-link / bone / stop glyphs). Per the project's no-emoji-in-writes convention the prefixes are omitted here; the text shown is otherwise verbatim from the source.</p></div>
+<table><thead><tr>
+<th>Log line</th>
+<th>Where</th>
+<th>Means</th>
+</tr></thead><tbody>
+<tr>
+<td><code>bead-chain starting…</code></td>
+<td><code>register_callbacks.handle_bead_chain_command</code> (<code>emit_info</code>)</td>
+<td>Engage acknowledged before the (possibly slow) bd probes run.</td>
+</tr>
+<tr>
+<td><code>bead-chain is already running.</code></td>
+<td><code>handle_bead_chain_command</code> (<code>emit_info</code>)</td>
+<td>Double-engage refused; the existing chain keeps running.</td>
+</tr>
+<tr>
+<td><code>No ready beads — bead-chain has nothing to fetch.</code></td>
+<td><code>handle_bead_chain_command</code> (<code>emit_info</code>)</td>
+<td>Startup probe found neither a recovery strand nor a <code>bd ready</code> head.</td>
+</tr>
+<tr>
+<td><code>bead-chain can't reach \</code>bd\<code>: &lt;exc&gt;</code></td>
+<td><code>handle_bead_chain_command</code> (<code>emit_warning</code>)</td>
+<td>The startup probe hit a <code>BeadsError</code>; the chain never engaged.</td>
+</tr>
+<tr>
+<td><code>BEAD-CHAIN ENGAGED!</code></td>
+<td><code>handle_bead_chain_command</code> (<code>emit_success</code>)</td>
+<td>First bead claimed + wiggum armed; iteration 1 is about to run.</td>
+</tr>
+<tr>
+<td><code>First bead: &lt;id&gt; — &lt;title&gt;</code> / <code>Safety cap: stopping after &lt;N&gt; bead(s).</code></td>
+<td><code>handle_bead_chain_command</code> (<code>emit_info</code>)</td>
+<td>Engage summary; the cap line only prints when <code>--max=N</code> was given.</td>
+</tr>
+<tr>
+<td><code>bead-chain closed &lt;id&gt; (#&lt;n&gt; completed this run)</code></td>
+<td><code>lifecycle.close_current_bead_success</code> (<code>emit_success</code>)</td>
+<td>A bead's <code>/goal</code> passed the judges and was closed; <code>completed_count</code> bumped.</td>
+</tr>
+<tr>
+<td><code>bead-chain couldn't close &lt;id&gt;: &lt;exc&gt;</code> + <code>Bead &lt;id&gt; left in_progress …</code></td>
+<td><code>close_current_bead_success</code> (<code>emit_warning</code>)</td>
+<td><code>bd close</code> failed; bead stays <code>in_progress</code>, chain stops for inspection.</td>
+</tr>
+<tr>
+<td>`bead-chain &lt;claimed</td>
+<td>recovered&gt; <id> — <title>`</td>
+<td><code>lifecycle.activate_next_bead</code> (<code>emit_info</code>)</td>
+<td>The next bead was claimed (or recovered) and armed for the next turn.</td>
+</tr>
+<tr>
+<td><code>bead-chain: --max=&lt;N&gt; cap reached (closed &lt;n&gt; bead(s) this run). Stopping. Good boy!</code></td>
+<td><code>activate_next_bead</code> (<code>emit_success</code>)</td>
+<td>The <code>--max=N</code> safety brake fired before picking another bead.</td>
+</tr>
+<tr>
+<td><code>bead-chain: no more ready beads. Closed &lt;n&gt; this run. Good boy!</code></td>
+<td><code>activate_next_bead</code> (<code>emit_success</code>)</td>
+<td>Queue drained (post gate re-probe + epic rollup); chain stopped cleanly.</td>
+</tr>
+<tr>
+<td><code>bead-chain stopping — \</code>bd ready\<code> failed: &lt;exc&gt;</code></td>
+<td><code>activate_next_bead</code> (<code>emit_warning</code>)</td>
+<td>A <code>BeadsError</code> during the pick stopped the loop.</td>
+</tr>
+<tr>
+<td><code>bead-chain halted due to &lt;reason&gt;.</code> + <code>Bead &lt;id&gt; left in_progress …</code></td>
+<td><code>register_callbacks._on_interactive_turn_cancel</code> (<code>emit_warning</code> / <code>emit_system_message</code>)</td>
+<td>Ctrl+C halted the loop; the in-flight bead is parked for recovery.</td>
+</tr>
+</tbody></table>
+<h2 id="common-issues">Common Issues</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/bead-chain</code> does nothing / "already running"</td>
+<td><code>state.active</code> is still <code>True</code> from a prior run that didn't stop cleanly</td>
+<td>The chain auto-stops on empty queue / cap / cancel; if it's wedged, cancel the turn (Ctrl+C) to fire the cancel hook, then re-engage.</td>
+</tr>
+<tr>
+<td>Chain closes a bead a turn early (or never)</td>
+<td>bead-chain's turn-end hook is firing <em>before</em> wiggum's</td>
+<td>Ensure hooks register lazily (<code>_ensure_hooks_registered</code> on first <code>/bead-chain</code>), so bead-chain lands after wiggum and reads a settled <code>wiggum_state.is_active()</code>.</td>
+</tr>
+<tr>
+<td>Chain stops after one bead with a close warning</td>
+<td><code>bd close</code> raised (bd outage, permission, schema drift)</td>
+<td>Read the <code>couldn't close &lt;id&gt;</code> warning; fix bd, then re-run — the recovery tier resumes the <code>in_progress</code> bead with the recovery preamble.</td>
+</tr>
+<tr>
+<td>Loop ends immediately with <code>No ready beads</code></td>
+<td>The only items are container types (epic/milestone/gate/molecule) or all work is blocked/pinned</td>
+<td><code>bd ready</code> to inspect; containers are filtered by design (<a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a>), blocked beads need their blockers closed.</td>
+</tr>
+<tr>
+<td>Chain won't advance past a pinned bead</td>
+<td>The current bead was <code>pinned</code> mid-flight; close is refused to honor the park</td>
+<td>Unpin it (<code>bd update &lt;id&gt; --unpin</code>) if it should proceed; otherwise the chain correctly drops it and moves on.</td>
+</tr>
+<tr>
+<td><code>--max</code> ignored</td>
+<td><code>--max</code> value was invalid (non-int / ≤0) so the engage was refused, OR the cap was hit and <code>stop()</code> reset it to <code>None</code> for the next run</td>
+<td>Pass <code>--max=N</code> with a positive integer each run; the cap is intentionally not sticky across runs.</td>
+</tr>
+<tr>
+<td>Queue "empty" but you expected work</td>
+<td>Targets are held behind unresolved gates</td>
+<td>The loop re-probes gates once on empty (<code>probe_resolved_gates</code>); if a gate is genuinely unresolved its target stays out of <code>bd ready</code> until it closes. See <a href="SessionEndEpicRollup.html">SessionEndEpicRollup</a>.</td>
+</tr>
+<tr>
+<td>Same <code>in_progress</code> bead re-driven every run</td>
+<td>A prior run was cancelled/crashed; the recovery tier keeps yielding it</td>
+<td>Finish or <code>bd close &lt;id&gt;</code> the strand; tier 0 only yields while a recoverable strand exists (<a href="StrandedBeadRecovery.html">StrandedBeadRecovery</a>).</td>
+</tr>
+</tbody></table>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — the four-tier selector this loop calls (via <code>activate_next_bead</code>) to choose each next bead.</li>
+<li><a href="BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> — the activation gauntlet (claim, blocker/fan-out recheck, epic claim, hint application, wiggum arming) that runs inside both the engage and iterate phases of this loop.</li>
+<li><a href="../Features/RecoveryMode.html">RecoveryMode</a> — the feature the cancel path feeds: a stranded bead is recovered on the next run.</li>
+<li><a href="StrandedBeadRecovery.html">StrandedBeadRecovery</a> — what happens to the in-flight bead when this loop is cancelled or a close fails; how the next run resumes it.</li>
+<li><a href="SessionEndEpicRollup.html">SessionEndEpicRollup</a> — the empty-queue drain (gate re-probe + once-per-session epic rollup) this loop runs before stopping.</li>
+<li><a href="../Features/EpicRollup.html">EpicRollup</a> — the feature that empty-queue drain triggers to auto-close completed epics.</li>
+<li><a href="GoalPromptConstruction.html">GoalPromptConstruction</a> — renders the bead this loop activates into the <code>/goal</code> prompt string handed to wiggum.</li>
+<li><a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the SRP boundary: every turn is an iteration of this loop, but the <em>completion</em> decision is wiggum's, never bead-chain's.</li>
+<li><a href="../Concepts/ChainStateSingleton.html">ChainStateSingleton</a> — the <code>state.active</code> / <code>current_bead</code> / <code>completed_count</code> / <code>max_iterations</code> box the loop reads and mutates each turn.</li>
+<li><a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a> — why epics/milestones/gates/molecules never become a <code>current_bead</code> this loop drives.</li>
+<li><a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a> — the transport behind every <code>bd</code> call this loop makes at a bead boundary.</li>
+<li><a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a> — why this loop only transitions bead status and never pushes/pulls bead state.</li>
+<li><a href="../Concepts/RecurringMoleculeProtection.html">RecurringMoleculeProtection</a> — how the empty-queue rollup avoids closing recurring/patrol molecule epics.</li>
+<li><a href="../Concepts/ExecutionHints.html">ExecutionHints</a> — the <code>execution_*</code> metadata this loop applies to each bead before arming wiggum.</li>
+<li><a href="../Features/EpicAffinity.html">EpicAffinity</a> — uses the just-closed dict this loop captures to prefer a sibling under the same epic next iteration.</li>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a> — the user-facing feature this per-turn loop implements.</li>
+<li><a href="index.html">Flows Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

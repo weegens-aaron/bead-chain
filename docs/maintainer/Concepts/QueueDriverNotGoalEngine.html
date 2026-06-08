@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QueueDriverNotGoalEngine — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="index.html">Index</a>
+<a href="BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="ChainStateSingleton.html">Chain State Singleton</a>
+<a href="ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="ExecutionHints.html">Execution Hints</a>
+<a href="QueueDriverNotGoalEngine.html" class="active">Queue Driver Not Goal Engine</a>
+<a href="RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="queuedrivernotgoalengine">QueueDriverNotGoalEngine</h1>
+<h2 id="what-is-it">What Is It</h2>
+<p>The foundational Single-Responsibility boundary of the whole plugin: <strong>bead-chain is a <em>queue driver</em>, not a <em>goal engine</em>.</strong> It owns exactly one job — repeatedly pick the next ready <code>bd</code> bead and hand the wheel to a thing that already knows how to <em>do work and judge completion</em> (wiggum's <code>/goal</code> mode). It deliberately does <strong>not</strong> own: running the LLM work/judge loop, deciding when a bead is "done", persisting/syncing bead state, or grooming the dependency graph. Everything bead-chain does is queue mechanics — probe → claim → arm → observe → close → repeat — sitting <em>around</em> a goal engine it delegates to and never reimplements.</p>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>"Queue driver" is the load-bearing phrase. It appears verbatim in <code>README.md</code> ("This plugin is a <em>queue driver</em>, not a goal engine"), <code>register_callbacks.py</code> module docstring ("<strong>not</strong> a goal engine — it's a queue driver"), <code>AGENTS.md</code>, and ADR 0001's rationale. This doc is the canonical write-up of that boundary; sibling concepts cite it when they justify <em>not</em> owning something.</p></div>
+<h2 id="why-this-approach">Why This Approach</h2>
+<p>A goal engine (work, self-correct, and LLM-judge "is this done yet?") is a hard, opinionated, slow-moving problem — and wiggum's <code>/goal</code> mode already solves it well. Reimplementing that loop inside bead-chain would duplicate the most complex subsystem in the host, fork the judging behavior, and couple queue mechanics to model/judge internals that change underneath us. So bead-chain draws a SRP line: <strong>one axis = "what runs next", a different axis = "is the running thing finished".</strong> bead-chain owns the first; the goal engine owns the second.</p>
+<p>Concretely, three responsibilities are pushed <em>out</em> of the driver by this boundary:</p>
+<ul>
+<li><strong>Completion judgment → wiggum's LLM judges.</strong> bead-chain never decides a bead is done; it observes <code>wiggum_state.is_active()</code> going <code>False</code> and <em>infers</em> "the judges signed off (or the user cancelled)". It cannot and does not grade work itself. <code>close_guard.py</code> even blocks <em>agents</em> from running <code>bd close</code> so the judges stay the only legitimate closer.</li>
+<li><strong>Durability / cross-machine sync → session-close.</strong> A queue driver pushing <code>bd dolt push</code> would have to own sync <em>policy</em> (which remote, what cadence, pull-on-start). That is a different axis than draining a queue, so it lives in the <code>AGENTS.md</code> session-close protocol instead — the decision recorded in ADR 0001 and documented as <a href="SessionCloseDurability.html">SessionCloseDurability</a>.</li>
+<li>**Graph hygiene / grooming → <code>bd</code> and humans.** bead-chain reads the <code>bd ready</code> frontier and <em>filters</em> container/handle types out of it (<code>ContainerTypeExclusion</code>); it does not restructure dependencies, re-prioritize the backlog, or repair the graph. The coverage audit (<code>notes/analysis/bead-chain-coverage/GAPS.md</code>) explicitly frames "not owning sync / graph hygiene as a whole" as <em>the</em> queue-driver SRP stance, not a gap.</li>
+</ul>
+<p>The payoff: bead-chain stays small (seven focused modules), testable (the <code>bd</code> subprocess is mocked; no live goal loop needed), and resilient to drift in both the goal engine and the <code>bd</code> CLI underneath it.</p>
+<h2 id="how-it-works">How It Works</h2>
+<p>bead-chain wraps the goal engine in a thin observe-and-advance shell. It <em>arms</em> wiggum (<code>wiggum_state.start(goal_prompt, mode="goal")</code>), then on every interactive turn it runs <strong>after</strong> wiggum (hooks registered lazily so wiggum's continuation choice happens first) and simply checks who is in control:</p>
+<ul>
+<li><code>wiggum_state.is_active() == True</code> → the goal engine is still cooking → bead-chain returns <code>None</code> and yields the turn.</li>
+<li><code>wiggum_state.is_active() == False</code> <strong>and</strong> there is a current bead → the goal engine finished this bead (judges passed or cancel) → bead-chain closes the bead and advances the queue.</li>
+</ul>
+<pre class="mermaid">
+flowchart TD
+    start([/bead-chain]) --&gt; claim["claim next ready bead&lt;br/&gt;(queue-driver job)"]
+    claim --&gt; arm["wiggum_state.start&amp;#40;prompt, mode=goal&amp;#41;&lt;br/&gt;HAND OFF THE WHEEL"]
+    arm --&gt; turn{"each turn:&lt;br/&gt;wiggum_state.is_active&amp;#40;&amp;#41;?"}
+    turn --&gt;|"True — goal engine cooking"| yield["return None&lt;br/&gt;(driver stays out of the way)"]
+    yield --&gt; turn
+    turn --&gt;|"False — judges decided"| close["close_current_bead_success&amp;#40;&amp;#41;&lt;br/&gt;(only AFTER engine signs off)"]
+    close --&gt; next{"another ready bead?"}
+    next --&gt;|yes| claim
+    next --&gt;|"no (drain)"| rollup["rollup_completed_epics&amp;#40;&amp;#41;&lt;br/&gt;then state.stop&amp;#40;&amp;#41;"]
+    rollup --&gt; done([queue empty — Good boy! ])
+
+    subgraph engine["GOAL ENGINE — owned by wiggum, NOT bead-chain"]
+        work["do work · self-correct · LLM-judge done?"]
+    end
+    arm -.delegates.-&gt; engine
+    engine -.flips is_active&amp;#40;&amp;#41; False when judged.-&gt; turn
+
+    subgraph notowned["explicitly NOT the driver's job"]
+        sync["bd dolt push / sync&lt;br/&gt;→ session-close (ADR 0001)"]
+        grade["grade completion&lt;br/&gt;→ wiggum LLM judges"]
+        groom["graph hygiene / re-prioritize&lt;br/&gt;→ bd + humans"]
+    end
+</pre>
+<h3 id="concrete-example">Concrete example</h3>
+<p>A maintainer types <code>/bead-chain</code>. <code>handle_bead_chain_command</code> probes <code>bd ready</code>, claims <code>bead_chain-mol-bps.16</code>, formats it into a goal prompt, and calls <code>wiggum_state.start(goal_prompt, mode="goal")</code> — then <strong>returns the prompt string and gets out of the way</strong>. For the next several turns wiggum's goal loop writes the doc, runs lint, iterates on judge feedback. On each of those turns <code>_on_interactive_turn_end</code> fires <em>after</em> wiggum, sees <code>is_active() == True</code>, and returns <code>None</code> — bead-chain does nothing but yield. When the LLM judges finally sign off, wiggum stops itself (<code>is_active()</code> flips <code>False</code>); now <code>_on_interactive_turn_end</code> sees a current bead + an inactive engine, calls <code>close_current_bead_success()</code> (which runs <code>bd close</code>), and calls <code>activate_next_bead()</code> to claim the next ready bead and re-arm wiggum. When <code>bd ready</code> finally returns empty, the drain branch runs <code>rollup_completed_epics()</code> and <code>state.stop()</code> — and that's <em>all</em> it does: no push, no pull, no graph repair. At no point did bead-chain judge the work, persist to Dolt directly, or restructure the backlog.</p>
+<h3 id="where-the-boundary-is-enforced-in-code">Where the boundary is enforced in code</h3>
+<table><thead><tr>
+<th>Responsibility (and who owns it)</th>
+<th>Behavior</th>
+<th>Where (<code>file:symbol</code>)</th>
+</tr></thead><tbody>
+<tr>
+<td>Delegate the work loop (driver)</td>
+<td>Builds the goal prompt and hands control to the goal engine</td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> → <code>wiggum_state.start(goal_prompt, mode="goal")</code></td>
+</tr>
+<tr>
+<td>Stay out of the way while engine runs (driver)</td>
+<td>Returns <code>None</code> whenever the goal engine is mid-loop</td>
+<td><code>register_callbacks.py:_on_interactive_turn_end</code> (<code>if wiggum_state.is_active(): return None</code>)</td>
+</tr>
+<tr>
+<td>Hooks register late so engine runs first (driver)</td>
+<td>Lazily appends our hook after wiggum's so we observe its verdict</td>
+<td><code>register_callbacks.py:_ensure_hooks_registered</code></td>
+</tr>
+<tr>
+<td>Claim + re-arm the engine per bead (driver)</td>
+<td>Picks the next ready bead, claims it, re-arms goal mode</td>
+<td><code>lifecycle.py:activate_next_bead</code> → <code>wiggum_state.start(...)</code></td>
+</tr>
+<tr>
+<td>Close <em>only after</em> the engine signs off (boundary)</td>
+<td>Runs <code>bd close</code> once wiggum is inactive and a bead is current</td>
+<td><code>lifecycle.py:close_current_bead_success</code></td>
+</tr>
+<tr>
+<td>Grading completion is NOT the driver's (delegated)</td>
+<td>Blocks agent-issued <code>bd close</code> — judges are the only legitimate closer</td>
+<td><code>close_guard.py:detect_premature_close</code> (message: "The bead will be closed automatically once the LLM judges sign off")</td>
+</tr>
+<tr>
+<td>Storage is owned by <code>bd</code>, not the driver (delegated)</td>
+<td>All bead reads/writes shell out to the <code>bd</code> CLI; never touches Dolt directly</td>
+<td><code>beads.py:_run_bd</code> (single subprocess chokepoint)</td>
+</tr>
+<tr>
+<td>Drive leaves, not containers (filter, not groom)</td>
+<td>Filters <code>epic/milestone/gate/molecule</code> out of the frontier instead of restructuring it</td>
+<td><code>beads.py:EXCLUDED_TYPES</code>, <code>beads.py:_exclude_type_arg</code></td>
+</tr>
+<tr>
+<td>Drain does nothing but courtesy rollup + stop (boundary)</td>
+<td>No push/pull/export/import at queue end</td>
+<td><code>lifecycle.py:activate_next_bead</code> (drain branch: <code>rollup_completed_epics()</code> → <code>state.stop()</code>)</td>
+</tr>
+<tr>
+<td>Sync/durability is NOT the driver's (delegated)</td>
+<td><code>bd dolt push</code> lives in session-close, gated + soft-fail</td>
+<td><code>AGENTS.md</code> "Session Completion — Dolt Sync Step"; <code>notes/decisions/0001-dolt-push-lives-in-session-close.md</code></td>
+</tr>
+</tbody></table>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>bead-chain has <strong>no goal-loop code of its own</strong>. It imports <code>code_puppy.plugins.wiggum.state as wiggum_state</code> and drives that. The only thing resembling "goal logic" here is <em>reading</em> <code>wiggum_state.is_active()</code> — a one-bit observation of someone else's engine.</p></div>
+<h2 id="where-used">Where Used</h2>
+<p>This boundary is the reason these features/flows are shaped the way they are:</p>
+<ul>
+<li><a href="../Features/BeadChaining.html">Bead Chaining</a> — the probe→claim→arm→observe→close loop <em>is</em> the queue driver; it delegates the work/judge half to the goal engine.</li>
+<li><a href="../Features/CloseGuard.html">Close Guard</a> — exists precisely because completion judgment belongs to the goal engine's LLM judges, not to the agent or the driver.</li>
+<li><a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a> — every turn is an "is the engine still active?" observation, never a "have I finished this bead?" decision.</li>
+<li><a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a> — the handoff payload: the driver's only contribution to the work is <em>framing</em> it for the engine, then stepping back.</li>
+<li><a href="../Flows/SessionEndEpicRollup.html">Session-End Epic Rollup</a> — the drain branch does courtesy rollup and stops; it pointedly does <em>not</em> sync (that's session-close's job).</li>
+</ul>
+<h2 id="conventions">Conventions</h2>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>- <strong>Delegate the work/judge loop; never reimplement it.</strong> Arm wiggum with   <code>wiggum_state.start(prompt, mode="goal")</code> and observe <code>is_active()</code>. Do not   add work-execution or completion-grading logic to bead-chain. - <strong>The LLM judges are the only legitimate closer.</strong> bead-chain runs <code>bd close</code>   <em>only</em> after the engine goes inactive (<code>close_current_bead_success</code>);   <code>close_guard</code> blocks every other path. Never grade a bead yourself. - <strong>Run after the engine.</strong> Register hooks lazily (<code>_ensure_hooks_registered</code>)   so wiggum's continuation choice resolves first and we observe a settled   <code>is_active()</code>. - <strong>Filter the frontier; don't groom the graph.</strong> Exclude container types   (<code>EXCLUDED_TYPES</code>) so only leaf work reaches the engine. Re-prioritizing or   restructuring dependencies is <code>bd</code>/human territory. - <strong>A drain is not a session boundary.</strong> At queue-empty do courtesy rollup +   <code>state.stop()</code> and nothing else. Durability/sync lives in session-close   (see <a href="SessionCloseDurability.html">SessionCloseDurability</a>). - **Keep storage behind <code>bd</code>.** Every read/write goes through the <code>bd</code>   subprocess (<code>_run_bd</code>); never read or write the Dolt DB directly.</p></div>
+<h2 id="anti-patterns">Anti-Patterns</h2>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p>- <strong>Don't reimplement the goal loop.</strong> Adding work-execution, retry-on-failure,   or "is this done?" grading into bead-chain forks the most complex subsystem in   the host and couples queue mechanics to judge internals. Delegate. - <strong>Don't let the driver (or the agent) decide completion.</strong> Inferring "done"   from anything other than <code>wiggum_state.is_active()</code> flipping <code>False</code>, or   sneaking a <code>bd close</code> past <code>close_guard</code>, bypasses the judges — the exact   thing this boundary forbids. - <strong>Don't push/pull/export/import on drain.</strong> Making the drain branch run   <code>bd dolt push</code> drags sync <em>policy</em> into the queue driver — the SRP violation   ADR 0001 rejected as alternative (a). - **Don't act on <code>execution_mode</code>/<code>execution_parallel_group</code>.** bead-chain is   serial and always <code>mode="goal"</code>; honoring alternate run modes would violate   the queue-driver contract (see <a href="ExecutionHints.html">ExecutionHints</a>). - <strong>Don't groom the graph from here.</strong> Re-prioritizing the backlog or repairing   dependencies is <code>bd</code>'s/the human's job; the driver only <em>reads and filters</em>   the ready frontier. - <strong>Don't register hooks at import time.</strong> That can land bead-chain <em>before</em>   wiggum, so you'd observe <code>is_active()</code> before the engine decided — breaking   the whole observe-after-engine contract.</p></div>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="SessionCloseDurability.html">SessionCloseDurability</a> — the durability axis this boundary pushes <em>out</em> of the driver into session-close (ADR 0001).</li>
+<li><a href="ContainerTypeExclusion.html">ContainerTypeExclusion</a> — "filter the frontier, don't drive containers" is this boundary applied to the <code>bd ready</code> queue.</li>
+<li><a href="ExecutionHints.html">ExecutionHints</a> — sibling concept; cites the queue-driver contract when refusing to honor parallel/alternate run modes.</li>
+<li><a href="BdSubprocessTransport.html">BdSubprocessTransport</a> — how "storage is owned by <code>bd</code>, not the driver" is implemented (single <code>_run_bd</code> chokepoint).</li>
+<li><a href="../Features/RecoveryMode.html">RecoveryMode</a> — re-drives a stranded bead but never owns durability or grading (the SRP boundary).</li>
+<li><a href="../Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> — re-drives crashed work but never owns durability; the driver-not-engine boundary applied to recovery.</li>
+<li><a href="../Features/BugDiscoveryProtocol.html">BugDiscoveryProtocol</a> — "file, don't close" is this boundary applied to defects: the driver instructs, the judges (not the agent) close.</li>
+<li><a href="../Features/BlockingBugPriority.html">BlockingBugPriority</a> — re-ranking by blast radius while trusting bd's own priority order is this boundary applied to selection: the driver picks from bd's frontier, it never invents goals.</li>
+<li><a href="../Features/BeadChaining.html">Bead Chaining</a></li>
+<li><a href="../Features/CloseGuard.html">Close Guard</a></li>
+<li><a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a></li>
+<li><a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a></li>
+<li><a href="../Features/EpicRollup.html">Epic Rollup</a> — the drain-time cleanup whose SRP boundary this concept defines (a drain is not a session boundary).</li>
+<li><a href="../Flows/SessionEndEpicRollup.html">Session-End Epic Rollup</a></li>
+<li><a href="../Features/EpicAffinity.html">EpicAffinity</a> — reorders bd's frontier by preference (stay-in-epic) without ever inventing goals — the boundary in action.</li>
+<li><a href="ChainStateSingleton.html">ChainStateSingleton</a> — the in-process boundary state the driver owns (active / current_bead / counts) without ever owning goal logic.</li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> — claims and arms a bead but never grades it: this boundary applied to activation.</li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — picks from bd's frontier and never invents goals: this boundary applied to selection.</li>
+<li><a href="index.html">Concepts Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+<li>ADR 0001 — <code>notes/decisions/0001-dolt-push-lives-in-session-close.md</code></li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

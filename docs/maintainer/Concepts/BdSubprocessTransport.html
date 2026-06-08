@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BdSubprocessTransport — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="index.html">Index</a>
+<a href="BdSubprocessTransport.html" class="active">Bd Subprocess Transport</a>
+<a href="ChainStateSingleton.html">Chain State Singleton</a>
+<a href="ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="ExecutionHints.html">Execution Hints</a>
+<a href="QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="bdsubprocesstransport">BdSubprocessTransport</h1>
+<h2 id="what-is-it">What Is It</h2>
+<p>The single, thin layer through which <strong>all</strong> of bead-chain talks to beads: every read and every mutation shells out to the <code>bd</code> CLI as a child process, captures its stdout, and parses bd's <code>--json</code> output. There is <strong>no</strong> Python beads API import anywhere in the plugin — <code>beads.py</code> is a stdlib-only (<code>subprocess</code> + <code>json</code>) wrapper, and one private chokepoint, <code>beads.py:_run_bd</code>, is the only place a <code>bd</code> process is ever spawned. Every public helper (<code>next_ready</code>, <code>show</code>, <code>claim</code>, <code>close</code>, <code>check_gates</code>, <code>memories</code>, …) is built on top of it.</p>
+<h2 id="why-this-approach">Why This Approach</h2>
+<p>beads is distributed as a <strong>Go binary</strong>, not a Python package. Its <em>stable, documented contract</em> is the CLI plus the <code>--json</code> flag on each command — not an importable module. Coupling bead-chain to an in-process beads library would mean (a) pinning a Python beads dependency that may not exist for the user's <code>bd</code> version, (b) breaking whenever beads bumps its internal API, and (c) forcing version lockstep between the plugin and the binary. Shelling out keeps the plugin <strong>dependency-free</strong> and lets a user on <em>any</em> <code>bd</code> version run the chain — bd's JSON is the wire format and the version boundary at the same time.</p>
+<p>Concentrating every spawn in one function (<code>_run_bd</code>) buys three things that the rest of the module gets for free:</p>
+<ul>
+<li><strong>One retry policy.</strong> Transient <code>subprocess.TimeoutExpired</code> blips (sqlite lock contention from concurrent agents, cold-cache opens, the daemon flushing) are retried up to <code>MAX_ATTEMPTS</code> times with <code>_RETRY_BACKOFFS</code> delays. A single 30s blip stranding the whole chain is far worse than one retry.</li>
+<li><strong>One error taxonomy.</strong> Permanent failures — bd missing (<code>FileNotFoundError</code>) and real bd errors (non-zero exit: "bead not found", "already closed") — are surfaced <em>immediately</em> as <code>BeadsError</code> and are <strong>never</strong> retried, because retrying just delays the truth.</li>
+<li><strong>One test seam.</strong> Tests stub <code>beads._run_bd</code> with a lambda returning a fixed payload (or a recording stub), so the entire module can be exercised without a real <code>bd</code> on <code>PATH</code>.</li>
+</ul>
+<h2 id="how-it-works">How It Works</h2>
+<p><code>_run_bd(*args, timeout=DEFAULT_TIMEOUT)</code> is the heart. It resolves the binary via <code>_bd_bin()</code> (honoring the <code>BEADS_BIN</code> env override, else <code>DEFAULT_BD_BIN = "bd"</code> on <code>PATH</code>), then loops up to <code>MAX_ATTEMPTS</code> (3) times:</p>
+<ol>
+<li>Before any retry (<code>attempt &gt; 0</code>) it sleeps <code>_RETRY_BACKOFFS[delay_idx]</code>, where <code>delay_idx = min(attempt - 1, len(_RETRY_BACKOFFS) - 1)</code> — so a future bump to <code>MAX_ATTEMPTS</code> without extending the backoff tuple just reuses the last delay.</li>
+<li>It runs <code>subprocess.run([bd, *args], capture_output=True, text=True, timeout=timeout, check=False)</code>.</li>
+<li><code>FileNotFoundError</code> → raise <code>BeadsError("...not found on PATH...")</code> (permanent, no retry).</li>
+<li><code>subprocess.TimeoutExpired</code> → stash it in <code>last_timeout</code> and <code>continue</code> to the next attempt (the <em>only</em> retried case).</li>
+<li><code>proc.returncode != 0</code> → raise <code>BeadsError("...failed (exit N): &lt;stderr&gt;")</code> (permanent, no retry).</li>
+<li>Otherwise → return <code>proc.stdout</code>.</li>
+</ol>
+<p>If every attempt times out, it raises <code>BeadsError("...timed out after {timeout}s on each of {MAX_ATTEMPTS} attempts")</code> chained from <code>last_timeout</code>.</p>
+<p>Output parsing is split into shared helpers so the JSON-shape contract lives in one place too: <code>_parse_json_list(raw, context)</code> enforces "decode + must be a list" for the list-returning queries (<code>bd ready</code>, <code>bd list …</code>), while object returners like <code>show</code> and <code>memories</code> parse inline and assert dict shape. All parse failures become <code>BeadsError</code> carrying a 200-char snippet of the offending output.</p>
+<pre class="mermaid">
+flowchart TD
+    Caller([public helper&lt;br/&gt;next_ready / show / claim / close / ...]) --&gt; Run[_run_bd args, timeout]
+    Run --&gt; Bin[_bd_bin: BEADS_BIN env&lt;br/&gt;else 'bd' on PATH]
+    Bin --&gt; Attempt{attempt &lt; MAX_ATTEMPTS=3?}
+    Attempt --&gt;|no| AllTO[raise BeadsError:&lt;br/&gt;timed out on every attempt]
+    Attempt --&gt;|yes| Backoff{attempt &gt; 0?}
+    Backoff --&gt;|yes| Sleep[sleep _RETRY_BACKOFFS&lt;br/&gt;0.5s then 1.0s]
+    Backoff --&gt;|no| Spawn
+    Sleep --&gt; Spawn[subprocess.run bd args&lt;br/&gt;capture_output, text, timeout, check=False]
+    Spawn --&gt;|FileNotFoundError| NotFound[raise BeadsError:&lt;br/&gt;bd not on PATH — PERMANENT]
+    Spawn --&gt;|TimeoutExpired| StashTO[last_timeout = exc;&lt;br/&gt;continue — TRANSIENT, retry]
+    Spawn --&gt;|returncode != 0| NonZero[raise BeadsError:&lt;br/&gt;exit N + stderr — PERMANENT]
+    Spawn --&gt;|exit 0| Stdout[return proc.stdout]
+    StashTO --&gt; Attempt
+    Stdout --&gt; Parse{shape contract}
+    Parse --&gt;|list cmds| ParseList[_parse_json_list&lt;br/&gt;decode + isinstance list]
+    Parse --&gt;|object cmds| ParseObj[json.loads inline&lt;br/&gt;+ isinstance dict]
+    ParseList --&gt;|bad JSON / wrong shape| ParseErr[raise BeadsError + 200-char snippet]
+    ParseObj --&gt;|bad JSON / wrong shape| ParseErr
+    ParseList --&gt; Filtered[caller filters / maps -&gt; typed result]
+    ParseObj --&gt; Filtered
+</pre>
+<h3 id="concrete-example">Concrete example</h3>
+<p>A user with <code>bd</code> installed at a non-standard path exports an override, and the chain asks for the next ready bead:</p>
+<pre><code class="language-bash">export BEADS_BIN=/opt/homebrew/bin/bd</code></pre>
+<p><code>next_ready()</code> calls <code>_run_bd("ready", _exclude_type_arg(), "--json")</code>, which spawns:</p>
+<pre><code class="language-text">/opt/homebrew/bin/bd ready --exclude-type=epic,milestone,gate,molecule --json</code></pre>
+<p>bd answers with a JSON array (trimmed to the fields bead-chain reads):</p>
+<pre><code class="language-json">[
+  {
+    "id": "bead_chain-mol-bps.19",
+    "title": "FlowDoc maintainer: Concept: BdSubprocessTransport",
+    "issue_type": "task",
+    "status": "open",
+    "priority": 2,
+    "parent": "bead_chain-mol-bps"
+  }
+]</code></pre>
+<p><code>_run_bd</code> returns that stdout, <code>_parse_json_list(raw, "bd ready --json")</code> decodes and validates the list, and <code>next_ready</code> returns the first element that isn't a leaked container type (defence-in-depth via <code>is_excluded_type</code>).</p>
+<p>Now the unhappy paths, all routed through the same function:</p>
+<ul>
+<li><strong>Transient lock.</strong> The first <code>subprocess.run</code> raises <code>TimeoutExpired</code>. <code>_run_bd</code> sleeps <code>0.5s</code>, retries; the second succeeds. The caller never sees the blip.</li>
+<li><strong>Real bd error.</strong> <code>bd close bead_chain-xyz</code> exits non-zero with <code>error: issue has open child issue(s)</code>. <code>_run_bd</code> raises immediately — <code>BeadsError("</code>/opt/homebrew/bin/bd close bead_chain-xyz<code> failed (exit 1): error: issue has open child issue(s)")</code> — no retry, so the caller (e.g. <code>close_guard</code>) reacts to the truth at once.</li>
+<li><strong>bd missing.</strong> <code>BEADS_BIN</code> points at a deleted binary → <code>FileNotFoundError</code> → <code>BeadsError("</code>...<code> not found on PATH — is beads installed?")</code>, again with no retry.</li>
+</ul>
+<h3 id="implementation-references">Implementation references</h3>
+<table><thead><tr>
+<th>Responsibility</th>
+<th>File:Symbol</th>
+</tr></thead><tbody>
+<tr>
+<td>Module contract — "shell out, never import beads"</td>
+<td><code>beads.py</code> (module docstring)</td>
+</tr>
+<tr>
+<td>Default per-call timeout (seconds)</td>
+<td><code>beads.py:DEFAULT_TIMEOUT</code> (<code>30.0</code>)</td>
+</tr>
+<tr>
+<td>Default binary name when no override</td>
+<td><code>beads.py:DEFAULT_BD_BIN</code> (<code>"bd"</code>)</td>
+</tr>
+<tr>
+<td>Max spawn attempts (initial + retries)</td>
+<td><code>beads.py:MAX_ATTEMPTS</code> (<code>3</code>)</td>
+</tr>
+<tr>
+<td>Pre-retry backoff delays</td>
+<td><code>beads.py:_RETRY_BACKOFFS</code> (<code>(0.5, 1.0)</code>)</td>
+</tr>
+<tr>
+<td>Binary resolution + <code>BEADS_BIN</code> override</td>
+<td><code>beads.py:_bd_bin</code></td>
+</tr>
+<tr>
+<td>The sole subprocess chokepoint (spawn + retry + error taxonomy)</td>
+<td><code>beads.py:_run_bd</code></td>
+</tr>
+<tr>
+<td>Shared error type for all transport failures</td>
+<td><code>beads.py:BeadsError</code></td>
+</tr>
+<tr>
+<td>List-shape JSON parse + validate</td>
+<td><code>beads.py:_parse_json_list</code></td>
+</tr>
+<tr>
+<td><code>--exclude-type=...</code> arg builder (server-side filter)</td>
+<td><code>beads.py:_exclude_type_arg</code></td>
+</tr>
+<tr>
+<td>Read example — top ready bead</td>
+<td><code>beads.py:next_ready</code></td>
+</tr>
+<tr>
+<td>Read example — full record (object shape)</td>
+<td><code>beads.py:show</code></td>
+</tr>
+<tr>
+<td>Read example — object-not-list payload</td>
+<td><code>beads.py:memories</code></td>
+</tr>
+<tr>
+<td>Mutation — claim</td>
+<td><code>beads.py:claim</code></td>
+</tr>
+<tr>
+<td>Mutation — revert to open</td>
+<td><code>beads.py:revert_to_open</code></td>
+</tr>
+<tr>
+<td>Mutation — close (optional <code>--reason</code>)</td>
+<td><code>beads.py:close</code></td>
+</tr>
+<tr>
+<td>Aggregate read — gate check summary</td>
+<td><code>beads.py:check_gates</code></td>
+</tr>
+<tr>
+<td>Aggregate read — lint warnings</td>
+<td><code>beads.py:lint_warnings</code></td>
+</tr>
+<tr>
+<td>Test seam — stub/record <code>_run_bd</code></td>
+<td><code>tests/test_excluded_container_types.py:_patch_run_bd</code> / <code>:_capture_run_bd</code></td>
+</tr>
+</tbody></table>
+<h2 id="where-used">Where Used</h2>
+<p>Every beads-touching surface in the plugin rides this transport — nothing talks to <code>bd</code> any other way:</p>
+<ul>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a> — the core loop's <code>next_ready</code> / <code>claim</code> / <code>close</code> calls are all <code>_run_bd</code> invocations.</li>
+<li><a href="../Flows/ChainIterationLoop.html">ChainIterationLoop</a> — each iteration's bead pick + claim is a transport round-trip.</li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a></li>
+<li><a href="../Features/BlockingBugPriority.html">BlockingBugPriority</a> — its <code>bd ready --type=bug</code> / <code>bd show</code> escalation spawns ride this transport. — the waterfall's <code>next_ready</code> / <code>next_ready_in_epic</code> / <code>next_blocking_bug</code> / <code>next_in_progress</code> queries are all transport reads.</li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> — <code>claim</code>, <code>open_blocker_ids</code>, and <code>revert_to_open</code> are transport calls.</li>
+<li><a href="../Features/RecoveryMode.html">RecoveryMode</a> — its <code>bd list</code> / <code>bd show</code> / <code>bd update</code> recovery spawns all ride this transport.</li>
+<li><a href="../Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> — <code>list_recoverable_strands</code> and <code>revert_to_open</code> ride the transport.</li>
+<li><a href="../Flows/SessionEndEpicRollup.html">SessionEndEpicRollup</a> — <code>close_eligible_epics</code> / <code>has_epic_in_progress</code> are transport reads + writes.</li>
+<li><a href="../Flows/GoalPromptConstruction.html">GoalPromptConstruction</a></li>
+<li><a href="../Features/BugDiscoveryProtocol.html">BugDiscoveryProtocol</a> — the agent's <code>bd create</code> filing and the <code>next_blocking_bug</code> query both ride this transport. — <code>show</code>, <code>memories</code>, and <code>lint_warnings</code> enrich the goal prompt via the transport.</li>
+<li><a href="ExecutionHints.html">ExecutionHints</a> — <code>_resolve_metadata</code> re-fetches missing <code>metadata</code> via <code>beads.show</code>, i.e. another <code>_run_bd</code> call.</li>
+<li><a href="ContainerTypeExclusion.html">ContainerTypeExclusion</a> — the server-side <code>--exclude-type</code> arg is assembled by <code>_exclude_type_arg</code> and passed into <code>_run_bd</code>.</li>
+<li><a href="../Features/CloseGuard.html">CloseGuard</a> — guards the <code>close</code> mutation that ultimately runs through <code>_run_bd</code>.</li>
+</ul>
+<h2 id="conventions">Conventions</h2>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>- <strong>One door in, one door out.</strong> Every <code>bd</code> invocation goes through   <code>_run_bd</code>. Never call <code>subprocess.run</code> (or import a beads Python API)   anywhere else — new helpers compose <code>_run_bd</code> + a parse helper. - **<code>--json</code> always, parse via the shared helpers.** Read commands pass   <code>--json</code> and route list output through <code>_parse_json_list</code>; object output is   decoded inline with an <code>isinstance(dict)</code> check. Treat bd's JSON as the   contract, not its human text. - **Resolve the binary, don't hardcode <code>"bd"</code>.** Use <code>_bd_bin()</code> so the   <code>BEADS_BIN</code> override keeps working for non-standard installs. - <strong>Retry transient, surface permanent.</strong> Only <code>TimeoutExpired</code> is retried.   <code>FileNotFoundError</code> and non-zero exits are permanent — raise <code>BeadsError</code>   immediately so callers react to the truth. - <strong>Tune via the module constants.</strong> <code>DEFAULT_TIMEOUT</code>, <code>MAX_ATTEMPTS</code>, and   <code>_RETRY_BACKOFFS</code> are the knobs. The <code>delay_idx = min(attempt - 1, len-1)</code>   clamp means you can raise <code>MAX_ATTEMPTS</code> without touching <code>_RETRY_BACKOFFS</code>. - **Raise <code>BeadsError</code>, let callers choose.** The transport never decides   between soft-fail and escalate; it raises a single typed error and the   caller (prompt layer soft-fails a nice-to-have; the loop escalates a claim   failure).</p></div>
+<h2 id="anti-patterns">Anti-Patterns</h2>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p>- <strong>Don't import a beads Python library.</strong> That re-introduces a version-locked   dependency the binary contract was chosen to avoid. bd's CLI + <code>--json</code> is   the boundary. - **Don't spawn <code>bd</code> outside <code>_run_bd</code>.** A second spawn site duplicates the   retry/error/test logic (violates DRY) and bypasses <code>BEADS_BIN</code>, retries, and   the <code>BeadsError</code> taxonomy. - <strong>Don't retry non-zero exits.</strong> "bead not found" / "already closed" are   permanent; retrying just delays the error and can mask a real state bug. - <strong>Don't add env-var knobs for the timeout/retry "just in case."</strong> YAGNI —   they're module constants today; promote them to env vars only when a real   need lands (a ~5-line follow-up). - <strong>Don't parse bd's human-readable output.</strong> Add <code>--json</code> and a shape check;   scraping prose breaks on the next bd cosmetic change. - **Don't catch and swallow <code>BeadsError</code> inside the transport.** Let it   propagate — the decision to soft-fail (prompt enrichment) vs. escalate   (claim/close) belongs to the caller, not the wrapper.</p></div>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a></li>
+<li><a href="../Features/CloseGuard.html">CloseGuard</a></li>
+<li><a href="../Flows/ChainIterationLoop.html">ChainIterationLoop</a></li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a></li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a></li>
+<li><a href="../Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a></li>
+<li><a href="../Features/EpicRollup.html">EpicRollup</a> — the rollup feature whose <code>epic close-eligible</code> / <code>close</code> calls ride this transport.</li>
+<li><a href="../Flows/SessionEndEpicRollup.html">SessionEndEpicRollup</a></li>
+<li><a href="../Flows/GoalPromptConstruction.html">GoalPromptConstruction</a></li>
+<li><a href="ExecutionHints.html">ExecutionHints</a></li>
+<li><a href="ContainerTypeExclusion.html">ContainerTypeExclusion</a></li>
+<li><a href="QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a></li>
+<li><a href="SessionCloseDurability.html">SessionCloseDurability</a></li>
+<li><a href="../Features/EpicAffinity.html">EpicAffinity</a> — its <code>bd ready --parent</code> lookup rides this subprocess transport.</li>
+<li><a href="../Features/BlockingBugPriority.html">BlockingBugPriority</a> — its <code>bd ready --type=bug</code> / <code>bd show</code> escalation queries ride this transport.</li>
+<li><a href="../Features/BugDiscoveryProtocol.html">BugDiscoveryProtocol</a> — the agent's <code>bd create</code> filing and the <code>next_blocking_bug</code> query ride this transport.</li>
+<li><a href="../Features/GoalPromptEnrichment.html">GoalPromptEnrichment</a> — its <code>show</code> / <code>memories</code> / <code>lint_warnings</code> enrichment fetches ride this transport.</li>
+<li><a href="../Features/RecoveryMode.html">RecoveryMode</a> — its <code>bd list</code> / <code>bd show</code> / <code>bd update</code> recovery spawns ride this transport.</li>
+<li><a href="index.html">Concepts Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StrandedBeadRecovery — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="../Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="../Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="../Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="../Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="../Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="../Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="index.html">Index</a>
+<a href="BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="StrandedBeadRecovery.html" class="active">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="strandedbeadrecovery">StrandedBeadRecovery</h1>
+<h2 id="what-happens">What Happens</h2>
+<p>A previous bead-chain run claimed a bead (flipped it to <code>in_progress</code>), did some real work on disk, then died before the LLM judges could close it — a <code>Ctrl+C</code>, a runtime cancel, a hard crash (SIGKILL / power loss / OS reboot), a <code>bd close</code> failure, or another agent flipping the bead to <code>hooked</code> mid-flight. That bead is now <strong>stranded</strong>: it's invisible to <code>bd ready</code> (claimed/hooked beads are off the ready frontier) yet it carries partial work that must not be orphaned or redone from scratch.</p>
+<p>Stranded-bead recovery is the rule that <strong>finds that bead first and re-drives it before any fresh work</strong>. It runs at two moments — chain startup and at the top of every next-bead pick — and is the highest-priority tier (tier 0) of the selection waterfall. When it finds a stranded bead it does <strong>not</strong> re-claim it (it's already <code>in_progress</code>); instead it re-prompts the agent with a <em>recovery preamble</em> that says "assess what's already on disk before doing anything new — the bead may already be satisfied." Crucially, before recovering, it checks the bead's work-time blockers: a stranded bead that got re-blocked is **reverted to <code>open</code>** (sent back behind its blockers) rather than re-driven — that is the <code>bdboard-oals</code> fix, because the recovery query bypasses the ready frontier and would otherwise run blocked work to completion and only trip at <code>bd close</code>.</p>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>The one-bead-at-a-time discipline means there should be <strong>at most one</strong> stranded bead. If recovery finds more than one (residue from a hard crash or a pre-fix session), it recovers the <strong>head</strong> and leaves the rest <code>in_progress</code>; they get picked up one at a time on subsequent iterations via this same tier-0 branch. It never bulk-reverts the extras — every <code>in_progress</code> bead is real partial work paired with its bead.</p></div>
+<h2 id="trigger">Trigger</h2>
+<p>Recovery is consulted at two distinct sites, both reading the same recoverable set:</p>
+<ol>
+<li><strong>Chain startup.</strong> <code>register_callbacks.handle_bead_chain_command</code> (<code>register_callbacks.py:169</code>) calls <code>enforce_single_in_progress()</code> (<code>lifecycle.py:138</code>) <em>before</em> <code>next_ready()</code> — the recovery check beats the ready queue, so a half-finished bead from a prior run is resumed before any new bead is claimed (<code>register_callbacks.py:192</code>).</li>
+<li><strong>Every next-bead pick.</strong> <code>lifecycle.pick_next_bead</code> (<code>lifecycle.py:460</code>) makes the stranded set tier 0 of its four-tier waterfall — it runs <code>_unblocked_strands()</code> (<code>lifecycle.py:88</code>) and returns the head before even looking at blocking bugs, epic affinity, or the global ready queue.</li>
+</ol>
+<p>The <em>upstream</em> cause is one of bead-chain's exit paths leaving a bead claimed: the <code>Ctrl+C</code> / cancel hook <code>_on_interactive_turn_cancel</code> (<code>register_callbacks.py:360</code>) deliberately leaves the in-flight bead <code>in_progress</code>, and a <code>bd close</code> failure in <code>close_current_bead_success</code> (<code>lifecycle.py:201</code>) likewise leaves it <code>in_progress</code> and stops the chain. A hard crash bypasses both handlers but lands in the same observable state.</p>
+<h2 id="outcome">Outcome</h2>
+<p>Exactly one of three things happens to each stranded bead the recovery set sees:</p>
+<ul>
+<li><strong>Recovered.</strong> A workable (unblocked) stranded bead is returned to the runner and armed as the current <code>/goal</code> with <code>format_bead_as_goal(bead, recovery=True)</code> (<code>prompt.py:613</code>), which prepends <code>_RECOVERY_PREAMBLE</code> (<code>prompt.py:47</code>). The bead is <strong>not</strong> re-claimed (<code>claim</code> is skipped because it's already <code>in_progress</code> — <code>register_callbacks.py:260</code>). The agent assesses on-disk state and either reports "already done" or continues from where the prior run stopped; the LLM judges then rule and close it.</li>
+<li><strong>Reverted to open.</strong> A stranded bead with open work-time blockers is pushed back to <code>open</code> via <code>revert_to_open(bead_id)</code> (<code>beads.py:736</code> → <code>bd update &lt;id&gt; --status=open</code>) and dropped from the workable set, re-entering the ready queue <em>behind</em> its blockers. Best-effort: if the revert itself fails, the bead is still dropped from this pass so it's never driven.</li>
+<li><strong>Left in place.</strong> When more than one stranded bead exists, only the head is recovered; the extras stay <code>in_progress</code> for later one-at-a-time recovery.</li>
+</ul>
+<p>No source files are touched by this flow — it only changes bead <em>status</em> (recover = leave <code>in_progress</code> + re-prompt; revert = <code>in_progress</code>/<code>hooked</code> → <code>open</code>).</p>
+<pre class="mermaid">
+flowchart TD
+    Start([startup OR next-bead pick]) --&gt; Q[list_recoverable_strands&lt;br/&gt;beads.py:388]
+    Q --&gt; Merge[bd list --status=in_progress&lt;br/&gt;+ --status=hooked&lt;br/&gt;_list_by_status beads.py:371&lt;br/&gt;de-dup, epic-filtered]
+    Merge --&gt; Loop{for each strand}
+    Loop --&gt; Block[open_blocker_ids&lt;br/&gt;beads.py:476&lt;br/&gt;bd show id --json]
+    Block --&gt; HasBlk{open&lt;br/&gt;blocks/waits-for?}
+    HasBlk --&gt;|Yes| Revert[revert_to_open&lt;br/&gt;beads.py:736&lt;br/&gt;bd update --status=open]
+    Revert --&gt; Drop[drop from workable set]
+    HasBlk --&gt;|No| Keep[append to workable]
+    Drop --&gt; Loop
+    Keep --&gt; Loop
+    Loop --&gt;|done| Count{how many&lt;br/&gt;workable?}
+    Count --&gt;|0| None([return None&lt;br/&gt;-&gt; fall through to next_ready / tiers 1-3])
+    Count --&gt;|1| One([return the one strand])
+    Count --&gt;|&gt;1| Head[return head;&lt;br/&gt;leave extras in_progress&lt;br/&gt;warn]
+    One --&gt; Rec{is_recovery_bead?&lt;br/&gt;lifecycle.py:64}
+    Head --&gt; Rec
+    Rec --&gt;|Yes — status in&lt;br/&gt;in_progress/hooked| Skip[skip claim;&lt;br/&gt;recovery=True]
+    Skip --&gt; Goal[format_bead_as_goal recovery=True&lt;br/&gt;prompt.py:613&lt;br/&gt;prepend _RECOVERY_PREAMBLE]
+    Goal --&gt; Arm([arm wiggum /goal])
+</pre>
+<h2 id="step-by-step">Step-by-Step</h2>
+<table><thead><tr>
+<th>#</th>
+<th>What</th>
+<th>Where (file:symbol)</th>
+<th>Failure mode</th>
+</tr></thead><tbody>
+<tr>
+<td>1</td>
+<td>Enumerate the recoverable set: union of <code>in_progress</code> and <code>hooked</code> non-epic beads, de-duped (first occurrence wins), <code>in_progress</code> first</td>
+<td><code>beads.py:list_recoverable_strands</code> → <code>beads.py:_list_by_status</code> (<code>bd list --status=&lt;s&gt; --exclude-type=epic --json</code>)</td>
+<td>Infra failure (bd missing, timeout, non-list/bad JSON) raises <code>BeadsError</code>; at startup <code>enforce_single_in_progress</code> catches it → warn + <code>return None</code>; in <code>pick_next_bead</code> it propagates to <code>activate_next_bead</code>, which stops the chain</td>
+</tr>
+<tr>
+<td>2</td>
+<td>For each strand, fetch live work-time blockers (<code>blocks</code> + <code>waits-for</code> edges that aren't <code>closed</code>)</td>
+<td><code>lifecycle.py:_unblocked_strands</code> → <code>beads.py:open_blocker_ids</code> (<code>bd show &lt;id&gt; --json</code>)</td>
+<td><code>open_blocker_ids</code> soft-fails to <code>[]</code> (treated as unblocked) on any <code>bd show</code> blip — close-time guard is the backstop</td>
+</tr>
+<tr>
+<td>3</td>
+<td>If blocked: revert the strand to <code>open</code> and drop it from the workable set</td>
+<td><code>lifecycle.py:_unblocked_strands</code> → <code>beads.py:revert_to_open</code> (<code>bd update &lt;id&gt; --status=open</code>)</td>
+<td>Revert raises <code>BeadsError</code> → warn (<code>also couldn't revert …</code>) but the bead is <strong>still dropped</strong> from this pass, so it's never driven</td>
+</tr>
+<tr>
+<td>4</td>
+<td>If unblocked: keep it in the workable list</td>
+<td><code>lifecycle.py:_unblocked_strands</code> (<code>workable.append</code>)</td>
+<td>None — pure list build</td>
+</tr>
+<tr>
+<td>5a</td>
+<td><strong>Startup path:</strong> 0 workable → <code>return None</code> (fall back to <code>next_ready</code>); 1 → return it; &gt;1 → return head, leave extras <code>in_progress</code>, warn</td>
+<td><code>lifecycle.py:enforce_single_in_progress</code></td>
+<td>Listing raised at step 1 → caught → <code>return None</code> so the normal startup probe handles whatever it can see</td>
+</tr>
+<tr>
+<td>5b</td>
+<td><strong>Pick path (tier 0):</strong> if workable non-empty, return <code>workable[0]</code> and warn <code>found stranded in_progress bead … recovering before picking new work</code>; else fall through to tiers 1-3</td>
+<td><code>lifecycle.py:pick_next_bead</code></td>
+<td><code>BeadsError</code> from <code>_unblocked_strands</code> propagates → <code>activate_next_bead</code> warns + <code>state.stop()</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>Classify the picked bead as a recovery bead (status ∈ <code>{in_progress, hooked}</code>, case-insensitive)</td>
+<td><code>lifecycle.py:is_recovery_bead</code> (<code>_RECOVERY_STATUSES</code>, sourced from <code>beads.RECOVERABLE_STATUSES</code>)</td>
+<td>None — pure dict read; missing/empty status → <code>False</code> (treated as fresh)</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Skip <code>claim</code> for recovery beads (already <code>in_progress</code>); re-claiming is a no-op at best, a bd error at worst</td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> (<code>if not recovery: claim(...)</code>)</td>
+<td>Fresh beads only: <code>claim</code> raising <code>BeadsError</code> → warn + <code>state.stop()</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>Arm <code>/goal</code> with the recovery preamble so the agent assesses on-disk state before any new work</td>
+<td><code>prompt.py:format_bead_as_goal(recovery=True)</code> → <code>prompt.py:_RECOVERY_PREAMBLE</code></td>
+<td>None — pure string assembly</td>
+</tr>
+</tbody></table>
+<h2 id="data-transformations">Data Transformations</h2>
+<p>The flow consumes bd's <code>list</code> and <code>show</code> JSON and produces either one bead dict to drive (recovery), a status mutation (revert), or <code>None</code>. The hops:</p>
+<ul>
+<li>**<code>bd list --status=in_progress …</code> + <code>bd list --status=hooked …</code> → merged strand dicts.** <code>_list_by_status</code> runs each query in <code>RECOVERABLE_STATUSES</code> (<code>beads.py:198</code> — <code>(in_progress, hooked)</code>), parses the list via <code>_parse_json_list</code>, and re-filters epics client-side with <code>is_excluded_type</code> (the server-side <code>--exclude-type=epic</code> flag has leaked epics in the wild). <code>list_recoverable_strands</code> merges them, de-duping on <code>str(bead["id"]).strip()</code> so a version-drift echo can't make recovery see the same id twice.</li>
+<li><strong>strand dict → blocker id list.</strong> <code>open_blocker_ids</code> re-fetches the bead with <code>bd show &lt;id&gt; --json</code> (only <code>show</code> carries each dependency's <code>status</code> + <code>dependency_type</code>), then walks <code>bead["dependencies"]</code>: for each edge whose <code>dependency_type</code> ∈ <code>BLOCKING_DEP_TYPES</code> (<code>("blocks", "waits-for")</code>) and whose <code>status</code> ∉ <code>SATISFIED_BLOCKER_STATUSES</code> (<code>frozenset({"closed"})</code>), it collects <code>dep["id"]</code>. A non-empty list ⇒ revert; empty ⇒ workable.</li>
+<li>**blocked strand → <code>open</code> status.** <code>revert_to_open(str(bead["id"]))</code> shells <code>bd update &lt;id&gt; --status=open</code>; the bead leaves the <code>in_progress</code>/<code>hooked</code> set and re-enters <code>bd ready</code> behind its blockers.</li>
+<li><strong>workable strand → recovery verdict.</strong> <code>is_recovery_bead</code> lowercases <code>bead["status"]</code> and tests membership in <code>_RECOVERY_STATUSES</code> (<code>{"in_progress", "hooked"}</code>); <code>True</code> ⇒ skip claim + <code>recovery=True</code>.</li>
+<li><strong>recovery bead → goal prompt.</strong> <code>format_bead_as_goal(bead, recovery=True)</code> prepends <code>_RECOVERY_PREAMBLE</code> to the standard <code>Complete beads issue &lt;id&gt;: &lt;title&gt; …</code> body.</li>
+</ul>
+<p>A representative <code>bd show &lt;id&gt; --json</code> dependency record that <code>open_blocker_ids</code> inspects (only <code>dependency_type</code>, <code>status</code>, and <code>id</code> are read):</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-mol-bps.13",
+  "status": "in_progress",
+  "issue_type": "task",
+  "title": "FlowDoc maintainer: Flow: StrandedBeadRecovery",
+  "dependencies": [
+    { "id": "bead_chain-bu5", "dependency_type": "blocks", "status": "open" },
+    { "id": "bead_chain-x3g", "dependency_type": "waits-for", "status": "closed" }
+  ]
+}</code></pre>
+<p>A representative <code>bd list --status=in_progress --exclude-type=epic --json</code> element (the strand list <code>_list_by_status</code> returns):</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-mol-bps.13",
+  "status": "in_progress",
+  "issue_type": "task",
+  "title": "FlowDoc maintainer: Flow: StrandedBeadRecovery",
+  "parent": "bead_chain-mol-bps"
+}</code></pre>
+<h2 id="performance-characteristics">Performance Characteristics</h2>
+<ul>
+<li><strong>Synchronous, in-process, every pick.</strong> Tier 0 runs on the calling thread inside <code>pick_next_bead</code>, which <code>activate_next_bead</code> calls on every iteration (plus once at startup via <code>enforce_single_in_progress</code>). There is no async or threading.</li>
+<li>**Bounded <code>bd</code> round-trips per pass.<strong> The strand enumeration is </strong>2** <code>bd list</code> spawns (one per status in <code>RECOVERABLE_STATUSES</code>). Then it's <strong>1</strong> <code>bd show</code> per strand (<code>open_blocker_ids</code>), plus <strong>1</strong> <code>bd update</code> per <em>blocked</em> strand (<code>revert_to_open</code>). In the steady-state common case — at most one stranded bead, unblocked — that's <code>2 list + 1 show = 3</code> spawns, then the bead is recovered with <strong>no</strong> <code>claim</code> call (recovery beads skip it).</li>
+<li><strong>O(N) in stranded beads, but N is ≈1 by design.</strong> The per-strand <code>bd show</code> blocker check is the only N-dependent cost; the one-bead-at-a-time discipline keeps N at 1 in practice, so there is no realistic N+1 explosion. A &gt;1 set only appears after a hard crash and is drained one bead per iteration.</li>
+<li><strong>Every spawn rides the single chokepoint.</strong> <code>bd list</code>, <code>bd show</code>, and <code>bd update</code> all flow through <code>beads.py:_run_bd</code> with its retry/timeout policy (<code>DEFAULT_TIMEOUT = 30.0</code>, <code>MAX_ATTEMPTS = 3</code>) — see <a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a>.</li>
+<li><strong>No persistence here.</strong> Recovery reads status and at most flips it; it never pushes/pulls/exports bead state. Durability is a session-close concern — see <a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a>.</li>
+</ul>
+<h2 id="failure-handling">Failure Handling</h2>
+<ul>
+<li><strong>Soft-fail at the startup boundary.</strong> <code>enforce_single_in_progress</code> wraps the enumeration in <code>try/except BeadsError</code>; a bd outage there warns (<code>couldn't enumerate in_progress beads …; continuing without invariant check</code>) and returns <code>None</code>, so startup falls through to the normal <code>next_ready</code> probe rather than halting.</li>
+<li><strong>Hard-fail at the pick boundary (deliberately).</strong> In <code>pick_next_bead</code>, a <code>BeadsError</code> from <code>_unblocked_strands</code> is <em>not</em> swallowed — it propagates to <code>activate_next_bead</code>, which warns <code>bd ready failed</code> and calls <code>state.stop()</code>. Mid-chain, an unreadable bd means we cannot safely pick, so we stop cleanly.</li>
+<li><strong>Blocker check is fail-open, backstopped at close.</strong> <code>open_blocker_ids</code> returns <code>[]</code> on any <code>bd show</code> blip, so a transient failure can't strand the chain by mis-flagging a workable bead; the close-time guard (<code>close_guard.py</code>) remains the final net that refuses to close a bead with open blockers.</li>
+<li><strong>Revert is best-effort, never blocking.</strong> If <code>revert_to_open</code> raises, the blocked strand is still dropped from the workable set for this pass, so it is never re-driven; the next pass retries the revert.</li>
+<li><strong>No re-claim, no re-run of done work.</strong> Recovery beads skip <code>claim</code> (avoiding a bd error on an already-claimed bead) and carry the <code>_RECOVERY_PREAMBLE</code>, which instructs the agent to report "already satisfied" instead of churning — the compensation for a crash is <em>assessment</em>, not blind redo.</li>
+<li><strong>No compensation/rollback.</strong> There is nothing to undo: recovery either resumes in place or unwinds the claim with <code>revert_to_open</code> (the clean inverse of <code>claim</code>).</li>
+</ul>
+<h2 id="key-log-messages">Key Log Messages</h2>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>The live source log strings are emoji-prefixed (chain-link, warning, and bookmark glyphs). Emojis are omitted from this doc per the project's no-emoji-in-writes convention; the text after the prefix is verbatim.</p></div>
+<table><thead><tr>
+<th>Log line</th>
+<th>Where</th>
+<th>Means</th>
+</tr></thead><tbody>
+<tr>
+<td><code>Recovering stranded in_progress bead &lt;id&gt; -- agent will assess current state before doing new work.</code></td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> (<code>emit_warning</code>)</td>
+<td>Startup found a single recoverable strand and is resuming it instead of claiming fresh work.</td>
+</tr>
+<tr>
+<td><code>bead-chain: found stranded in_progress bead &lt;id&gt; -- recovering before picking new work.</code></td>
+<td><code>lifecycle.py:pick_next_bead</code> (<code>emit_warning</code>)</td>
+<td>Tier-0 mid-chain recovery: a strand was picked ahead of blocking bugs / epic affinity / the ready queue.</td>
+</tr>
+<tr>
+<td><code>bead-chain: stranded in_progress bead &lt;id&gt; is blocked by open issue(s) [&lt;ids&gt;] -- refusing to re-drive it and reverting to open (work-time blocks must be respected, not just at close-time).</code></td>
+<td><code>lifecycle.py:_unblocked_strands</code> (<code>emit_warning</code>)</td>
+<td>A stranded bead got re-blocked; it's being unwound to <code>open</code> rather than recovered (the <code>bdboard-oals</code> fix).</td>
+</tr>
+<tr>
+<td><code>reverted blocked &lt;id&gt; to open</code></td>
+<td><code>lifecycle.py:_unblocked_strands</code> (<code>emit_info</code>)</td>
+<td>The blocked-strand revert succeeded; the bead is back behind its blockers.</td>
+</tr>
+<tr>
+<td><code>also couldn't revert &lt;id&gt; (still dropping it from this pass): &lt;exc&gt;</code></td>
+<td><code>lifecycle.py:_unblocked_strands</code> (<code>emit_warning</code>)</td>
+<td>The revert failed, but the bead is still dropped so it's never driven this pass.</td>
+</tr>
+<tr>
+<td><code>bead-chain: found &lt;n&gt; in_progress beads (residue from a hard crash or pre-fix session). Recovering &lt;head_id&gt; first; the rest will be picked up one-at-a-time via the recovery tier: &lt;ids&gt;</code></td>
+<td><code>lifecycle.py:enforce_single_in_progress</code> (<code>emit_warning</code>)</td>
+<td>More than one strand exists; the head is recovered and the extras are left <code>in_progress</code> for later.</td>
+</tr>
+<tr>
+<td><code>bead-chain: couldn't enumerate in_progress beads (&lt;exc&gt;); continuing without invariant check.</code></td>
+<td><code>lifecycle.py:enforce_single_in_progress</code> (<code>emit_warning</code>)</td>
+<td>The startup strand query hit a bd outage; recovery soft-fails and startup falls through to <code>next_ready</code>.</td>
+</tr>
+<tr>
+<td><code>Bead &lt;id&gt; left in_progress — the next /bead-chain run will resume it with a recovery preamble so the agent assesses the current state before doing new work.</code></td>
+<td><code>register_callbacks.py:_on_interactive_turn_cancel</code> (<code>emit_system_message</code>)</td>
+<td>The <em>upstream</em> of recovery: <code>Ctrl+C</code>/cancel left a bead stranded for the next run to pick up.</td>
+</tr>
+</tbody></table>
+<h2 id="common-issues">Common Issues</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>A crashed-on bead got re-run from scratch instead of resuming</td>
+<td>The agent ignored <code>_RECOVERY_PREAMBLE</code> and redid work, or the bead was reverted to <code>open</code> (so it came back as a <em>fresh</em> claim) because it had open blockers</td>
+<td>Confirm the bead's status when re-picked: <code>bd show &lt;id&gt;</code>. If it's <code>open</code> it was reverted (it was blocked); the redo is correct. If <code>in_progress</code>, the preamble fired — the agent should have assessed first.</td>
+</tr>
+<tr>
+<td>A <code>hooked</code> bead never gets recovered</td>
+<td>Running an old bead-chain that queried only <code>--status=in_progress</code> (pre-FB-12)</td>
+<td>Recovery now enumerates <code>RECOVERABLE_STATUSES = (in_progress, hooked)</code> via <code>list_recoverable_strands</code>; ensure you're on the fixed build (<code>beads.py:198</code>).</td>
+</tr>
+<tr>
+<td>Two beads stuck <code>in_progress</code> and only one moves per run</td>
+<td>Residue from a hard crash; recovery deliberately recovers the head and leaves extras <code>in_progress</code></td>
+<td>Expected — the extras drain one-at-a-time on subsequent iterations via tier 0. Let the chain run; don't bulk-revert them (each is real partial work).</td>
+</tr>
+<tr>
+<td>A stranded bead with a closed blocker still got reverted</td>
+<td>Stale <code>bd show</code> dependency cache, or the blocker isn't actually <code>closed</code></td>
+<td><code>bd show &lt;id&gt; --json</code> and inspect <code>dependencies[].status</code>; only <code>closed</code> satisfies a blocker (<code>SATISFIED_BLOCKER_STATUSES</code>). <code>in_progress</code>/<code>blocked</code>/<code>open</code> blockers all gate.</td>
+</tr>
+<tr>
+<td>A blocked stranded bead ran to completion and only failed at <code>bd close</code></td>
+<td>The <code>bdboard-oals</code> regression — recovery bypassed the ready frontier without a blocker recheck</td>
+<td>This is exactly what <code>_unblocked_strands</code> + <code>open_blocker_ids</code> prevent; verify the revert path is present (<code>lifecycle.py:88</code>, <code>beads.py:476</code>). The close-guard is the last net if it ever slips.</td>
+</tr>
+<tr>
+<td>Recovery silently did nothing on startup</td>
+<td>The strand query hit a bd outage and soft-failed to <code>None</code></td>
+<td>Check for the <code>couldn't enumerate in_progress beads</code> warning; fix bd connectivity and re-run — startup fell through to <code>next_ready</code> rather than halting.</td>
+</tr>
+</tbody></table>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — the four-tier pick; this flow <strong>is</strong> its tier 0, ahead of blocking bug / epic affinity / global ready.</li>
+<li><a href="BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> — the claim-time blocker recheck that recovery skips (recovery beads are already claimed) but shares with <code>open_blocker_ids</code>.</li>
+<li><a href="ChainIterationLoop.html">ChainIterationLoop</a> — the outer loop that calls <code>pick_next_bead</code> (and thus this tier) on every iteration.</li>
+<li><a href="GoalPromptConstruction.html">GoalPromptConstruction</a> — consumes the recovery beads this flow surfaces and renders <code>_RECOVERY_PREAMBLE</code>.</li>
+<li><a href="SessionEndEpicRollup.html">SessionEndEpicRollup</a> — the opposite end of the loop: what runs when recovery and every other tier return <code>None</code>.</li>
+<li><a href="../Features/RecoveryMode.html">RecoveryMode</a> — the user-facing feature this flow implements.</li>
+<li><a href="../Features/BugDiscoveryProtocol.html">BugDiscoveryProtocol</a> — triaged bugs and recovery beads can collide; the recovery preamble wins precedence over the triage preamble.</li>
+<li><a href="../Features/BlockingBugPriority.html">BlockingBugPriority</a> — tier 1, the next tier this flow (tier 0) outranks: a stranded bug is recovered before it can escalate as a blocking bug.</li>
+<li><a href="../Features/WorkTimeBlockerGate.html">WorkTimeBlockerGate</a> — the feature that reverts+drops a blocked stranded bead here (<code>_unblocked_strands</code>) instead of re-driving it; this flow is one of its enforcement sites.</li>
+<li><a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a> — the transport behind the <code>bd list</code> / <code>bd show</code> / <code>bd update</code> spawns this flow makes.</li>
+<li><a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a> — why epics are filtered out of the recoverable set (a stranded epic is reverted, never recovered).</li>
+<li><a href="../Concepts/ChainStateSingleton.html">ChainStateSingleton</a> — holds <code>current_bead</code> / <code>current_bead_id</code>, the field the cancel hook reads when it leaves a bead stranded.</li>
+<li><a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the SRP boundary: recovery re-drives a strand but never owns durability.</li>
+<li><a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a> — why this flow flips status but never pushes bead state.</li>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a> — the queue driver whose cancel/close-failure paths leave the bead this flow recovers on the next run.</li>
+<li><a href="index.html">Flows Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

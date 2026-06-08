@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BeadClaimAndBlockerRecheck — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="../Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="../Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="../Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="../Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="../Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="../Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="index.html">Index</a>
+<a href="BeadClaimAndBlockerRecheck.html" class="active">Bead Claim And Blocker Recheck</a>
+<a href="ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="beadclaimandblockerrecheck">BeadClaimAndBlockerRecheck</h1>
+<h2 id="what-happens">What Happens</h2>
+<p>Once the <a href="NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> has handed back a single candidate bead, bead-chain does <strong>not</strong> blindly arm <code>/goal</code> with it. It runs a short <em>activation gauntlet</em> that re-validates the candidate one last time and then atomically claims it. In order: (1) refuse excluded container types (epic / milestone / gate / molecule), (2) **re-check work-time blockers fresh from <code>bd show</code>** even though <code>bd ready</code> already filtered them server-side, (3) refuse unsatisfied molecule fan-out gates, (4) claim the parent epic first then the bead itself with <code>bd update &lt;id&gt; --claim</code>, (5) stash the bead as <code>current_bead</code>, apply its execution hints, and arm wiggum's <code>/goal</code> loop.</p>
+<p>The defining move is the <strong>belt-and-suspenders blocker recheck</strong>: <code>bd ready</code> is the source of tiers 1-3, and it already excludes blocked beads server-side, so this recheck should <em>never</em> fire. It exists because two things can lie — bd version drift, and a <code>blocks</code> edge wired in the tiny window between the <code>bd ready</code> probe and now. This is the <code>bdboard-oals</code> fix carried to the activation boundary: bead-chain respects work-time blocks <strong>at claim time, not just at close time</strong>. A blocked candidate is reverted to <code>open</code> (if it isn't a recovery bead) and the chain stops rather than barrelling into a <code>bd close</code> that bd would later reject.</p>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p><strong>Recovery beads skip the claim.</strong> A bead surfaced by tier 0 (<a href="StrandedBeadRecovery.html">StrandedBeadRecovery</a>) is already <code>in_progress</code>, so calling <code>bd update --claim</code> again is at best a no-op and at worst a bd error. <code>is_recovery_bead</code> (<code>lifecycle.py:64</code>) gates the claim and the revert-on-block path: recovery beads are activated <code>recovery=True</code> and are exempt from the revert (they were already blocker-filtered upstream in <code>_unblocked_strands</code>).</p></div>
+<h2 id="trigger">Trigger</h2>
+<p>This flow runs at <strong>two</strong> call sites, both armed with the candidate the selection waterfall returned:</p>
+<ol>
+<li><strong>Chain startup.</strong> <code>register_callbacks.handle_bead_chain_command</code> (<code>register_callbacks.py:169</code>) probes once with <code>enforce_single_in_progress()</code> then <code>next_ready()</code>, then runs the same excluded-type / blocker / recovery-claim sequence inline before arming the first <code>/goal</code> (<code>register_callbacks.py:204</code>-<code>287</code>).</li>
+<li><strong>Every subsequent iteration.</strong> <code>lifecycle.activate_next_bead</code> (<code>lifecycle.py:544</code>) calls <code>pick_next_bead</code> (<code>lifecycle.py:460</code>) and then runs the activation gauntlet on its result (<code>lifecycle.py:660</code> onward) before handing the wheel to wiggum.</li>
+</ol>
+<p>The two sites are deliberate near-duplicates: the startup path is the <em>first</em> activation (no <code>just_closed</code> epic affinity yet), and <code>activate_next_bead</code> is <em>every</em> activation thereafter. Both end at the identical claim + arm sequence.</p>
+<h2 id="outcome">Outcome</h2>
+<p>Exactly one of the following happens to the candidate bead:</p>
+<ul>
+<li><strong>Claimed and armed.</strong> A fresh, unblocked, non-container, non-fan-out-gated bead has its parent epic claimed (<code>ensure_epic_in_progress</code>, <code>lifecycle.py:398</code>), then itself claimed via <code>bd update &lt;id&gt; --claim</code> (<code>beads.py:claim</code>, <code>beads.py:731</code>). It becomes <code>state.current_bead</code>, its execution hints are applied (<code>apply_execution_hints</code>), and <code>format_bead_as_goal(bead, recovery=False)</code> arms wiggum's <code>/goal</code> mode.</li>
+<li><strong>Recovered and armed (no claim).</strong> A recovery bead (already <code>in_progress</code>) skips the <code>claim</code> call entirely but follows the same arm path with <code>recovery=True</code>, prepending <code>_RECOVERY_PREAMBLE</code>.</li>
+<li><strong>Reverted + chain stopped (blocked).</strong> A candidate found blocked at recheck is reverted to <code>open</code> via <code>revert_to_open</code> (<code>beads.py:736</code> → <code>bd update &lt;id&gt; --status=open</code>) — <em>unless</em> it's a recovery bead, which is left <code>in_progress</code> for inspection — and <code>state.stop()</code> halts the chain.</li>
+<li><strong>Refused + chain stopped (container leak).</strong> A candidate that is an excluded container type (epic/milestone/gate/molecule) is refused outright and the chain stops — an upstream filter leak is a bug, not something to drive.</li>
+<li><strong>Refused + reverted (fan-out gate).</strong> A candidate whose <code>waits_for: children-of(&lt;spawner&gt;)</code> gate has unclosed children is reverted (non-recovery) and the chain stops; the gate will satisfy once the children close.</li>
+</ul>
+<p>No source files are touched — this flow only reads bd JSON and mutates bead <em>status</em> (claim = <code>open</code>→<code>in_progress</code>; revert = <code>in_progress</code>→<code>open</code>).</p>
+<pre class="mermaid">
+flowchart TD
+    Pick([candidate from selection waterfall&lt;br/&gt;pick_next_bead lifecycle.py:460]) --&gt; CapChk{--max cap reached?&lt;br/&gt;activate_next_bead}
+    CapChk --&gt;|Yes| Stop1([emit_success; state.stop; return None])
+    CapChk --&gt;|No| Excl{is_excluded_type?&lt;br/&gt;beads.py:138}
+    Excl --&gt;|epic/milestone/&lt;br/&gt;gate/molecule| Stop2([refuse: emit_warning;&lt;br/&gt;state.stop; return None])
+    Excl --&gt;|No| Rec[recovery = is_recovery_bead&lt;br/&gt;lifecycle.py:64]
+    Rec --&gt; Blk[blockers = open_blocker_ids id&lt;br/&gt;beads.py:476&lt;br/&gt;bd show id --json]
+    Blk --&gt; HasBlk{open blocker(s)?}
+    HasBlk --&gt;|Yes &amp; not recovery| Revert1[revert_to_open id&lt;br/&gt;beads.py:736&lt;br/&gt;bd update --status=open]
+    HasBlk --&gt;|Yes &amp; recovery| LeaveIP[leave in_progress]
+    Revert1 --&gt; Stop3([state.stop; return None])
+    LeaveIP --&gt; Stop3
+    HasBlk --&gt;|No| Fan{_has_fan_out_gate_issue?&lt;br/&gt;lifecycle.py:733}
+    Fan --&gt;|Yes &amp; not recovery| Revert2[revert_to_open]
+    Fan --&gt;|Yes| Stop4([state.stop; return None])
+    Revert2 --&gt; Stop4
+    Fan --&gt;|No| Epic[ensure_epic_in_progress bead&lt;br/&gt;lifecycle.py:398&lt;br/&gt;claim parent epic first]
+    Epic --&gt; Claim{recovery?}
+    Claim --&gt;|No| DoClaim[claim id&lt;br/&gt;beads.py:731&lt;br/&gt;bd update --claim]
+    Claim --&gt;|Yes| Skip[skip claim]
+    DoClaim --&gt; Cur[state.current_bead = bead]
+    Skip --&gt; Cur
+    Cur --&gt; Hints[apply_execution_hints bead]
+    Hints --&gt; Goal[format_bead_as_goal recovery=recovery&lt;br/&gt;prompt.py:613]
+    Goal --&gt; Arm([wiggum_state.start mode=goal&lt;br/&gt;return continuation dict])
+</pre>
+<h2 id="step-by-step">Step-by-Step</h2>
+<table><thead><tr>
+<th>#</th>
+<th>What</th>
+<th>Where (file:symbol)</th>
+<th>Failure mode</th>
+</tr></thead><tbody>
+<tr>
+<td>1</td>
+<td>Safety brake: if <code>completed_count + 1 &gt; max_iterations</code>, stop before touching the queue</td>
+<td><code>lifecycle.py:activate_next_bead</code> (<code>state.get_state().max_iterations</code>)</td>
+<td>None — pure arithmetic on the singleton; emits the cap message and <code>state.stop()</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Pick the candidate via the four-tier waterfall</td>
+<td><code>lifecycle.py:activate_next_bead</code> → <code>lifecycle.py:pick_next_bead</code></td>
+<td><code>BeadsError</code> → <code>emit_warning("bd ready failed")</code> + <code>state.stop()</code> + <code>return None</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Refuse excluded container types (epic/milestone/gate/molecule)</td>
+<td><code>lifecycle.py:activate_next_bead</code> → <code>beads.py:is_excluded_type</code> (<code>EXCLUDED_TYPES</code>, <code>beads.py:52</code>)</td>
+<td>A leaked epic here would cause <code>cannot close epic: N open child issue(s)</code> downstream → refuse + <code>state.stop()</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Classify recovery vs fresh (status ∈ <code>{in_progress, hooked}</code>)</td>
+<td><code>lifecycle.py:is_recovery_bead</code> (<code>_RECOVERY_STATUSES</code> ← <code>beads.RECOVERABLE_STATUSES</code>, <code>beads.py:198</code>)</td>
+<td>None — pure dict read; missing/empty status ⇒ <code>False</code> (treated as fresh)</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Blocker recheck:</strong> re-fetch live blockers with <code>bd show &lt;id&gt; --json</code> and walk <code>dependencies[]</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> → <code>beads.py:open_blocker_ids</code> (<code>beads.py:476</code>)</td>
+<td><code>open_blocker_ids</code> soft-fails to <code>[]</code> on any <code>bd show</code> blip — close-guard is the backstop</td>
+</tr>
+<tr>
+<td>6</td>
+<td>If blocked: revert to <code>open</code> (non-recovery only) and stop the chain</td>
+<td><code>lifecycle.py:activate_next_bead</code> → <code>beads.py:revert_to_open</code> (<code>beads.py:736</code>)</td>
+<td>Revert raises <code>BeadsError</code> → <code>emit_warning("also couldn't revert …")</code>; chain still stops</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Refuse unsatisfied molecule fan-out gates (<code>waits_for: children-of(...)</code> with unclosed children)</td>
+<td><code>lifecycle.py:_has_fan_out_gate_issue</code> (<code>lifecycle.py:733</code>)</td>
+<td>Soft-fails to <code>False</code> (treat as satisfied) on any <code>bd show</code>/<code>bd list</code> blip; revert (non-recovery) + <code>state.stop()</code> when it fires</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Claim the <strong>parent epic first</strong> so bd's per-parent tree never goes stale</td>
+<td><code>lifecycle.py:ensure_epic_in_progress</code> (<code>lifecycle.py:398</code>) → <code>beads.py:claim</code></td>
+<td>Soft-fails internally — any error is swallowed; the child claim still proceeds</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Claim the bead atomically (skipped for recovery beads)</td>
+<td><code>beads.py:claim</code> (<code>bd update &lt;id&gt; --claim</code>, <code>beads.py:731</code>)</td>
+<td><code>BeadsError</code> → <code>emit_warning("couldn't claim …")</code> + <code>state.stop()</code> + <code>return None</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td>Stash as current and apply execution hints (effort/model/agent_type)</td>
+<td><code>state.py:get_state().current_bead</code>; <code>execution_hints.py:apply_execution_hints</code></td>
+<td>Hints soft-fail per-hint; no-op when none present</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Render the goal prompt and arm wiggum's <code>/goal</code> loop</td>
+<td><code>prompt.py:format_bead_as_goal(recovery=recovery)</code> (<code>prompt.py:613</code>); <code>wiggum_state.start(..., mode="goal")</code></td>
+<td>None — pure string assembly + state flip; returns the continuation dict</td>
+</tr>
+</tbody></table>
+<h2 id="data-transformations">Data Transformations</h2>
+<p>The flow consumes one candidate bead dict and bd's <code>show</code> JSON, and produces either an armed <code>/goal</code> continuation, a status mutation, or <code>None</code>. The hops:</p>
+<ul>
+<li><strong>candidate dict → claim verdict.</strong> <code>is_recovery_bead</code> lowercases <code>bead["status"]</code> and tests membership in <code>_RECOVERY_STATUSES</code> (<code>{"in_progress", "hooked"}</code>). <code>True</code> ⇒ skip <code>claim</code>, arm <code>recovery=True</code>; <code>False</code> ⇒ claim then arm <code>recovery=False</code>.</li>
+<li>**<code>bead["id"]</code> → blocker id list.** <code>open_blocker_ids</code> re-fetches with <code>bd show &lt;id&gt; --json</code> (only <code>show</code> carries each dependency's <code>status</code> + <code>dependency_type</code>), then walks <code>bead["dependencies"]</code>: for each edge whose <code>dependency_type</code> ∈ <code>BLOCKING_DEP_TYPES</code> (<code>("blocks", "waits-for")</code>, <code>beads.py:165</code>) and whose <code>status</code> ∉ <code>SATISFIED_BLOCKER_STATUSES</code> (<code>frozenset({"closed"})</code>, <code>beads.py:170</code>), it collects <code>dep["id"]</code>. A non-empty list ⇒ revert + stop; empty ⇒ proceed.</li>
+<li>**<code>bead["waits_for"]</code> → fan-out gate verdict.** <code>_has_fan_out_gate_issue</code> (<code>lifecycle.py:733</code>) parses <code>"children-of(&lt;spawner_id&gt;)"</code>, then runs <code>bd list --json</code> and tests whether any issue with <code>parent == spawner_id</code> has <code>status != "closed"</code>. Any unclosed child ⇒ gate unsatisfied ⇒ revert + stop.</li>
+<li>**fresh bead → <code>in_progress</code> status.** <code>claim(str(bead["id"]))</code> shells <code>bd update &lt;id&gt; --claim</code>; the bead leaves <code>bd ready</code> and becomes the single in-flight bead.</li>
+<li>**blocked/gated bead → <code>open</code> status.** <code>revert_to_open(str(bead["id"]))</code> shells <code>bd update &lt;id&gt; --status=open</code>; the bead re-enters <code>bd ready</code> behind its blockers/gate.</li>
+<li><strong>claimed bead → goal prompt.</strong> <code>format_bead_as_goal(bead, recovery=recovery)</code> renders the <code>Complete beads issue &lt;id&gt;: &lt;title&gt; …</code> body (with <code>_RECOVERY_PREAMBLE</code> prepended iff <code>recovery=True</code>) and the continuation dict <code>{"prompt", "clear_context": True, "delay": 0.5, "reason": "bead_chain"}</code>.</li>
+</ul>
+<p>A representative <code>bd show &lt;id&gt; --json</code> record that <code>open_blocker_ids</code> inspects (only <code>dependency_type</code>, <code>status</code>, and <code>id</code> of each dep are read):</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-mol-bps.12",
+  "status": "open",
+  "issue_type": "task",
+  "title": "FlowDoc maintainer: Flow: BeadClaimAndBlockerRecheck",
+  "parent": "bead_chain-mol-bps",
+  "dependencies": [
+    { "id": "bead_chain-bu5", "dependency_type": "blocks", "status": "closed" },
+    { "id": "bead_chain-x3g", "dependency_type": "waits-for", "status": "open" }
+  ]
+}</code></pre>
+<p>The continuation dict this flow returns to the runner on a successful claim:</p>
+<pre><code class="language-json">{
+  "prompt": "Complete beads issue bead_chain-mol-bps.12: ...",
+  "clear_context": true,
+  "delay": 0.5,
+  "reason": "bead_chain"
+}</code></pre>
+<h2 id="performance-characteristics">Performance Characteristics</h2>
+<ul>
+<li><strong>Synchronous, in-process, every iteration.</strong> The gauntlet runs on the calling thread inside <code>activate_next_bead</code> (and once inline at startup). No async, no threading.</li>
+<li>**Bounded <code>bd</code> round-trips per activation.<strong> In the steady-state fresh-bead case: </strong>1** <code>bd show</code> (blocker recheck via <code>open_blocker_ids</code>), <strong>1</strong> <code>bd show</code></li>
+<li><strong>1</strong> <code>bd list</code> for the fan-out gate check (<code>_has_fan_out_gate_issue</code> — both early-return cheaply when the bead has no <code>waits_for</code> field, the common case), <strong>≤1</strong> <code>bd list</code> + <strong>1</strong> <code>bd update --claim</code> for the epic (<code>ensure_epic_in_progress</code>), and <strong>1</strong> <code>bd update --claim</code> for the bead. The fan-out <code>bd list --json</code> is the heaviest single call (it scans all issues), but it is skipped entirely unless the candidate carries a <code>waits_for</code> field.</li>
+<li><strong>Recovery beads are cheaper.</strong> They skip the <code>claim</code> spawn entirely and are exempt from the revert path.</li>
+<li><strong>No N+1.</strong> The one-bead-at-a-time discipline means exactly one candidate is activated per iteration — there is no per-collection fan-out here.</li>
+<li><strong>Every spawn rides the single chokepoint.</strong> All <code>bd show</code> / <code>bd list</code> / <code>bd update</code> calls flow through <code>beads.py:_run_bd</code> (<code>beads.py:280</code>) with <code>DEFAULT_TIMEOUT = 30.0</code> and <code>MAX_ATTEMPTS = 3</code> retry/backoff — see <a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a>.</li>
+<li><strong>No persistence here.</strong> This flow flips bead status at most; it never pushes/pulls/exports. Durability is a session-close concern — see <a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a>.</li>
+</ul>
+<h2 id="failure-handling">Failure Handling</h2>
+<ul>
+<li><strong>Blocker recheck is fail-open, backstopped at close.</strong> <code>open_blocker_ids</code> returns <code>[]</code> on any <code>bd show</code> blip, so a transient failure can't strand the chain by mis-flagging a workable bead. The close-time guard (<code>close_guard.py</code>) is the final net that refuses to close a bead with open blockers.</li>
+<li><strong>Fan-out gate check is fail-safe-open.</strong> <code>_has_fan_out_gate_issue</code> returns <code>False</code> (treat as satisfied) on any <code>bd show</code>/<code>bd list</code> error — it never halts the chain on infra noise; it only stops when it <em>positively</em> confirms an unclosed child.</li>
+<li><strong>Claim failure halts the chain cleanly.</strong> A <code>BeadsError</code> from <code>claim</code> is not swallowed: <code>emit_warning("couldn't claim …")</code> + <code>state.stop()</code> + <code>return None</code>. We never drive a bead we couldn't claim.</li>
+<li><strong>Epic claim is best-effort.</strong> <code>ensure_epic_in_progress</code> swallows every error internally — a failure to claim the parent epic never blocks the child claim or the chain (the epic just stays whatever it was; UI may show a stale tree).</li>
+<li><strong>Revert is best-effort.</strong> If <code>revert_to_open</code> raises while unwinding a blocked or gated candidate, the warning fires but the chain still stops; the next run's recovery tier re-attempts the revert.</li>
+<li><strong>Container-type leak is a hard stop, not a revert.</strong> An excluded type that reaches activation is a sign of an upstream filter bug; the chain refuses and stops rather than trying to "fix" it.</li>
+<li><strong>No compensation/rollback of disk work.</strong> This flow only mutates bead status; <code>revert_to_open</code> is the clean inverse of <code>claim</code>. There is nothing else to undo.</li>
+</ul>
+<h2 id="key-log-messages">Key Log Messages</h2>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>The live source log strings are emoji-prefixed (chain-link, no-entry, and test-tube glyphs). Emojis are omitted from this doc per the project's no-emoji-in-writes convention; the text after the prefix is verbatim.</p></div>
+<table><thead><tr>
+<th>Log line</th>
+<th>Where</th>
+<th>Means</th>
+</tr></thead><tbody>
+<tr>
+<td><code>bead-chain refused to activate &lt;id&gt;: it has open blocker(s) [&lt;ids&gt;]. Respecting work-time blocks at claim time, not just at close. Stopping chain.</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> (<code>emit_warning</code>)</td>
+<td>The mid-chain blocker recheck fired — a candidate <code>bd ready</code> should have filtered was found blocked; it's reverted (non-recovery) and the chain stops (<code>bdboard-oals</code> fix).</td>
+</tr>
+<tr>
+<td><code>bead-chain refused to start with &lt;id&gt;: it has open blocker(s) [&lt;ids&gt;]. Respecting work-time blocks at claim time, not just at close.</code></td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> (<code>emit_warning</code>)</td>
+<td>Same recheck, fired at startup on the very first candidate.</td>
+</tr>
+<tr>
+<td><code>reverted &lt;id&gt; to open</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> / <code>register_callbacks.py:handle_bead_chain_command</code> (<code>emit_info</code>)</td>
+<td>A blocked/gated non-recovery candidate was successfully unwound back to the ready queue.</td>
+</tr>
+<tr>
+<td><code>also couldn't revert &lt;id&gt;: &lt;exc&gt;</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> / <code>register_callbacks.py</code> (<code>emit_warning</code>)</td>
+<td>The revert itself failed; the chain still stops.</td>
+</tr>
+<tr>
+<td><code>bead-chain refused to activate &lt;id&gt;: it has an unsatisfied fan-out gate (waits_for: children-of(...) with unclosed spawned children). The gate will be satisfied once all children close. Stopping chain to avoid driving work that isn't ready yet.</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> (<code>emit_warning</code>)</td>
+<td>The molecule fan-out gate check (<code>bead_chain-9sc</code> workaround) caught a spawner with unclosed children.</td>
+</tr>
+<tr>
+<td><code>bead-chain refused to activate &lt;id&gt;: it's an excluded container type (&lt;issue_type&gt;). An upstream filter leaked an epic into the chain — this is a bug.</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> (<code>emit_warning</code>)</td>
+<td>A container bead (epic/milestone/gate/molecule) reached activation — refuse and stop.</td>
+</tr>
+<tr>
+<td><code>bead-chain couldn't claim &lt;id&gt;: &lt;exc&gt; — stopping.</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> (<code>emit_warning</code>)</td>
+<td><code>bd update --claim</code> failed; the chain stops cleanly rather than driving an unclaimed bead.</td>
+</tr>
+<tr>
+<td><code>bead-chain couldn't claim &lt;id&gt;: &lt;exc&gt;</code></td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> (<code>emit_warning</code>)</td>
+<td>The startup claim failed; <code>state.stop()</code> and <code>/bead-chain</code> aborts.</td>
+</tr>
+<tr>
+<td><code>bead-chain claimed &lt;id&gt; — &lt;title&gt;</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> (<code>emit_info</code>)</td>
+<td>Happy path: the fresh bead was claimed and <code>/goal</code> is armed.</td>
+</tr>
+<tr>
+<td><code>bead-chain recovered &lt;id&gt; — &lt;title&gt;</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> (<code>emit_info</code>)</td>
+<td>Happy path for a recovery bead: claim skipped, <code>/goal</code> armed with the recovery preamble.</td>
+</tr>
+<tr>
+<td><code>execution hints: &lt;hints&gt;</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> / <code>register_callbacks.py</code> (<code>emit_info</code>)</td>
+<td>The bead carried recognized <code>execution_*</code> metadata that was applied to this <code>/goal</code> pass.</td>
+</tr>
+</tbody></table>
+<h2 id="common-issues">Common Issues</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>Chain stops with "refused to activate … open blocker(s)" on a bead that looks ready</td>
+<td>A <code>blocks</code>/<code>waits-for</code> edge was added after <code>bd ready</code> ran, or bd version drift leaked a blocked bead</td>
+<td><code>bd show &lt;id&gt; --json</code> and inspect <code>dependencies[].status</code>; only <code>closed</code> satisfies a blocker. Close/relax the blocker, then re-run <code>/bead-chain</code>.</td>
+</tr>
+<tr>
+<td><code>bd update --claim</code> fails and the chain halts</td>
+<td>Another agent claimed the bead in the race window, bd connectivity dropped, or the bead was deleted</td>
+<td>Check <code>bd show &lt;id&gt;</code>; if already claimed by someone else it's correct to stop. Resolve bd connectivity and re-run.</td>
+</tr>
+<tr>
+<td>A recovery bead got reverted to <code>open</code> unexpectedly</td>
+<td>It shouldn't — recovery beads are exempt from the revert path; if it happened, it was reclassified as fresh</td>
+<td>Verify <code>is_recovery_bead</code> sees status ∈ <code>{in_progress, hooked}</code> (<code>bd show &lt;id&gt;</code>); a status typo/drift would make it look fresh.</td>
+</tr>
+<tr>
+<td>Chain refuses with "excluded container type"</td>
+<td>An upstream filter (<code>--exclude-type</code> / <code>is_excluded_type</code>) leaked an epic/milestone/gate/molecule</td>
+<td>This is a real bug — the selection waterfall must not return containers. See <a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a>; file a bead.</td>
+</tr>
+<tr>
+<td>A bead with a satisfied fan-out gate still got refused</td>
+<td>Stale <code>bd list</code> view, or a spawned child isn't actually <code>closed</code></td>
+<td><code>bd list --json</code> and check every issue with <code>parent == &lt;spawner&gt;</code>; any non-<code>closed</code> child gates. Close the stragglers.</td>
+</tr>
+<tr>
+<td>Parent epic shows wrong child counts after a claim</td>
+<td>bd's per-parent tree cache lags; <code>ensure_epic_in_progress</code> claims the epic first to minimize this, but UI can still lag</td>
+<td>Navigate back to the parent in bd to refresh; the data is consistent, only the cached view lags.</td>
+</tr>
+<tr>
+<td>Execution hints didn't apply</td>
+<td>The bead's <code>execution_*</code> metadata key wasn't recognized, or a per-hint soft-fail</td>
+<td>See <a href="../Concepts/ExecutionHints.html">ExecutionHints</a>; check the bead's metadata field names against the recognized set.</td>
+</tr>
+</tbody></table>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — the four-tier picker that produces the single candidate this flow then claims.</li>
+<li><a href="StrandedBeadRecovery.html">StrandedBeadRecovery</a> — tier 0; its recovery beads enter this flow already <code>in_progress</code> and skip the claim. Shares <code>open_blocker_ids</code> / <code>revert_to_open</code>.</li>
+<li><a href="ChainIterationLoop.html">ChainIterationLoop</a> — the outer loop that calls <code>activate_next_bead</code> (and thus this flow) on every iteration.</li>
+<li><a href="GoalPromptConstruction.html">GoalPromptConstruction</a> — consumes the claimed bead this flow surfaces and renders it as the <code>/goal</code> prompt.</li>
+<li><a href="SessionEndEpicRollup.html">SessionEndEpicRollup</a> — the opposite end of the loop: what runs when the picker (and thus this flow) has nothing left to claim.</li>
+<li><a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a> — why epics / milestones / gates / molecules are refused at the activation boundary.</li>
+<li><a href="../Concepts/ExecutionHints.html">ExecutionHints</a> — the <code>execution_*</code> metadata applied to the serial drive right after the claim, before arming <code>/goal</code>.</li>
+<li><a href="../Features/WorkTimeBlockerGate.html">WorkTimeBlockerGate</a> — the feature whose claim-time blocker recheck (<code>open_blocker_ids</code> + revert) this flow performs at both the startup and mid-chain activation sites.</li>
+<li><a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a> — the transport behind the <code>bd show</code> / <code>bd list</code> / <code>bd update</code> spawns this flow makes.</li>
+<li><a href="../Concepts/ChainStateSingleton.html">ChainStateSingleton</a> — holds <code>current_bead</code> (set here) and <code>max_iterations</code> (the safety brake).</li>
+<li><a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the SRP boundary: this flow claims and arms but never owns durability or goal logic.</li>
+<li><a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a> — why this flow flips status but never pushes bead state.</li>
+<li><a href="../Concepts/RecurringMoleculeProtection.html">RecurringMoleculeProtection</a> — related fan-out/molecule handling the gate check guards against.</li>
+<li><a href="../Features/EpicAffinity.html">EpicAffinity</a> — tier 2 selection whose chosen sibling this activation gauntlet then claims and arms.</li>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a> — the queue driver whose engage and iterate phases run this activation gauntlet.</li>
+<li><a href="../Features/GoalPromptEnrichment.html">GoalPromptEnrichment</a> — renders the claimed bead this flow surfaces into the <code>/goal</code> prompt.</li>
+<li><a href="index.html">Flows Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

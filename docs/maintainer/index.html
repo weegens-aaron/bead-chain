@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bead-chain Documentation (maintainer) — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="index.html" class="active">Index</a>
+<a href="Architecture.html">Architecture</a>
+<a href="Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="Concepts/index.html">Index</a>
+<a href="Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="Features/index.html">Index</a>
+<a href="Features/BeadChaining.html">Bead Chaining</a>
+<a href="Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="Features/CloseGuard.html">Close Guard</a>
+<a href="Features/EpicAffinity.html">Epic Affinity</a>
+<a href="Features/EpicRollup.html">Epic Rollup</a>
+<a href="Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="Features/RecoveryMode.html">Recovery Mode</a>
+<a href="Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="Flows/index.html">Index</a>
+<a href="Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="bead-chain-documentation-maintainer">bead-chain Documentation (maintainer)</h1>
+<p>FlowDoc-style maintainer documentation for <strong>bead-chain</strong> — what the code <em>does</em>, not a file inventory.</p>
+<h2 id="start-here">Start Here</h2>
+<ul>
+<li><a href="Architecture.html">Architecture</a> — system overview, tech stack, diagrams, directory guide.</li>
+<li>_FlowDocGuide — the authoring contract for every doc.</li>
+<li>_Manifest — full inventory + progress counters.</li>
+<li><a href="Troubleshooting.html">Troubleshooting</a> — symptom-first diagnostic guide for maintainers.</li>
+</ul>
+<h2 id="sections">Sections</h2>
+<ul>
+<li><a href="Features/index.html">Features</a> — what bead-chain can do.</li>
+<li><a href="Flows/index.html">Flows</a> — how its key processes run end to end.</li>
+<li><a href="Concepts/index.html">Concepts</a> — the cross-cutting design ideas.</li>
+</ul>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>bead-chain has no HTTP endpoints and no web views, so there are no Endpoints or Views sections.</p></div>
+<h2 id="related">Related</h2>
+<ul>
+<li>Repo README — project front page.</li>
+<li>User docs — task-oriented user guides.</li>
+<li>AGENTS.md — <code>bd</code> issue-tracker instructions.</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

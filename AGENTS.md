@@ -95,7 +95,7 @@ fi
 
 See [ADR 0001](notes/decisions/0001-dolt-push-lives-in-session-close.md) for the
 full rationale, rejected alternatives, and the SRP boundary
-(`maintainer/explanation/queue-driver-not-goal-engine.md`).
+([QueueDriverNotGoalEngine](__docs/Concepts/QueueDriverNotGoalEngine.md)).
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
 ## Beads Issue Tracker

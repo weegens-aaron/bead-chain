@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WorkTimeBlockerGate — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="../Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="../Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="../Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="../Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="../Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="../Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="index.html">Index</a>
+<a href="BeadChaining.html">Bead Chaining</a>
+<a href="BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="CloseGuard.html">Close Guard</a>
+<a href="EpicAffinity.html">Epic Affinity</a>
+<a href="EpicRollup.html">Epic Rollup</a>
+<a href="GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="RecoveryMode.html">Recovery Mode</a>
+<a href="WorkTimeBlockerGate.html" class="active">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="worktimeblockergate">WorkTimeBlockerGate</h1>
+<h2 id="what-it-does">What It Does</h2>
+<p>bead-chain refuses to claim or drive any bead that still has an <strong>open work-time blocker</strong> — an inbound <code>blocks</code> or generic <code>waits-for</code> dependency edge whose target is not yet <code>closed</code>. The check runs at <em>claim/start time</em> (every selection and activation site), not just when <code>bd close</code> would later refuse, and a blocked stranded bead is reverted to <code>open</code> instead of being re-driven.</p>
+<h2 id="why-it-exists">Why It Exists</h2>
+<p>This is the <strong>bdboard-oals</strong> fix. The chain used to claim and fully execute a bead whose <code>blocks</code> dependencies were still open, only discovering the problem when <code>bd close</code> refused with <em>"blocked by open issues"</em> — after a full agent run had already burned cycles on stale inputs. Two paths can surface a blocked bead even though <code>bd ready</code> filters them server-side:</p>
+<ol>
+<li>The <strong>recovery tier</strong> reads <code>bd list --status=in_progress</code>, which ignores the <code>bd ready</code> frontier. A bead claimed <em>while</em> ready, then re-blocked (its blocker reopened, or a <code>blocks</code>/<code>waits-for</code> edge wired after the claim), would be picked back up and re-driven.</li>
+<li><strong>bd version drift.</strong> If a future <code>bd ready</code> ever leaked a blocked bead, the chain would barrel straight into the same close-time failure.</li>
+</ol>
+<p>The gate prevents the wasted run; bd's native close-time refusal stays as the final safety net.</p>
+<h2 id="how-it-works">How It Works</h2>
+<h3 id="user-perspective">User Perspective</h3>
+<p>The user never sees a blocked bead get worked. Instead, when a blocked bead reaches any claim site, the chain emits a warning naming the bead and its open blocker ids, reverts the bead to <code>open</code> (so it re-enters the queue <em>behind</em> its blockers), and either skips to the next eligible candidate or stops the chain cleanly. A genuinely ready leaf is worked instead; nothing blocked is ever driven to a doomed <code>bd close</code>.</p>
+<h3 id="system-perspective">System Perspective</h3>
+<p>Every claim path resolves a candidate's live blockers via <code>beads.open_blocker_ids(bead_id)</code>, which re-fetches the bead with <code>bd show &lt;id&gt; --json</code> (the only call that carries each dependency's <code>status</code> <em>and</em> <code>dependency_type</code>) and returns the ids of every inbound edge whose type is in <code>BLOCKING_DEP_TYPES</code> and whose status is not in <code>SATISFIED_BLOCKER_STATUSES</code>. A non-empty list means "blocked".</p>
+<pre class="mermaid">
+sequenceDiagram
+    participant Loop as ChainIterationLoop
+    participant Pick as lifecycle.pick_next_bead
+    participant Strand as lifecycle._unblocked_strands
+    participant Gate as beads.open_blocker_ids
+    participant Show as beads.show (bd show --json)
+    participant Act as lifecycle.activate_next_bead
+
+    Loop-&gt;&gt;Pick: pick_next_bead(just_closed)
+    Pick-&gt;&gt;Strand: tier 0 — enumerate recoverable strands
+    Strand-&gt;&gt;Gate: open_blocker_ids(strand_id)
+    Gate-&gt;&gt;Show: bd show &lt;id&gt; --json
+    Show--&gt;&gt;Gate: dependencies[] (id, status, dependency_type)
+    Gate--&gt;&gt;Strand: [blocker ids] or []
+    alt strand blocked
+        Strand-&gt;&gt;Strand: revert_to_open(id) + drop (warn)
+    else strand clear
+        Strand--&gt;&gt;Pick: return strand (recover)
+    end
+    Pick-&gt;&gt;Gate: tiers 1-3 — _reject_if_blocked(candidate)
+    Gate--&gt;&gt;Pick: blocked? skip to next tier : keep
+    Pick--&gt;&gt;Act: chosen bead (or None)
+    Act-&gt;&gt;Gate: last-line recheck open_blocker_ids(id)
+    alt blocked at activation
+        Act-&gt;&gt;Act: revert_to_open(id) (non-recovery) + state.stop()
+    else clear
+        Act-&gt;&gt;Act: claim + arm /goal
+    end
+</pre>
+<h2 id="key-data-shapes">Key Data Shapes</h2>
+<p><code>open_blocker_ids</code> reads the inbound dependency records as emitted by <code>bd show &lt;id&gt; --json</code>. Each entry is a full dependency dict (unlike the bare edge records on <code>bd ready</code> / <code>bd list</code>, which omit <code>status</code>):</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-h4eq",
+  "dependencies": [
+    { "id": "bead_chain-30vz", "status": "open",        "dependency_type": "blocks" },
+    { "id": "bead_chain-w1",   "status": "in_progress", "dependency_type": "waits-for" },
+    { "id": "bead_chain-ilmb", "status": "closed",      "dependency_type": "blocks" },
+    { "id": "bead_chain-uiwu", "status": "open",        "dependency_type": "parent-child" }
+  ]
+}</code></pre>
+<p>For the record above, <code>open_blocker_ids</code> returns the open <em>hard</em> edges only — <code>["bead_chain-30vz", "bead_chain-w1"]</code>: the <code>closed</code> blocks edge is satisfied and dropped, and the <code>parent-child</code> edge (the parent epic) is structural, not a work-time block.</p>
+<p>The function's own return shape is a flat list of blocker ids:</p>
+<pre><code class="language-json">["bead_chain-30vz", "bead_chain-w1"]</code></pre>
+<p>An empty list <code>[]</code> means <em>ready to work</em> (no unresolved work-time dependency).</p>
+<h2 id="api-surface">API Surface</h2>
+<table><thead><tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+<th>-&gt; Endpoint doc</th>
+</tr></thead><tbody>
+<tr>
+<td><code>call</code></td>
+<td><code>beads.open_blocker_ids(bead_id) -&gt; list[str]</code></td>
+<td>Re-fetch via <code>bd show</code> and return the ids of every still-open <code>blocks</code> / <code>waits-for</code> blocker</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td><code>beads.is_blocked(bead_id) -&gt; bool</code></td>
+<td>Boolean convenience wrapper over <code>open_blocker_ids</code></td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td><code>lifecycle._reject_if_blocked(bead, tier) -&gt; bool</code></td>
+<td>Belt-and-suspenders recheck for the non-recovery tiers (1-3)</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td><code>lifecycle._unblocked_strands() -&gt; list[dict]</code></td>
+<td>Tier-0 recovery filter: revert + drop any blocked stranded bead</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td>`lifecycle.pick_next_bead(just_closed) -&gt; dict \</td>
+<td>None`</td>
+<td>Four-tier picker that applies the gate to every tier</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td>`lifecycle.activate_next_bead(just_closed=None) -&gt; dict \</td>
+<td>None`</td>
+<td>Activation boundary's last-line blocker recheck</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td>`register_callbacks.handle_bead_chain_command(command) -&gt; str \</td>
+<td>bool`</td>
+<td>Startup-time first-activation recheck</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td><code>beads.revert_to_open(bead_id) -&gt; None</code></td>
+<td>Unwind a blocked bead's claim back to <code>open</code></td>
+<td>N/A — <code>bd update &lt;id&gt; --status=open</code></td>
+</tr>
+<tr>
+<td><code>shell</code></td>
+<td><code>bd show &lt;id&gt; --json</code></td>
+<td>The per-bead fetch carrying each dependency's <code>status</code> + <code>dependency_type</code></td>
+<td>N/A — <code>bd</code> subprocess</td>
+</tr>
+</tbody></table>
+<h2 id="implementation-map">Implementation Map</h2>
+<table><thead><tr>
+<th>Responsibility</th>
+<th>File path</th>
+<th>Symbol</th>
+</tr></thead><tbody>
+<tr>
+<td>Canonical open work-time blocker lookup (re-fetch + filter)</td>
+<td><code>beads.py:476</code></td>
+<td><code>open_blocker_ids</code></td>
+</tr>
+<tr>
+<td>Boolean convenience wrapper</td>
+<td><code>beads.py:550</code></td>
+<td><code>is_blocked</code></td>
+</tr>
+<tr>
+<td>Re-fetch a bead with <code>bd show &lt;id&gt; --json</code></td>
+<td><code>beads.py:639</code></td>
+<td><code>show</code></td>
+</tr>
+<tr>
+<td>Unwind a claimed/blocked bead back to <code>open</code></td>
+<td><code>beads.py:736</code></td>
+<td><code>revert_to_open</code></td>
+</tr>
+<tr>
+<td>Hard (gating) dependency-edge types</td>
+<td><code>beads.py:165</code></td>
+<td><code>BLOCKING_DEP_TYPES</code></td>
+</tr>
+<tr>
+<td>Statuses that satisfy (no longer gate) a blocker</td>
+<td><code>beads.py:170</code></td>
+<td><code>SATISFIED_BLOCKER_STATUSES</code></td>
+</tr>
+<tr>
+<td>Recoverable in-flight statuses fed into the gate</td>
+<td><code>beads.py:198</code></td>
+<td><code>RECOVERABLE_STATUSES</code></td>
+</tr>
+<tr>
+<td>Tier-0 recovery filter: revert + drop blocked strands</td>
+<td><code>lifecycle.py:88</code></td>
+<td><code>_unblocked_strands</code></td>
+</tr>
+<tr>
+<td>Startup invariant guard that evicts blocked strands</td>
+<td><code>lifecycle.py:138</code></td>
+<td><code>enforce_single_in_progress</code></td>
+</tr>
+<tr>
+<td>Four-tier picker applying the gate to every tier</td>
+<td><code>lifecycle.py:460</code></td>
+<td><code>pick_next_bead</code></td>
+</tr>
+<tr>
+<td>Belt-and-suspenders recheck for tiers 1-3</td>
+<td><code>lifecycle.py:521</code></td>
+<td><code>_reject_if_blocked</code></td>
+</tr>
+<tr>
+<td>Activation-boundary last-line recheck + revert/stop</td>
+<td><code>lifecycle.py:544</code></td>
+<td><code>activate_next_bead</code></td>
+</tr>
+<tr>
+<td>Startup first-activation recheck + revert</td>
+<td><code>register_callbacks.py:169</code></td>
+<td><code>handle_bead_chain_command</code></td>
+</tr>
+</tbody></table>
+<h2 id="configuration">Configuration</h2>
+<table><thead><tr>
+<th>Key</th>
+<th>Default</th>
+<th>Effect</th>
+</tr></thead><tbody>
+<tr>
+<td><code>BLOCKING_DEP_TYPES</code></td>
+<td><code>("blocks", "waits-for")</code></td>
+<td>Inbound edge types treated as hard work-time blocks. <code>parent-child</code> / <code>discovered-from</code> / <code>related</code> are deliberately excluded. Tuple-constant so a new gating type (e.g. <code>"requires"</code>) is a one-line edit</td>
+</tr>
+<tr>
+<td><code>SATISFIED_BLOCKER_STATUSES</code></td>
+<td><code>frozenset({"closed"})</code></td>
+<td>Blocker statuses that no longer gate work. <code>open</code> / <code>in_progress</code> / <code>blocked</code> all still gate; only <code>closed</code> is satisfied. Compared case-insensitively</td>
+</tr>
+<tr>
+<td><code>RECOVERABLE_STATUSES</code></td>
+<td><code>("in_progress", "hooked")</code></td>
+<td>The stranded in-flight statuses tier-0 enumerates before running each through the gate</td>
+</tr>
+<tr>
+<td>soft-fail behavior</td>
+<td>return <code>[]</code></td>
+<td>On any <code>bd show</code> infrastructure error, <code>open_blocker_ids</code> treats the bead as unblocked so a transient bd blip can't strand the chain — the close-time guard is the backstop</td>
+</tr>
+</tbody></table>
+<h2 id="edge-cases">Edge Cases</h2>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>The molecule fan-out gate is a <em>different</em> mechanism.</strong> A molecule's <code>waits_for: children-of(...)</code> <em>field</em> marker is NOT an inbound <code>waits-for</code> edge — it is checked separately by <code>lifecycle._has_fan_out_gate_issue</code>, not by <code>open_blocker_ids</code>. Do not conflate the two: a generic <code>waits-for</code> edge (from <code>bd dep add B A --type=waits-for</code>) gates here; the molecule field marker does not appear in this gate at all.</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>The parent epic is never a blocker.</strong> A bead's <code>parent-child</code> edge to its epic is structural, not a work-time dependency. Counting it would block every child of every epic forever — so <code>parent-child</code> is excluded from <code>BLOCKING_DEP_TYPES</code> (pinned by <code>test_parent_child_edge_is_not_a_blocker</code>).</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>Recovery beads are exempt from the revert path at activation.</strong> A bead that entered via tier-0 recovery was already blocker-filtered in <code>_unblocked_strands</code>; if one somehow reaches <code>activate_next_bead</code> blocked, the chain stops and leaves it <code>in_progress</code> for inspection rather than reverting it (it represents real partial work on disk).</p></div>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p><strong>The gate soft-fails to "unblocked" on a bd outage.</strong> If <code>bd show</code> errors, <code>open_blocker_ids</code> returns <code>[]</code> so a transient blip never strands the chain. This means a blocked bead <em>could</em> slip through during a bd outage — by design, because bd's native close-time refusal remains the final safety net.</p></div>
+<h2 id="error-scenarios">Error Scenarios</h2>
+<table><thead><tr>
+<th>Trigger</th>
+<th>Behavior</th>
+<th>User sees</th>
+</tr></thead><tbody>
+<tr>
+<td>A stranded <code>in_progress</code> bead has an open blocker (tier 0)</td>
+<td><code>_unblocked_strands</code> reverts it to <code>open</code> and drops it from the workable set</td>
+<td><code>bead-chain: stranded in_progress bead &lt;id&gt; is blocked by open issue(s) [&lt;ids&gt;] -- refusing to re-drive it and reverting to open (work-time blocks must be respected, not just at close-time).</code></td>
+</tr>
+<tr>
+<td>A tier 1-3 candidate from <code>bd ready</code> is unexpectedly blocked</td>
+<td><code>_reject_if_blocked</code> returns <code>True</code>; the tier is skipped and selection falls through to the next tier</td>
+<td><code>bead-chain: &lt;tier&gt; candidate &lt;id&gt; has open blocker(s) [&lt;ids&gt;] -- refusing to claim it (bd ready leaked a blocked bead; respecting work-time blocks anyway).</code></td>
+</tr>
+<tr>
+<td>A bead is blocked at the mid-chain activation boundary</td>
+<td><code>activate_next_bead</code> reverts (non-recovery) and stops the chain</td>
+<td><code>bead-chain refused to activate &lt;id&gt;: it has open blocker(s) [&lt;ids&gt;]. Respecting work-time blocks at claim time, not just at close. Stopping chain.</code></td>
+</tr>
+<tr>
+<td>A bead is blocked on the very first startup activation</td>
+<td><code>handle_bead_chain_command</code> reverts (non-recovery) and refuses to start</td>
+<td><code>bead-chain refused to start with &lt;id&gt;: it has open blocker(s) [&lt;ids&gt;]. Respecting work-time blocks at claim time, not just at close.</code></td>
+</tr>
+<tr>
+<td><code>bd show</code> fails while resolving blockers</td>
+<td><code>open_blocker_ids</code> soft-fails to <code>[]</code> (treated as unblocked); close-time guard backstops</td>
+<td><em>(no gate warning; bd's own close-time refusal is the fallback if the bead really was blocked)</em></td>
+</tr>
+<tr>
+<td>The revert itself fails after a block is detected</td>
+<td>best-effort — the bead is still dropped from this pass</td>
+<td><code>also couldn't revert &lt;id&gt; (still dropping it from this pass): &lt;err&gt;</code></td>
+</tr>
+</tbody></table>
+<h2 id="testing">Testing</h2>
+<p>Three suites pin the gate at each layer:</p>
+<ul>
+<li>**<code>tests/test_blocker_gate.py</code>** — unit tests for <code>beads.open_blocker_ids</code> against the real <code>bd show --json</code> dependency shape: open <code>blocks</code> reported, <code>in_progress</code> blocker still gates, <code>closed</code> satisfied, <code>parent-child</code> / <code>discovered-from</code> / <code>related</code> ignored, case-insensitive type+status, empty/ missing/soft-fail paths. Runs standalone (<code>python3 tests/test_blocker_gate.py</code>) because <code>beads.py</code> is pure-stdlib.</li>
+<li>**<code>tests/test_waits_for_blocker.py</code>** — bead_chain-i0v / FB-10 regression: proves <code>"waits-for"</code> is in <code>BLOCKING_DEP_TYPES</code> and that a generic <code>waits-for</code> edge gates identically to <code>blocks</code>, including the recovery-tier path (<code>_unblocked_strands</code> reverts a <code>waits-for</code>-gated strand, keeps a satisfied one).</li>
+<li>**<code>tests/test_pick_respects_blocks.py</code>** — selection-layer regression over <code>lifecycle.pick_next_bead</code>: blocked global-ready / blocking-bug / epic-affinity candidates are skipped, a blocked stranded <code>in_progress</code> bead is reverted (not re-driven), and <code>enforce_single_in_progress</code> evicts a blocked recovery bead.</li>
+<li>**<code>tests/test_blocker_gate_e2e.py</code><em>* — end-to-end against a </em>real* <code>bd</code> database: B blocked by open A never hits the <code>bd ready</code> frontier, <code>open_blocker_ids</code> still detects A while B is <code>in_progress</code>, and B becomes unblocked + ready only once A closes.</li>
+</ul>
+<p>Run the whole suite with <code>pytest -q</code>.</p>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> — the claim-time gauntlet that runs this gate at both the startup and mid-chain activation sites.</li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — the four-tier picker whose tier-0 strand revert and tiers 1-3 <code>_reject_if_blocked</code> recheck enforce this gate.</li>
+<li><a href="RecoveryMode.html">RecoveryMode</a> — the feature whose blocked-strand revert path is one of this gate's enforcement sites.</li>
+<li><a href="../Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> — tier 0 in depth: how <code>_unblocked_strands</code> reverts+drops a blocked stranded bead instead of re-driving it.</li>
+<li><a href="BlockingBugPriority.html">BlockingBugPriority</a> — escalation never overrides a work-time block: a blocked blocking bug is skipped by <code>_reject_if_blocked</code>.</li>
+<li><a href="EpicAffinity.html">EpicAffinity</a> — a blocked affinity sibling is skipped by the same recheck and falls through to the global ready queue.</li>
+<li><a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a> — the sibling defence-in-depth pattern (server-side filter + client-side recheck) applied to container types rather than blockers.</li>
+<li><a href="BeadChaining.html">BeadChaining</a> — the queue driver whose claim and activate boundaries run this work-time blocker recheck.</li>
+<li><a href="index.html">Features Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

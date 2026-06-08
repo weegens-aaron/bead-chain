@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CloseGuard — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="../Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="../Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="../Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="../Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="../Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="../Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="index.html">Index</a>
+<a href="BeadChaining.html">Bead Chaining</a>
+<a href="BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="CloseGuard.html" class="active">Close Guard</a>
+<a href="EpicAffinity.html">Epic Affinity</a>
+<a href="EpicRollup.html">Epic Rollup</a>
+<a href="GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="RecoveryMode.html">Recovery Mode</a>
+<a href="WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="closeguard">CloseGuard</h1>
+<h2 id="what-it-does">What It Does</h2>
+<p>While bead-chain is actively driving a bead, CloseGuard intercepts every agent-issued shell command and <strong>blocks</strong> any attempt to close that bead by hand (<code>bd close …</code> or <code>bd update … --status=closed</code>), replacing the command's output with a reminder that the LLM judges are the only legitimate closer.</p>
+<h2 id="why-it-exists">Why It Exists</h2>
+<p>bead-chain delegates the <em>completion verdict</em> to wiggum's <code>/goal</code> LLM judges: a bead is closed only once the judges agree the goal is satisfied, via the plugin's own <code>beads.close</code> call. If the agent doing the work shells out to <code>bd close cpp-1</code> mid-run, it short-circuits that contract — the bead closes with <strong>no verdict at all</strong>, and the chain advances as if the work were graded when it never was. That is the precise failure mode the whole <a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> boundary exists to prevent: grading completion is delegated, not the driver's job, so the driver must also stop <em>anyone else</em> from grading by fiat. CloseGuard is the enforcement arm of that boundary — without it the "judges decide" rule is a suggestion an over-eager agent can ignore in a single shell call.</p>
+<p>The detector is intentionally <strong>lenient about which bead</strong> is being closed: while the chain is active the agent has no business closing <em>any</em> bead — that's the chain's job — so matching <code>bd close</code> at all is sufficient, no id comparison needed.</p>
+<h2 id="how-it-works">How It Works</h2>
+<h3 id="user-perspective">User Perspective</h3>
+<p>The user never invokes CloseGuard directly. They (or the agent) see it only when something tries to close a bead during a <code>/bead-chain</code> run. The offending shell command does not execute; instead the agent receives a warning verbatim as the command's error output (the source prefixes the first line with a stop-sign emoji, shown here as <code>[stop]</code>):</p>
+<pre><code>[stop] bead-chain blocked `bd close`.
+  Direct `bd close` bypasses the LLM judges.
+  bead-chain is currently driving bead bead_chain-mol-bps.6 through
+  wiggum's /goal mode. The bead will be closed automatically once the LLM
+  judges sign off — do NOT close it yourself.
+  Keep working on the task. If you believe the bead is complete, summarize
+  what you did and let the judges decide.</code></pre>
+<p>When the chain is <strong>idle</strong>, the guard is invisible — <code>bd close</code> runs normally.</p>
+<h3 id="system-perspective">System Perspective</h3>
+<p>CloseGuard registers a <code>run_shell_command</code> callback (<code>register_callbacks.py:407</code>) that fires <em>before</em> any agent shell command runs. The hook (<code>close_guard.on_run_shell_command</code>) is a cheap no-op unless <strong>both</strong> gates hold: <code>state.is_active()</code> is true (a chain is running) <strong>and</strong> <code>detect_premature_close(command)</code> returns a match. The detector first does a substring pre-filter (<code>"bd" not in command</code> → bail, skip all regex), then tries two compiled regexes — <code>_BD_CLOSE_RE</code> for <code>bd close …</code> and <code>_BD_UPDATE_STATUS_CLOSED_RE</code> for <code>bd update … --status=closed</code>. Both are anchored to a shell <strong>command boundary</strong> (<code>_COMMAND_BOUNDARY</code>) so a <code>bd close</code> buried inside a quoted string (<code>echo "run: bd close cpp-1"</code>) is <em>not</em> a false positive. On a match the hook reads the current bead id from <code>state.get_state().current_bead_id</code>, builds the reminder, calls <code>emit_warning</code>, and returns a <code>{"blocked": True, …}</code> dict — code_puppy's command runner surfaces <code>error_message</code> to the agent and never executes the command. bead-chain's own <code>bd close</code> calls in <code>beads.py</code> use <code>subprocess.run</code> directly, bypass the command runner entirely, and therefore never trip this hook.</p>
+<pre class="mermaid">
+sequenceDiagram
+    participant Agent as Agent (wiggum /goal)
+    participant Runner as code_puppy command runner
+    participant Hook as close_guard.on_run_shell_command
+    participant State as state.is_active / current_bead_id
+    participant Det as close_guard.detect_premature_close
+    participant Warn as messaging.emit_warning
+
+    Agent-&gt;&gt;Runner: run_shell_command("bd close cpp-1")
+    Runner-&gt;&gt;Hook: invoke run_shell_command callback
+    Hook-&gt;&gt;State: is_active()?
+    alt chain idle
+        State--&gt;&gt;Hook: False
+        Hook--&gt;&gt;Runner: return None (allow)
+        Runner-&gt;&gt;Agent: command executes normally
+    else chain active
+        State--&gt;&gt;Hook: True
+        Hook-&gt;&gt;Det: detect_premature_close(command)
+        alt no close pattern (e.g. bd update --claim)
+            Det--&gt;&gt;Hook: None
+            Hook--&gt;&gt;Runner: return None (allow)
+            Runner-&gt;&gt;Agent: command executes normally
+        else bd close / --status=closed matched
+            Det--&gt;&gt;Hook: CloseGuardMatch(pattern_name, description)
+            Hook-&gt;&gt;State: current_bead_id
+            State--&gt;&gt;Hook: "cpp-1"
+            Hook-&gt;&gt;Warn: emit_warning(reminder)
+            Hook--&gt;&gt;Runner: {"blocked": True, "error_message": reminder, ...}
+            Runner-&gt;&gt;Agent: command BLOCKED, reminder shown as error
+        end
+    end
+</pre>
+<h2 id="key-data-shapes">Key Data Shapes</h2>
+<p>The detector returns a frozen <code>CloseGuardMatch</code> dataclass (two <code>str</code> fields) on a hit, or <code>None</code> otherwise:</p>
+<pre><code class="language-json">{
+  "pattern_name": "bd close",
+  "description": "Direct `bd close` bypasses the LLM judges."
+}</code></pre>
+<p>The <code>--status=closed</code> variant carries different field values:</p>
+<pre><code class="language-json">{
+  "pattern_name": "bd update --status=closed",
+  "description": "Setting status=closed on a bead bypasses the LLM judges."
+}</code></pre>
+<p>When the hook blocks a command it returns this dict to the command runner (the runner reads <code>error_message</code> and surfaces it to the agent as the command's failure output):</p>
+<pre><code class="language-json">{
+  "blocked": true,
+  "reasoning": "Premature close attempted (bd close)",
+  "error_message": "[stop] bead-chain blocked `bd close`.\n  Direct `bd close` bypasses the LLM judges.\n  bead-chain is currently driving bead cpp-1 through wiggum's /goal mode. The bead will be closed automatically once the LLM judges sign off — do NOT close it yourself.\n  Keep working on the task. If you believe the bead is complete, summarize what you did and let the judges decide."
+}</code></pre>
+<p>To <strong>allow</strong> a command the hook returns <code>null</code> (Python <code>None</code>) — the runner treats an absent/<code>None</code> result as "no objection, proceed."</p>
+<h2 id="api-surface">API Surface</h2>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>bead-chain is a terminal Code Puppy plugin with <strong>no HTTP endpoints</strong>. This feature's "surface" is an in-process callback plus pure functions, not routes — so the <code>-&gt; Endpoint doc</code> column is N/A by design (see the Endpoints note in the FlowDoc Manifest).</p></div>
+<table><thead><tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+<th>-&gt; Endpoint doc</th>
+</tr></thead><tbody>
+<tr>
+<td><code>hook</code></td>
+<td>`close_guard.on_run_shell_command(context, command, cwd=None, timeout=60) -&gt; dict[str, Any] \</td>
+<td>None`</td>
+<td>The <code>run_shell_command</code> callback: no-op unless active + close detected, else returns a blocking dict</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td>`close_guard.detect_premature_close(command) -&gt; CloseGuardMatch \</td>
+<td>None`</td>
+<td>Pure detector: regex-match <code>bd close</code> / <code>bd update --status=closed</code>, return a match or <code>None</code></td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>register</code></td>
+<td><code>register_callbacks.register_callback("run_shell_command", _on_run_shell_command)</code></td>
+<td>Wires the hook into code_puppy's shell command runner at module import</td>
+<td>N/A — plugin registration</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td><code>state.is_active() -&gt; bool</code></td>
+<td>Cheap active-chain gate read; hook bails immediately when <code>False</code></td>
+<td>N/A — in-process state</td>
+</tr>
+<tr>
+<td><code>read</code></td>
+<td>`state.get_state().current_bead_id -&gt; str \</td>
+<td>None`</td>
+<td>Bead id woven into the reminder message (falls back to <code>"the active bead"</code>)</td>
+<td>N/A — in-process state</td>
+</tr>
+<tr>
+<td><code>emit</code></td>
+<td><code>code_puppy.messaging.emit_warning(reminder)</code></td>
+<td>Surfaces the teachable reminder to the user/agent</td>
+<td>N/A — messaging bus</td>
+</tr>
+</tbody></table>
+<h2 id="implementation-map">Implementation Map</h2>
+<table><thead><tr>
+<th>Responsibility</th>
+<th>File path</th>
+<th>Symbol</th>
+</tr></thead><tbody>
+<tr>
+<td>The <code>run_shell_command</code> hook: gate on active + detection, build reminder, return blocking dict</td>
+<td><code>close_guard.py</code></td>
+<td><code>on_run_shell_command</code></td>
+</tr>
+<tr>
+<td>Pure detector: pre-filter on <code>"bd"</code>, then try both close regexes</td>
+<td><code>close_guard.py</code></td>
+<td><code>detect_premature_close</code></td>
+</tr>
+<tr>
+<td>Frozen result type carrying <code>pattern_name</code> + <code>description</code></td>
+<td><code>close_guard.py</code></td>
+<td><code>CloseGuardMatch</code></td>
+</tr>
+<tr>
+<td>Shell command-boundary anchor (start / <code>&amp;&amp;</code> / `\</td>
+<td>\</td>
+<td><code> / </code>;<code> / </code>\</td>
+<td>`) shared by both regexes</td>
+<td><code>close_guard.py</code></td>
+<td><code>_COMMAND_BOUNDARY</code></td>
+</tr>
+<tr>
+<td>Optional path-prefix matcher so <code>/usr/local/bin/bd</code> and <code>./bd</code> are caught</td>
+<td><code>close_guard.py</code></td>
+<td><code>_BD_INVOCATION</code></td>
+</tr>
+<tr>
+<td>Compiled regex matching <code>bd close …</code> (any flags/id)</td>
+<td><code>close_guard.py</code></td>
+<td><code>_BD_CLOSE_RE</code></td>
+</tr>
+<tr>
+<td>Compiled regex matching <code>bd update &lt;id&gt; … --status[= ]closed</code> within one command</td>
+<td><code>close_guard.py</code></td>
+<td><code>_BD_UPDATE_STATUS_CLOSED_RE</code></td>
+</tr>
+<tr>
+<td>Registers the hook eagerly at module scope</td>
+<td><code>register_callbacks.py</code></td>
+<td><code>register_callback("run_shell_command", _on_run_shell_command)</code></td>
+</tr>
+<tr>
+<td>Active-chain gate the hook checks first</td>
+<td><code>state.py</code></td>
+<td><code>is_active</code></td>
+</tr>
+<tr>
+<td>Current bead id woven into the reminder</td>
+<td><code>state.py</code></td>
+<td><code>BeadChainState.current_bead_id</code></td>
+</tr>
+<tr>
+<td>Warning surfaced to the agent</td>
+<td><code>code_puppy.messaging</code></td>
+<td><code>emit_warning</code></td>
+</tr>
+</tbody></table>
+<h2 id="configuration">Configuration</h2>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>CloseGuard has no runtime config keys, env vars, or toggles — its behavior is fixed by module-level regex constants. The table below documents those constants (the only knobs a maintainer would edit) with their literal values and effect. The verbatim regex source lives in the code block below the table (pipes break Markdown table cells, so the patterns are shown there in full).</p></div>
+<p>The module-level constants, verbatim from <code>close_guard.py</code>:</p>
+<pre><code class="language-python">_COMMAND_BOUNDARY = r"(?:^|&amp;&amp;|\|\||;|\|)\s*"
+_QUOTED_SEGMENT_RE = re.compile(r'''(?:'[^']*'|"(?:\.|[^"\])*")''', re.DOTALL)
+_BD_INVOCATION = r"(?:\S*/)?bd"
+_BD_CLOSE_RE = re.compile(
+    rf"{_COMMAND_BOUNDARY}{_BD_INVOCATION}\s+close\b", re.MULTILINE
+)
+_BD_UPDATE_STATUS_CLOSED_RE = re.compile(
+    rf"{_COMMAND_BOUNDARY}{_BD_INVOCATION}\s+update\b[^|;&amp;]*?"
+    r"--status[=\s]+closed\b",
+    re.MULTILINE,
+)</code></pre>
+<p><code>detect_premature_close</code> runs the command through <code>_blank_quoted</code> (which replaces every quoted run with equal-length whitespace) <strong>before</strong> the two regexes scan it. That is what keeps <code>re.MULTILINE</code> safe: real newlines outside quotes still act as separators, but a newline <em>inside</em> a quoted argument can no longer satisfy <code>_COMMAND_BOUNDARY</code> (fix for <code>bead_chain-21d</code>).</p>
+<table><thead><tr>
+<th>Key</th>
+<th>Role</th>
+<th>Effect</th>
+</tr></thead><tbody>
+<tr>
+<td><code>_COMMAND_BOUNDARY</code></td>
+<td>shared boundary anchor</td>
+<td>A bd token must follow start-of-string or one of <code>&amp;&amp;</code>, `\</td>
+<td>\</td>
+<td><code>, </code>;<code>, </code>\</td>
+<td>` — a plain space does <strong>not</strong> count, so quoted occurrences don't match</td>
+</tr>
+<tr>
+<td><code>_QUOTED_SEGMENT_RE</code> / <code>_blank_quoted</code></td>
+<td>quote-stripping pre-pass</td>
+<td>Blanks single- and double-quoted string literals (quotes included) to equal-length whitespace so text inside an argument can never satisfy a command boundary — even at an embedded line start</td>
+</tr>
+<tr>
+<td><code>_BD_INVOCATION</code></td>
+<td>shared bd matcher</td>
+<td>Accepts an optional path prefix (<code>/usr/local/bin/</code>, <code>./</code>, <code>$BEADS_BIN/</code>) but the basename must be exactly <code>bd</code></td>
+</tr>
+<tr>
+<td><code>_BD_CLOSE_RE</code></td>
+<td>close detector</td>
+<td>Matches any <code>bd close …</code> regardless of trailing flags or bead id</td>
+</tr>
+<tr>
+<td><code>_BD_UPDATE_STATUS_CLOSED_RE</code></td>
+<td>status-close detector</td>
+<td>Matches <code>bd update &lt;id&gt; --status=closed</code> / <code>--status closed</code> <em>within the same command</em> (the `[^\</td>
+<td>;&amp;]` clamp prevents blaming a later chained command)</td>
+</tr>
+<tr>
+<td><code>"bd" substring pre-filter</code></td>
+<td>hard-coded in <code>detect_premature_close</code></td>
+<td>Skips all regex work when the command can't possibly invoke bd</td>
+</tr>
+<tr>
+<td>close reason (bead-chain's own closes)</td>
+<td><code>beads.close</code> via <code>subprocess.run</code></td>
+<td>bead-chain's legitimate closes bypass the command runner, so the hook never fires on them</td>
+</tr>
+</tbody></table>
+<h2 id="edge-cases">Edge Cases</h2>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>**Legitimate <code>bd update</code> calls are NOT blocked.** <code>bd update &lt;id&gt; --claim</code> and <code>bd update &lt;id&gt; --status=in_progress</code> are the chain's normal claim/arm path — only <code>--status=closed</code> matches <code>_BD_UPDATE_STATUS_CLOSED_RE</code>. Don't "fix" the regex to catch all <code>bd update</code> or you'll deadlock the chain's own claims.</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>bd tokens inside a quoted string never trip the guard — single- <em>or</em> multi-line.</strong> <code>_blank_quoted</code> strips quoted string literals before the scan, so <code>echo "remember to bd close cpp-1"</code> and a <code>git commit -m</code> body whose text begins a line with <code>bd close</code> both run fine. The regexes still use <code>re.MULTILINE</code>, but it now only matters for <em>unquoted</em> newline-separated commands (where a bare newline really is a shell separator), so a genuine <code>bd close</code> on its own line outside quotes is still caught. This fixes the former false positive <code>bead_chain-21d</code> (see Related).</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>Env-var-prefixed invocations slip through.</strong> <code>FOO=bar bd close cpp-1</code> is <em>not</em> blocked: the <code>bd</code> is preceded by a space, not a boundary token. This is an accepted YAGNI trade-off (documented in the module) — env-prefixed <code>bd</code> invocations blur quoted-text vs. real commands and aren't a pattern agents reach for in practice. If that ever changes, widen <code>_COMMAND_BOUNDARY</code>.</p></div>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p><strong>bead-chain's own closes must never be blocked — and aren't.</strong> The plugin closes beads through <code>beads.close</code>, which calls <code>subprocess.run</code> directly and never traverses code_puppy's command runner. The hook therefore only ever sees <em>agent-issued</em> shell commands, so the chain can always close the bead the judges signed off on.</p></div>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p><strong>The guard is inert when the chain is idle.</strong> <code>on_run_shell_command</code> returns <code>None</code> immediately if <code>state.is_active()</code> is false, so a manual <code>bd close</code> outside a <code>/bead-chain</code> run is allowed. CloseGuard protects the <em>in-flight</em> contract only — it is not a general-purpose <code>bd close</code> lock.</p></div>
+<h2 id="error-scenarios">Error Scenarios</h2>
+<table><thead><tr>
+<th>Trigger</th>
+<th>Behavior</th>
+<th>User sees</th>
+</tr></thead><tbody>
+<tr>
+<td>Agent runs <code>bd close &lt;id&gt;</code> while chain active</td>
+<td><code>detect_premature_close</code> returns a <code>CloseGuardMatch</code>; hook emits warning and returns <code>{"blocked": True, ...}</code></td>
+<td><code>[stop]</code> reminder ("Direct <code>bd close</code> bypasses the LLM judges"); command does not execute</td>
+</tr>
+<tr>
+<td>Agent runs <code>bd update &lt;id&gt; --status=closed</code> while active</td>
+<td><code>_BD_UPDATE_STATUS_CLOSED_RE</code> matches; hook blocks identically</td>
+<td><code>[stop]</code> reminder ("Setting status=closed … bypasses the LLM judges"); command blocked</td>
+</tr>
+<tr>
+<td>Agent runs <code>/usr/local/bin/bd close &lt;id&gt;</code> while active</td>
+<td><code>_BD_INVOCATION</code> path prefix matches; blocked</td>
+<td>Same <code>[stop]</code> reminder; command blocked</td>
+</tr>
+<tr>
+<td>Agent runs <code>bd update &lt;id&gt; --claim</code> / <code>--status=in_progress</code></td>
+<td>No close pattern matches → <code>detect_premature_close</code> returns <code>None</code></td>
+<td>Command runs normally (claim/arm proceeds)</td>
+</tr>
+<tr>
+<td>Any <code>bd close</code> issued while chain is <strong>idle</strong></td>
+<td><code>state.is_active()</code> is <code>False</code> → hook returns <code>None</code> before detection</td>
+<td>Command runs normally</td>
+</tr>
+<tr>
+<td>Command has no <code>"bd"</code> substring</td>
+<td>Pre-filter short-circuits → <code>None</code></td>
+<td>Command runs normally (no regex cost)</td>
+</tr>
+<tr>
+<td><code>bd close</code> appears only inside a quoted string (single- or multi-line)</td>
+<td><code>_blank_quoted</code> blanks the quoted run before the scan → no match → <code>None</code></td>
+<td>Command runs normally (false-positive avoided)</td>
+</tr>
+<tr>
+<td>A close command starts a <em>line</em> inside a quoted multi-line arg (e.g. a commit message body)</td>
+<td>Quoted run is blanked first, so the embedded line start is no longer a boundary → <code>None</code></td>
+<td>Command runs normally — <code>bead_chain-21d</code> regression fixed</td>
+</tr>
+<tr>
+<td>A genuine <code>bd close</code> on its own line <em>outside</em> quotes (bare-newline separator)</td>
+<td><code>re.MULTILINE</code> boundary matches the real line start → <code>CloseGuardMatch</code></td>
+<td><code>[stop]</code> reminder; command blocked (true positive preserved)</td>
+</tr>
+<tr>
+<td><code>current_bead_id</code> is <code>None</code> at block time</td>
+<td>Reminder falls back to the literal <code>"the active bead"</code></td>
+<td><code>[stop]</code> reminder phrased with "the active bead" instead of an id</td>
+</tr>
+</tbody></table>
+<h2 id="testing">Testing</h2>
+<p>CloseGuard is built for testability: <code>detect_premature_close</code>, <code>CloseGuardMatch</code>, and the two regexes are <strong>pure, side-effect-free, and import nothing from code_puppy</strong>, so they can be exercised standalone, and <code>on_run_shell_command</code> has exactly two observable gates (<code>state.is_active()</code> and the detector) that are trivial to drive.</p>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>**There is currently no dedicated <code>tests/test_close_guard.py</code>.** The detector and hook are referenced by sibling suites (e.g. <code>tests/test_excluded_container_types.py</code> and <code>tests/test_formula_epic_rollup_e2e.py</code> both note that ids/strings must not accidentally trip the <code>close_guard</code> regex) but the guard's own match/allow matrix is not yet directly covered. This is a real gap worth a follow-up bead.</p></div>
+<p>To verify behavior manually:</p>
+<pre><code class="language-python">from bead_chain.close_guard import detect_premature_close
+
+assert detect_premature_close("bd close cpp-1").pattern_name == "bd close"
+assert detect_premature_close("bd update cpp-1 --status=closed") is not None
+assert detect_premature_close("bd update cpp-1 --claim") is None
+assert detect_premature_close('echo "bd close cpp-1"') is None  # quoted, allowed</code></pre>
+<p>End to end, start a <code>/bead-chain</code> run and have the active agent attempt <code>bd close &lt;id&gt;</code>: the command should be blocked with the <code>[stop]</code> reminder and the bead should remain open until the judges sign off.</p>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the SRP boundary CloseGuard enforces: grading completion is delegated to the judges, so the driver blocks everyone else from grading by fiat.</li>
+<li><a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a> — keeping containers off <code>bd ready</code> prevents the un-closable-bead stall that CloseGuard would otherwise have to turn into a halt.</li>
+<li><a href="RecoveryMode.html">RecoveryMode</a> — the close-time guard backstops a recovered bead until the LLM judges grade it.</li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — names the close-time guard (<code>close_guard.py</code>) as the final backstop when a blocked bead slips through selection.</li>
+<li><a href="EpicRollup.html">EpicRollup</a> — bead-chain's <em>own</em> legitimate closes (epics at drain) go through <code>beads.close</code>/<code>subprocess.run</code> and bypass this hook.</li>
+<li>Fixed bug <code>bead_chain-21d</code> — former <code>re.MULTILINE</code> false-positive: a close command at the start of a line inside a quoted multi-line argument (e.g. a commit message) was wrongly blocked. Fixed by blanking quoted string literals (<code>_blank_quoted</code>) before the boundary scan.</li>
+<li><a href="BeadChaining.html">BeadChaining</a> — the queue driver whose legitimate closes bypass this guard, while any agent-issued <code>bd close</code> mid-chain is blocked.</li>
+<li><a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a> — why bead-chain's own <code>beads.close</code>/<code>subprocess.run</code> never traverses the command runner this hook watches, so it bypasses the guard.</li>
+<li><a href="index.html">Features Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

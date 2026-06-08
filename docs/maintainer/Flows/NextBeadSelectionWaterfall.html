@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NextBeadSelectionWaterfall — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="../Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="../Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="../Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="../Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="../Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="../Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="index.html">Index</a>
+<a href="BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="NextBeadSelectionWaterfall.html" class="active">Next Bead Selection Waterfall</a>
+<a href="SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="nextbeadselectionwaterfall">NextBeadSelectionWaterfall</h1>
+<h2 id="what-happens">What Happens</h2>
+<p>Between iterations, bead-chain has to answer exactly one question: <em>which single bead do we drive next?</em> It answers with a strict <strong>four-tier waterfall</strong> in <code>pick_next_bead</code> (<code>lifecycle.py:460</code>). The tiers are tried highest-priority first, and the first tier that yields a non-blocked candidate wins:</p>
+<ol>
+<li><strong>Stranded recovery</strong> — any non-container bead already <code>in_progress</code> / <code>hooked</code> from a crashed or cancelled prior run. Finishing in-flight work beats starting anything new.</li>
+<li><strong>Blocking bug</strong> — any ready <code>bug</code> with <code>dependent_count &gt; 0</code>. Fixing it unblocks downstream work, so it cuts the line.</li>
+<li><strong>Epic affinity</strong> — if the <code>just_closed</code> bead had a parent epic that still has ready siblings, stay inside that epic. Coherent commits/PRs beat queue-order optimality ("finish what you start").</li>
+<li><strong>Global ready queue</strong> — whatever <code>bd ready</code> hands back next.</li>
+</ol>
+<p>The defining trait is that **every tier is blocker-aware even though <code>bd ready</code> already filters blockers server-side**. Tier 0 reverts+drops blocked strands via <code>_unblocked_strands</code> (<code>lifecycle.py:88</code>); tiers 1-3 run a belt-and-suspenders <code>_reject_if_blocked</code> recheck (<code>lifecycle.py:521</code>) backed by a fresh <code>bd show</code>. This is the <code>bdboard-oals</code> fix carried into selection: the chain respects work-time blocks at <strong>pick time</strong>, not just at close time. The waterfall returns at most one bead (or <code>None</code>), and never a blocked or container-typed one.</p>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p><strong>The tiers are not all equal on a blocked hit.</strong> In tiers 1 and 2 a blocked candidate makes the tier <em>fall through</em> to the next tier (the <code>... and not _reject_if_blocked(...)</code> short-circuits). In tier 3 a blocked candidate makes the **whole waterfall return <code>None</code>** — there is no lower tier to fall through to, so a leaked-blocked global-ready bead ends the pick rather than driving anything.</p></div>
+<h2 id="trigger">Trigger</h2>
+<p><code>pick_next_bead</code> is the <em>mid-chain</em> selector. It is called by <code>activate_next_bead</code> (<code>lifecycle.py:544</code>) on <strong>every</strong> iteration after the first, with <code>just_closed</code> = the bead the LLM judges just closed (passed through from <code>close_current_bead_success</code>, <code>lifecycle.py:close_current_bead_success</code>):</p>
+<ol>
+<li><strong>Primary pick.</strong> <code>activate_next_bead</code> calls <code>pick_next_bead(just_closed)</code> once (<code>lifecycle.py:574</code>), after the <code>--max=N</code> safety brake but before any claim.</li>
+<li><strong>Gate re-probe retry.</strong> If the primary pick returns <code>None</code>, <code>activate_next_bead</code> runs <code>probe_resolved_gates()</code> and, if any gate resolved, calls <code>pick_next_bead(just_closed)</code> a <strong>second</strong> time (<code>lifecycle.py:591</code>) — a now-satisfied gate may have just re-opened a target into <code>bd ready</code>.</li>
+</ol>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>The <strong>chain-startup</strong> path does <em>not</em> call <code>pick_next_bead</code>. Startup (<code>register_callbacks.handle_bead_chain_command</code>) runs <code>enforce_single_in_progress()</code> then a bare <code>next_ready()</code> for the very first bead — there is no <code>just_closed</code> yet, so no epic-affinity tier applies. The full four-tier waterfall only governs iterations 2..N. See <a href="BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a>.</p></div>
+<h2 id="outcome">Outcome</h2>
+<p><code>pick_next_bead</code> returns exactly one of:</p>
+<ul>
+<li><strong>A stranded recovery bead</strong> (tier 0) — already <code>in_progress</code>/<code>hooked</code>, guaranteed unblocked (blocked strands were reverted+dropped). The caller will activate it <code>recovery=True</code> and skip the claim.</li>
+<li><strong>A blocking bug</strong> (tier 1) — a fresh ready <code>bug</code> with <code>dependent_count &gt; 0</code> and no open blockers.</li>
+<li><strong>An epic sibling</strong> (tier 2) — a fresh ready bead under the same parent epic as <code>just_closed</code>, no open blockers.</li>
+<li><strong>A global ready bead</strong> (tier 3) — the head of <code>bd ready</code>, no open blockers.</li>
+<li>**<code>None</code><em>* — the queue is genuinely empty </em>or* the only global-ready candidate was found blocked at recheck (tier 3 rejection). The caller then runs the gate re-probe, and failing that, the session-end drain (<a href="SessionEndEpicRollup.html">SessionEndEpicRollup</a>).</li>
+</ul>
+<p>No source files are touched. The only mutation the waterfall itself performs is inside tier 0: a blocked stranded bead is reverted <code>in_progress</code>→<code>open</code> via <code>revert_to_open</code> so it re-enters the queue behind its blockers. Everything else is read-only <code>bd ready</code> / <code>bd list</code> / <code>bd show</code> traffic.</p>
+<pre class="mermaid">
+flowchart TD
+    Enter([pick_next_bead just_closed&lt;br/&gt;lifecycle.py:460]) --&gt; T0[Tier 0: workable = _unblocked_strands&lt;br/&gt;lifecycle.py:88]
+    T0 --&gt; T0has{any workable&lt;br/&gt;stranded bead?}
+    T0has --&gt;|Yes| RetStrand([return workable 0&lt;br/&gt;recovery bead])
+    T0has --&gt;|No| T1[Tier 1: next_blocking_bug&lt;br/&gt;beads.py:593&lt;br/&gt;bd ready --type=bug]
+    T1 --&gt; T1has{bug with&lt;br/&gt;dependent_count &gt; 0?}
+    T1has --&gt;|No| T2
+    T1has --&gt;|Yes| T1blk{_reject_if_blocked&lt;br/&gt;blocking bug?}
+    T1blk --&gt;|Blocked: fall through| T2[Tier 2: epic_id = extract_parent_epic_id just_closed&lt;br/&gt;beads.py:461]
+    T1blk --&gt;|Clean| RetBug([return blocking bug])
+    T2 --&gt; T2has{epic_id and&lt;br/&gt;next_ready_in_epic?&lt;br/&gt;beads.py:441}
+    T2has --&gt;|No| T3
+    T2has --&gt;|Yes| T2blk{_reject_if_blocked&lt;br/&gt;epic affinity?}
+    T2blk --&gt;|Blocked: fall through| T3[Tier 3: nxt = next_ready&lt;br/&gt;beads.py:329&lt;br/&gt;bd ready --exclude-type]
+    T2blk --&gt;|Clean| RetSib([return epic sibling])
+    T3 --&gt; T3has{nxt is not None?}
+    T3has --&gt;|No| RetNone([return None])
+    T3has --&gt;|Yes| T3blk{_reject_if_blocked&lt;br/&gt;global ready?&lt;br/&gt;lifecycle.py:521}
+    T3blk --&gt;|Blocked| RetNone
+    T3blk --&gt;|Clean| RetNxt([return nxt])
+</pre>
+<h2 id="step-by-step">Step-by-Step</h2>
+<table><thead><tr>
+<th>#</th>
+<th>What</th>
+<th>Where (file:symbol)</th>
+<th>Failure mode</th>
+</tr></thead><tbody>
+<tr>
+<td>1</td>
+<td>Tier 0: enumerate recoverable strands (<code>in_progress</code> + <code>hooked</code>), revert+drop any with open blockers, keep the rest</td>
+<td><code>lifecycle.py:_unblocked_strands</code> → <code>beads.py:list_recoverable_strands</code> (<code>bd list --status=in_progress/hooked --exclude-type=epic,milestone,gate,molecule --json</code>)</td>
+<td><code>BeadsError</code> from <code>bd list</code> propagates to <code>activate_next_bead</code>, which stops the chain; a failed <code>revert_to_open</code> is logged but the bead is still dropped this pass</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Tier 0: if any strand survived, return its head as the recovery candidate</td>
+<td><code>lifecycle.py:pick_next_bead</code> (<code>workable[0]</code>)</td>
+<td>None — pure list head; the caller treats this as <code>recovery=True</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Tier 1: find the top ready bug with at least one dependent</td>
+<td><code>beads.py:next_blocking_bug</code> (<code>bd ready --type=bug --exclude-type=… --json</code>, then client-side <code>dependent_count &gt; 0</code>)</td>
+<td><code>BeadsError</code> propagates → chain stop; a malformed <code>dependent_count</code> falls back to <code>0</code> (not blocking)</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Tier 1: belt-and-suspenders blocker recheck on the bug</td>
+<td><code>lifecycle.py:_reject_if_blocked(blocking, "blocking bug")</code> → <code>beads.py:open_blocker_ids</code></td>
+<td>Blocked ⇒ warn + <strong>fall through to tier 2</strong> (does not stop); <code>open_blocker_ids</code> soft-fails to <code>[]</code> on a <code>bd show</code> blip</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Tier 2: resolve <code>just_closed</code>'s parent epic id</td>
+<td><code>beads.py:extract_parent_epic_id</code> (<code>PARENT_EPIC_KEY="parent"</code>, fallbacks <code>parent_id</code>/<code>epic_id</code>)</td>
+<td>No parent / empty value ⇒ skip tier 2 entirely (returns <code>None</code>)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Tier 2: ask bd for the top ready sibling under that epic</td>
+<td><code>beads.py:next_ready_in_epic</code> (<code>bd ready --parent=&lt;epic_id&gt; --exclude-type=… --json</code>)</td>
+<td><code>BeadsError</code> propagates → chain stop; no siblings ⇒ skip to tier 3</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Tier 2: blocker recheck on the sibling</td>
+<td><code>lifecycle.py:_reject_if_blocked(sibling, "epic affinity")</code></td>
+<td>Blocked ⇒ warn + <strong>fall through to tier 3</strong></td>
+</tr>
+<tr>
+<td>8</td>
+<td>Tier 3: ask bd for the global head of the ready queue</td>
+<td><code>beads.py:next_ready</code> (<code>bd ready --exclude-type=epic,milestone,gate,molecule --json</code>, client-side <code>is_excluded_type</code> re-filter)</td>
+<td><code>BeadsError</code> propagates → chain stop; empty queue ⇒ <code>nxt is None</code> ⇒ return <code>None</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td>Tier 3: blocker recheck on the global candidate</td>
+<td><code>lifecycle.py:_reject_if_blocked(nxt, "global ready")</code></td>
+<td>Blocked ⇒ warn + **return <code>None</code>** (no lower tier); otherwise return <code>nxt</code></td>
+</tr>
+</tbody></table>
+<h2 id="data-transformations">Data Transformations</h2>
+<p>The waterfall consumes the <code>just_closed</code> dict plus live <code>bd</code> JSON and produces a single candidate dict or <code>None</code>. The hops:</p>
+<ul>
+<li>**<code>just_closed</code> dict → parent epic id (tier 2 key).** <code>extract_parent_epic_id</code> reads <code>just_closed["parent"]</code>, falling back to <code>parent_id</code> then <code>epic_id</code>. An empty/missing value ⇒ <code>None</code> ⇒ tier 2 skipped.</li>
+<li>**<code>bd list --status=… --json</code> → workable strands (tier 0).** <code>list_recoverable_strands</code> merges the <code>in_progress</code> and <code>hooked</code> queries (de-duping by <code>id</code>, <code>in_progress</code> first), then <code>_unblocked_strands</code> filters each through <code>open_blocker_ids(bead["id"])</code>: a non-empty blocker list ⇒ <code>revert_to_open(id)</code> (<code>bd update &lt;id&gt; --status=open</code>) + drop; empty ⇒ keep.</li>
+<li>**<code>bd ready --type=bug --json</code> → blocking bug (tier 1).** Each item is kept only if <code>issue_type ∈ BLOCKING_BUG_TYPES</code> (<code>("bug",)</code>) <strong>and</strong> <code>int(bead.get("dependent_count", 0)) &gt; 0</code>.</li>
+<li>**<code>bd ready --parent=&lt;id&gt; --json</code> → epic sibling (tier 2).** First item that is a dict and not <code>is_excluded_type</code> (epic/milestone/gate/molecule).</li>
+<li>**<code>bd ready --json</code> → global candidate (tier 3).** Same first-non-container selection as tier 2 but with no <code>--parent</code> scope.</li>
+<li>**candidate <code>id</code> → blocker verdict (tiers 1-3).** <code>_reject_if_blocked</code> calls <code>open_blocker_ids</code>, which re-fetches <code>bd show &lt;id&gt; --json</code> and walks <code>dependencies[]</code>: an edge counts as an open blocker iff its <code>dependency_type ∈ BLOCKING_DEP_TYPES</code> (<code>("blocks", "waits-for")</code>) <strong>and</strong> its <code>status ∉ SATISFIED_BLOCKER_STATUSES</code> (<code>frozenset({"closed"})</code>). A non-empty result rejects the candidate.</li>
+</ul>
+<p>A representative <code>bd ready --json</code> element the waterfall inspects (tier 1 keys shown — <code>issue_type</code>, <code>dependent_count</code>; tiers 2/3 only read <code>id</code> + <code>issue_type</code> for the container filter):</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-x3g",
+  "issue_type": "bug",
+  "status": "open",
+  "priority": 1,
+  "title": "Empty-queue gate re-probe before declaring done",
+  "parent": "bead_chain-2p3",
+  "dependent_count": 3
+}</code></pre>
+<p>The <code>bd show &lt;id&gt; --json</code> record <code>open_blocker_ids</code> reads during a recheck (only each dep's <code>id</code> / <code>dependency_type</code> / <code>status</code> matter):</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-mol-bps.11",
+  "status": "open",
+  "issue_type": "task",
+  "title": "FlowDoc maintainer: Flow: NextBeadSelectionWaterfall",
+  "parent": "bead_chain-mol-bps",
+  "dependencies": [
+    { "id": "bead_chain-bu5", "dependency_type": "blocks", "status": "closed" },
+    { "id": "bead_chain-x3g", "dependency_type": "waits-for", "status": "open" }
+  ]
+}</code></pre>
+<p>The waterfall's return value is just the chosen bead dict (or <code>None</code>) — the claim, hint application, and <code>/goal</code> arming happen downstream in <a href="BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a>.</p>
+<h2 id="performance-characteristics">Performance Characteristics</h2>
+<ul>
+<li><strong>Synchronous, in-process, once per iteration.</strong> <code>pick_next_bead</code> runs on the calling thread inside <code>activate_next_bead</code>. No async, no threading. It is called at most twice per iteration (primary + post-gate-reprobe retry).</li>
+<li>**Bounded, short-circuiting <code>bd</code> round-trips.** The waterfall stops at the first winning tier, so the spawn count depends on how far down it falls:</li>
+<li>Tier 0: <strong>2</strong> <code>bd list</code> calls (<code>in_progress</code> + <code>hooked</code>) **+ 1 <code>bd show</code> per strand** (blocker check). Usually zero strands ⇒ both lists return empty fast.</li>
+<li>Tier 1: <strong>1</strong> <code>bd ready --type=bug</code> **+ ≤1 <code>bd show</code>** (recheck only if a bug candidate exists).</li>
+<li>Tier 2: <strong>1</strong> <code>bd ready --parent=&lt;id&gt;</code> **+ ≤1 <code>bd show</code>** (only if <code>just_closed</code> had a parent epic).</li>
+<li>Tier 3: <strong>1</strong> <code>bd ready</code> **+ ≤1 <code>bd show</code>**.</li>
+<li><strong>Common steady-state cost.</strong> No strands, no blocking bug, an epic in flight: tiers 0-2 are cheap probes and tier 2 typically wins ⇒ ~2 <code>bd list</code> + 2 <code>bd ready</code> + 1 <code>bd show</code>. The blocker rechecks (<code>bd show</code>) only fire when a tier actually produces a candidate.</li>
+<li><strong>No N+1 over the queue.</strong> Each <code>bd ready</code>/<code>bd list</code> returns its list in one call; the waterfall only ever inspects the head (plus per-strand checks in tier 0, which is normally empty).</li>
+<li><strong>Every spawn rides the single chokepoint.</strong> All <code>bd</code> calls flow through <code>beads.py:_run_bd</code> (<code>beads.py:280</code>) with <code>DEFAULT_TIMEOUT = 30.0</code> and retry backoff — see <a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a>.</li>
+<li><strong>No persistence.</strong> The only write is tier 0's <code>revert_to_open</code>; the waterfall never pushes/pulls/exports — durability is a session-close concern (<a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a>).</li>
+</ul>
+<h2 id="failure-handling">Failure Handling</h2>
+<ul>
+<li><strong>Infra errors stop the chain, not the iteration.</strong> Any <code>BeadsError</code> from <code>bd list</code> / <code>bd ready</code> propagates out of <code>pick_next_bead</code> to <code>activate_next_bead</code>, which catches it, emits <code>bead-chain stopping — bd ready failed</code>, calls <code>state.stop()</code>, and returns <code>None</code>. The waterfall never swallows an infra error into a wrong pick.</li>
+<li><strong>Blocker recheck is fail-open.</strong> <code>open_blocker_ids</code> returns <code>[]</code> on any <code>bd show</code> blip, so a transient failure can't mis-reject a workable bead. The close-time guard (<code>close_guard.py</code>) is the final net.</li>
+<li><strong>Tier 0 revert is best-effort.</strong> If <code>revert_to_open</code> raises while unwinding a blocked strand, <code>_unblocked_strands</code> logs and <strong>still drops</strong> the bead from this pass, so the chain never re-drives it; the next run retries the revert.</li>
+<li><strong>Container leaks are filtered, not driven.</strong> <code>next_ready</code> / <code>next_ready_in_epic</code> / <code>list_recoverable_strands</code> all pass <code>--exclude-type=epic,milestone,gate,molecule</code> <strong>and</strong> re-filter client-side via <code>is_excluded_type</code> (the server flag has leaked epics in the wild). A container that somehow survives is caught again at the activation boundary — see <a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a>.</li>
+<li><strong>No retries inside the waterfall.</strong> Retry/backoff lives in <code>_run_bd</code>; the waterfall itself does a single pass. The only "retry" is the caller's post-gate-reprobe second call to <code>pick_next_bead</code>.</li>
+<li><strong>No compensation beyond the revert.</strong> The waterfall mutates nothing except tier 0's status revert, which is the clean inverse of an earlier claim — there is nothing else to undo.</li>
+</ul>
+<h2 id="key-log-messages">Key Log Messages</h2>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>Several live log strings are emoji-prefixed (chain-link / warning glyphs). Emojis are omitted here per the project's no-emoji-in-writes convention; the text after the prefix is verbatim.</p></div>
+<table><thead><tr>
+<th>Log line</th>
+<th>Where</th>
+<th>Means</th>
+</tr></thead><tbody>
+<tr>
+<td><code>bead-chain: found stranded in_progress bead &lt;id&gt; -- recovering before picking new work.</code></td>
+<td><code>lifecycle.py:pick_next_bead</code> (<code>emit_warning</code>)</td>
+<td>Tier 0 won: a recoverable strand exists and will be activated <code>recovery=True</code>.</td>
+</tr>
+<tr>
+<td><code>bead-chain: stranded in_progress bead &lt;id&gt; is blocked by open issue(s) [&lt;ids&gt;] -- refusing to re-drive it and reverting to open …</code></td>
+<td><code>lifecycle.py:_unblocked_strands</code> (<code>emit_warning</code>)</td>
+<td>Tier 0 found a blocked strand and is reverting it (<code>bdboard-oals</code> — respect blocks before close).</td>
+</tr>
+<tr>
+<td><code>reverted blocked &lt;id&gt; to open</code></td>
+<td><code>lifecycle.py:_unblocked_strands</code> (<code>emit_info</code>)</td>
+<td>The blocked strand was successfully unwound back to the ready queue.</td>
+</tr>
+<tr>
+<td><code>also couldn't revert &lt;id&gt; (still dropping it from this pass): &lt;exc&gt;</code></td>
+<td><code>lifecycle.py:_unblocked_strands</code> (<code>emit_warning</code>)</td>
+<td>The revert failed; the strand is dropped from this pass anyway.</td>
+</tr>
+<tr>
+<td><code>bead-chain: blocking bug detected -&gt; prioritising &lt;id&gt;</code></td>
+<td><code>lifecycle.py:pick_next_bead</code> (<code>emit_info</code>)</td>
+<td>Tier 1 won: a ready bug with <code>dependent_count &gt; 0</code> jumped the queue.</td>
+</tr>
+<tr>
+<td><code>bead-chain: epic affinity -&gt; staying inside &lt;epic_id&gt;</code></td>
+<td><code>lifecycle.py:pick_next_bead</code> (<code>emit_info</code>)</td>
+<td>Tier 2 won: a ready sibling under <code>just_closed</code>'s parent epic was chosen.</td>
+</tr>
+<tr>
+<td><code>bead-chain: &lt;tier&gt; candidate &lt;id&gt; has open blocker(s) [&lt;ids&gt;] -- refusing to claim it (bd ready leaked a blocked bead; respecting work-time blocks anyway).</code></td>
+<td><code>lifecycle.py:_reject_if_blocked</code> (<code>emit_warning</code>)</td>
+<td>A tier's candidate failed the belt-and-suspenders recheck (<code>&lt;tier&gt;</code> ∈ <code>blocking bug</code> / <code>epic affinity</code> / <code>global ready</code>).</td>
+</tr>
+<tr>
+<td><code>bead-chain: found &lt;N&gt; in_progress beads (residue from a hard crash …). Recovering &lt;id&gt; first; the rest will be picked up one-at-a-time …</code></td>
+<td><code>lifecycle.py:enforce_single_in_progress</code> (<code>emit_warning</code>)</td>
+<td>Startup invariant guard found multiple strands; the extras drain one-at-a-time through tier 0 on later iterations.</td>
+</tr>
+</tbody></table>
+<h2 id="common-issues">Common Issues</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>The chain keeps re-picking the same <code>in_progress</code> bead</td>
+<td>Tier 0 recovery is firing: a prior run left a strand that the judges never closed</td>
+<td>Resolve/close the strand (<code>bd show &lt;id&gt;</code>; finish or <code>bd close &lt;id&gt;</code>); tier 0 only yields while a recoverable strand exists.</td>
+</tr>
+<tr>
+<td>A blocking bug isn't jumping the queue</td>
+<td>The bug has <code>dependent_count == 0</code>, or its type isn't in <code>BLOCKING_BUG_TYPES</code> (<code>("bug",)</code>)</td>
+<td><code>bd show &lt;id&gt; --json</code> and confirm <code>issue_type == "bug"</code> and at least one bead depends on it; add a dependency edge or widen <code>BLOCKING_BUG_TYPES</code>.</td>
+</tr>
+<tr>
+<td>The chain hops out of an epic mid-way</td>
+<td>Tier 2 only fires when <code>next_ready_in_epic</code> returns an <em>unblocked</em> sibling; all remaining siblings are blocked or done</td>
+<td>Check <code>bd ready --parent=&lt;epic_id&gt;</code>; if siblings are blocked they correctly defer to the global queue until unblocked.</td>
+</tr>
+<tr>
+<td>The waterfall returns <code>None</code> even though <code>bd ready</code> shows work</td>
+<td>Tier 3's only candidate was found blocked at recheck (returns <code>None</code>, no fall-through), or every ready bead is a container type</td>
+<td><code>bd show &lt;head&gt; --json</code> and inspect <code>dependencies[].status</code> (only <code>closed</code> satisfies); or verify the items aren't epics/milestones/gates/molecules.</td>
+</tr>
+<tr>
+<td>Epic affinity never kicks in</td>
+<td><code>extract_parent_epic_id(just_closed)</code> found no parent — the closed bead had no <code>parent</code>/<code>parent_id</code>/<code>epic_id</code> field</td>
+<td>Confirm the bead is actually parented under an epic in bd; standalone beads correctly skip tier 2.</td>
+</tr>
+<tr>
+<td>A blocked bead got driven anyway</td>
+<td>Should not happen — but <code>open_blocker_ids</code> fail-opens on a <code>bd show</code> blip</td>
+<td>The close-time guard (<code>close_guard.py</code>) is the backstop; check bd connectivity if <code>bd show</code> is flaky.</td>
+</tr>
+</tbody></table>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> — the activation gauntlet that claims and arms the single candidate this waterfall returns; shares <code>open_blocker_ids</code> / <code>revert_to_open</code> / <code>is_excluded_type</code>.</li>
+<li><a href="../Features/RecoveryMode.html">RecoveryMode</a> — the user-facing feature whose tier-0 behaviour this waterfall implements.</li>
+<li><a href="StrandedBeadRecovery.html">StrandedBeadRecovery</a> — tier 0 in depth: how <code>_unblocked_strands</code> / <code>list_recoverable_strands</code> find and revert strands.</li>
+<li><a href="ChainIterationLoop.html">ChainIterationLoop</a> — the outer loop that closes the current bead and calls <code>activate_next_bead</code> (and thus this waterfall) each iteration.</li>
+<li><a href="GoalPromptConstruction.html">GoalPromptConstruction</a> — renders the bead this waterfall selects into the <code>/goal</code> prompt.</li>
+<li><a href="SessionEndEpicRollup.html">SessionEndEpicRollup</a> — what runs when the waterfall returns <code>None</code> (after the gate re-probe): the session-end drain + rollup.</li>
+<li><a href="../Features/EpicRollup.html">EpicRollup</a> — the feature that drain runs once the waterfall returns <code>None</code>.</li>
+<li><a href="../Features/WorkTimeBlockerGate.html">WorkTimeBlockerGate</a> — the feature whose <code>_reject_if_blocked</code> recheck (tiers 1-3) and tier-0 strand revert this waterfall enforces so no blocked bead is ever returned.</li>
+<li><a href="../Features/BlockingBugPriority.html">BlockingBugPriority</a> — tier 1 of this waterfall in feature form: how/why a ready bug with dependents jumps the queue.</li>
+<li><a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a> — why epics/milestones/gates/molecules are filtered out of every tier's query.</li>
+<li><a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a> — the transport behind the <code>bd ready</code> / <code>bd list</code> / <code>bd show</code> spawns each tier makes.</li>
+<li><a href="../Concepts/ChainStateSingleton.html">ChainStateSingleton</a> — holds <code>current_bead</code> (the <code>just_closed</code> source) and <code>max_iterations</code>.</li>
+<li><a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the SRP boundary: the waterfall picks from bd's frontier, it never invents goals or reorders bd's own priority.</li>
+<li><a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a> — why this flow only reverts status and never pushes bead state.</li>
+<li><a href="../Concepts/RecurringMoleculeProtection.html">RecurringMoleculeProtection</a> — related molecule/fan-out handling beyond the simple blocker rechecks here.</li>
+<li><a href="../Features/EpicAffinity.html">EpicAffinity</a> — tier 2 of this waterfall in feature form: prefer the next ready sibling under the just-closed bead's epic.</li>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a> — the queue driver that calls this waterfall (via <code>activate_next_bead</code>) each iteration.</li>
+<li><a href="../Features/CloseGuard.html">CloseGuard</a> — the close-time backstop that catches a blocked bead if one ever slips through this selection.</li>
+<li><a href="index.html">Flows Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

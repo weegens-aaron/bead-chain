@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RecurringMoleculeProtection — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="index.html">Index</a>
+<a href="BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="ChainStateSingleton.html">Chain State Singleton</a>
+<a href="ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="ExecutionHints.html">Execution Hints</a>
+<a href="QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="RecurringMoleculeProtection.html" class="active">Recurring Molecule Protection</a>
+<a href="SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="recurringmoleculeprotection">RecurringMoleculeProtection</h1>
+<h2 id="what-is-it">What Is It</h2>
+<p>A guard in bead-chain's epic-rollup path that <strong>refuses to auto-close the epic of a recurring molecule</strong> (today: a <code>patrol</code> monitor) even when all of its current children are complete. Closing such an epic would kill the recurrence — the whole point of a patrol molecule is to be re-poured and run again, so its epic must outlive any one batch of children. A sibling half of the same concept keeps ephemeral <strong>wisps</strong> off the queue entirely, so a recurring-monitor by-product never gets driven as if it were real code work.</p>
+<h2 id="why-this-approach">Why This Approach</h2>
+<p>The coverage audit (gap <code>formulas#2</code>, bead <code>bead_chain-wot</code>) found that bead-chain's once-per-session rollup (<code>bd epic close-eligible</code>) would happily sweep up a poured <code>patrol</code> molecule's epic the moment its children finished, defeating the recurrence. The obvious fix — "tell <code>bd</code> to skip this epic" — <strong>isn't possible</strong>: <code>bd epic close-eligible</code> has <em>no</em> exclude flag (verified on real <code>bd</code> 1.0.5; it accepts only <code>--dry-run</code>). So instead of asking <code>bd</code> to skip, bead-chain <strong>looks before it leaps</strong>:</p>
+<ol>
+<li><strong>Preview</strong> the eligible set non-destructively with <code>--dry-run</code>.</li>
+<li><strong>Inspect</strong> each candidate with a local predicate (<code>is_recurring_epic</code>).</li>
+<li><strong>Partition</strong>: if <em>any</em> candidate is recurring, bypass <code>bd</code>'s bulk cascade and close only the safe (non-recurring) epics one at a time; otherwise take the fast path and let <code>bd</code> cascade natively.</li>
+</ol>
+<p>This preserves the existing once-per-session, anti-over-close behaviour (<code>bead_chain-tfn</code>) for the common case while making recurring epics survivable, and it stays a <em>read-then-decide</em> design rather than mutating <code>bd</code>'s behaviour.</p>
+<p>Detection is deliberately <strong>fail-safe</strong>: a missing/unknown marker means "not recurring," so an ordinary epic still rolls up exactly as before — bead-chain only <em>withholds</em> closure when a recurring marker is positively present.</p>
+<h2 id="how-it-works">How It Works</h2>
+<p>There are two independent signals, <strong>either</strong> of which protects an epic (<code>beads.py:is_recurring_epic</code>):</p>
+<ol>
+<li>**<code>mol-type</code> field** — a value in <code>RECURRING_MOL_TYPES = ("patrol",)</code>, matched case-insensitively against any of <code>_MOL_TYPE_KEYS = ("mol_type", "mol-type", "molecule_type")</code>, checked both at top level <strong>and</strong> inside a nested <code>metadata</code> dict (<code>beads.py:_mol_type_matches</code>). This is <em>forward-compat</em>: <code>bd</code> 1.0.5 does <strong>not</strong> surface <code>mol-type</code> on <code>bd show</code> / <code>epic close-eligible --json</code> (verified the hard way), so this path is dormant until a future <code>bd</code> starts emitting it.</li>
+<li><strong>Label marker</strong> — one of the epic's <code>labels</code> (case-insensitive) is in <code>RECURRING_EPIC_LABELS = ("patrol", "mol-type:patrol", "recurring")</code>. <strong>This is the signal that actually fires today</strong>: tag a poured patrol molecule's epic with a <code>patrol</code> (or <code>recurring</code>) label and rollup leaves it open for the next pour.</li>
+</ol>
+<p>The rollup decision flow (<code>beads.py:close_eligible_epics</code>):</p>
+<pre class="mermaid">
+flowchart TD
+    Start([rollup_completed_epics&lt;br/&gt;drain-time, once per session]) --&gt; Preview[_preview_close_eligible&lt;br/&gt;bd epic close-eligible --dry-run --json]
+    Preview --&gt; Parse[_parse_close_eligible_payload&lt;br/&gt;normalise envelopes to epic dicts]
+    Parse --&gt; AnyRec{any is_recurring_epic&lt;br/&gt;in candidates?}
+    AnyRec --&gt;|no| Fast[_bulk_close_eligible&lt;br/&gt;bd epic close-eligible --json&lt;br/&gt;native one-shot cascade]
+    AnyRec --&gt;|yes| Partition[_close_non_recurring&lt;br/&gt;close each NON-recurring epic&lt;br/&gt;one at a time]
+    Partition --&gt; Skip[recurring epic left OPEN&lt;br/&gt;survives for next pour]
+    Fast --&gt; Done([return closed epics])
+    Partition --&gt; Done
+    Skip --&gt; Done
+</pre>
+<h3 id="concrete-example">Concrete example</h3>
+<p>Two epics are eligible at drain time: <code>patrol-1</code> (a poured patrol monitor, labelled <code>patrol</code>) and <code>mol-r6b</code> (an ordinary epic whose children all closed).</p>
+<p><code>_preview_close_eligible()</code> runs <code>bd epic close-eligible --dry-run --json</code>, which emits dry-run envelopes:</p>
+<pre><code class="language-json">[
+  {"epic": {"id": "patrol-1", "labels": ["patrol"]}, "eligible_for_close": true},
+  {"epic": {"id": "mol-r6b", "labels": ["audit"]}, "eligible_for_close": true}
+]</code></pre>
+<p><code>_parse_close_eligible_payload</code> unwraps each <code>{"epic": {...}}</code> envelope (via <code>_normalise_closed_epic</code>) into plain epic dicts so <code>is_recurring_epic</code> can see their <code>labels</code>. Because <code>is_recurring_epic({"id": "patrol-1", "labels": ["patrol"]})</code> is <code>True</code>, the fast path is bypassed and <code>_close_non_recurring</code> runs: it closes <code>mol-r6b</code> individually and <strong>skips</strong> <code>patrol-1</code>, leaving it open. The returned list contains only the safe close:</p>
+<pre><code class="language-json">[{"id": "mol-r6b", "labels": ["audit"]}]</code></pre>
+<p>Had neither epic been recurring, the fast path <code>_bulk_close_eligible()</code> would have run <code>bd epic close-eligible --json</code> once and returned whatever <code>bd</code> reported closed — on <code>bd</code> 1.0.5 that is the bare-id shape <code>{"closed": ["mol-r6b"], "count": 1}</code>, which <code>_normalise_closed_epic</code> coerces to <code>{"id": "mol-r6b"}</code>.</p>
+<h3 id="the-wisp-half">The wisp half</h3>
+<p>The other leakage vector is <strong>ephemeral wisps</strong> (heartbeat / ping / patrol / recovery wisp-types). <code>bd ready</code> and <code>bd list</code> exclude ephemeral issues <strong>by default</strong> — they only surface under the explicit <code>--include-ephemeral</code> flag. bead-chain never passes that flag in any queue path (<code>beads.py:next_ready</code>, <code>beads.py:_list_by_status</code> via <code>beads.py:_exclude_type_arg</code>), so a wisp can never reach <code>/goal</code> as drivable work. The regression suite asserts this contract structurally (no helper opts into <code>--include-ephemeral</code>) plus an E2E proof against a real <code>bd</code>.</p>
+<h3 id="implementation-references">Implementation references</h3>
+<table><thead><tr>
+<th>Responsibility</th>
+<th>File:Symbol</th>
+</tr></thead><tbody>
+<tr>
+<td>Recurring mol-type values</td>
+<td><code>beads.py:RECURRING_MOL_TYPES</code> (<code>("patrol",)</code>)</td>
+</tr>
+<tr>
+<td>Candidate <code>mol-type</code> field names</td>
+<td><code>beads.py:_MOL_TYPE_KEYS</code></td>
+</tr>
+<tr>
+<td>Protective label contract</td>
+<td><code>beads.py:RECURRING_EPIC_LABELS</code></td>
+</tr>
+<tr>
+<td>mol-type field matcher (top-level + metadata)</td>
+<td><code>beads.py:_mol_type_matches</code></td>
+</tr>
+<tr>
+<td>Detection predicate</td>
+<td><code>beads.py:is_recurring_epic</code></td>
+</tr>
+<tr>
+<td>Preview-then-partition orchestrator</td>
+<td><code>beads.py:close_eligible_epics</code></td>
+</tr>
+<tr>
+<td>Non-destructive dry-run preview</td>
+<td><code>beads.py:_preview_close_eligible</code></td>
+</tr>
+<tr>
+<td>Native bulk cascade (fast path)</td>
+<td><code>beads.py:_bulk_close_eligible</code></td>
+</tr>
+<tr>
+<td>Per-epic safe close (partition path)</td>
+<td><code>beads.py:_close_non_recurring</code></td>
+</tr>
+<tr>
+<td>JSON shape normaliser</td>
+<td><code>beads.py:_parse_close_eligible_payload</code> / <code>beads.py:_normalise_closed_epic</code></td>
+</tr>
+<tr>
+<td>Drain-time caller (soft-fails)</td>
+<td><code>lifecycle.py:rollup_completed_epics</code></td>
+</tr>
+<tr>
+<td>Wisp exclusion (default, no <code>--include-ephemeral</code>)</td>
+<td><code>beads.py:next_ready</code>, <code>beads.py:_list_by_status</code>, <code>beads.py:_exclude_type_arg</code></td>
+</tr>
+</tbody></table>
+<h2 id="where-used">Where Used</h2>
+<ul>
+<li><a href="../Features/EpicRollup.html">Epic Rollup</a> — the feature this protection guards; rollup auto-closes eligible epics <em>except</em> recurring ones.</li>
+<li><a href="../Flows/SessionEndEpicRollup.html">Session-End Epic Rollup</a> — the drain-time flow that calls <code>lifecycle.rollup_completed_epics</code> → <code>beads.close_eligible_epics</code>.</li>
+<li><a href="ContainerTypeExclusion.html">Container Type Exclusion</a> — sibling concept; the wisp half here is the ephemeral counterpart to container-type exclusion from the ready queue.</li>
+</ul>
+<h2 id="conventions">Conventions</h2>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>- <strong>Tag recurring epics with a label</strong>, not a hope. On <code>bd</code> 1.0.5 the   <code>mol-type</code> field is invisible, so the <em>label</em> contract is load-bearing: a   poured patrol molecule's epic MUST carry one of <code>RECURRING_EPIC_LABELS</code>   (<code>patrol</code>, <code>recurring</code>, or <code>mol-type:patrol</code>) to survive rollup. - <strong>Adding a new recurring type is a one-line tuple edit</strong> — extend   <code>RECURRING_MOL_TYPES</code> and/or <code>RECURRING_EPIC_LABELS</code>, mirroring how   <code>EXCLUDED_TYPES</code> is extended. Keep them small and case-insensitive. - <strong>Detection must stay fail-safe.</strong> Unknown / missing / non-dict input is   "not recurring," so ordinary epics keep rolling up. Only <em>withhold</em> closure   when a recurring marker is positively present. - <strong>Always preview before closing.</strong> <code>close_eligible_epics</code> must run the   <code>--dry-run</code> preview first so <code>is_recurring_epic</code> gets a chance to veto the   bulk cascade.</p></div>
+<h2 id="anti-patterns">Anti-Patterns</h2>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p>- **Don't assume <code>bd epic close-eligible</code> can exclude an epic.** It has no   exclude flag (only <code>--dry-run</code>). Re-introducing a "just pass <code>--exclude</code>"   shortcut will silently re-close patrol epics. - <strong>Don't run the bulk cascade when a recurring epic is eligible.</strong> <code>bd</code>'s   native cascade is all-or-nothing; calling it with a patrol epic in the   eligible set sweeps the patrol epic up too. Use the per-epic partition path. - **Don't pass <code>--include-ephemeral</code>** on any <code>bd ready</code> / <code>bd list</code> query.   That re-opens the wisp-leakage hole and a recurring monitor's vapor would be   driven as real work. - **Don't trust a <code>mol-type</code> field to be present.** <code>bd</code> 1.0.5 doesn't emit   it; relying on it alone (without the label fallback) leaves every patrol   epic unprotected today.</p></div>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Features/EpicRollup.html">Epic Rollup</a></li>
+<li><a href="../Flows/SessionEndEpicRollup.html">Session-End Epic Rollup</a></li>
+<li><a href="ContainerTypeExclusion.html">Container Type Exclusion</a></li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a> — the four-tier picker whose blocker rechecks sit alongside the molecule/fan-out handling this concept covers.</li>
+<li><a href="SessionCloseDurability.html">Session Close Durability</a></li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a> — its gate check guards against the fan-out/molecule cases this concept covers.</li>
+<li><a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a> — the loop's empty-queue rollup pass is where this protection keeps recurring/patrol epics open.</li>
+<li><a href="index.html">Concepts Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

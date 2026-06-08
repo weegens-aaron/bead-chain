@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoalPromptConstruction — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="../Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="../Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="../Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="../Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="../Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="../Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="index.html">Index</a>
+<a href="BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="GoalPromptConstruction.html" class="active">Goal Prompt Construction</a>
+<a href="NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="goalpromptconstruction">GoalPromptConstruction</h1>
+<h2 id="what-happens">What Happens</h2>
+<p>A single <code>bd ready</code>-shaped bead dict is turned into the multi-section <code>/goal</code> prompt string that bead-chain hands to wiggum's <code>/goal</code> mode. The assembly chooses a mutually-exclusive <strong>preamble</strong> (recovery / triage / none), then concatenates the bead's identity (title + description), a project-wide <code>## Persistent Memories</code> digest, an issue-metadata block (type, priority, parent-epic context, labels), the bead's own <code>## Design</code> and <code>## Acceptance Criteria</code> text, a <code>## Template Lint Warnings</code> block, a <code>## Related Context</code> block of non-gating edges, the "when you believe this is done" checklist, and finally the always-appended <code>BUG DISCOVERY PROTOCOL</code>. Every enrichment soft-fails to an empty string, so a minimal bead still produces a valid prompt and the impure <code>bd</code> round-trips can never crash the chain.</p>
+<h2 id="trigger">Trigger</h2>
+<p><code>prompt.format_bead_as_goal(bead, recovery=recovery)</code> is called at exactly two sites, both immediately <em>after</em> the bead has been claimed (or recognised as a recovery strand) and execution hints applied, just before <code>wiggum_state.start(goal_prompt, mode="goal")</code> arms the <code>/goal</code> loop:</p>
+<ul>
+<li><strong>Chain start</strong> — <code>register_callbacks.py:handle_bead_chain_command</code> (<code>register_callbacks.py:280</code>) builds the prompt for the first bead.</li>
+<li><strong>Mid-chain hand-off</strong> — <code>lifecycle.py:activate_next_bead</code> (<code>lifecycle.py:718</code>) builds it for every subsequent bead picked by the selection waterfall.</li>
+</ul>
+<p>The <code>recovery</code> flag is computed upstream by <code>lifecycle.is_recovery_bead(bead)</code> (true when the bead's <code>status</code> is already <code>in_progress</code>/<code>hooked</code>).</p>
+<h2 id="outcome">Outcome</h2>
+<p>A single <code>str</code> — the fully-assembled goal prompt — returned to the caller, which passes it to <code>wiggum_state.start(..., mode="goal")</code>. The bead dict and the source files are never mutated (the formatter is read-only; the only <code>bd</code> calls it makes are read-only <code>show</code> / <code>memories</code> / <code>lint</code> enrichments that soft-fail to nothing).</p>
+<pre class="mermaid">
+flowchart TD
+    Start([format_bead_as_goal bead, recovery]) --&gt; Fields[Extract id / title / description /&lt;br/&gt;issue_type / priority from bead dict]
+    Fields --&gt; Meta[Build issue-metadata lines:&lt;br/&gt;Type, Priority]
+    Meta --&gt; Epic[_format_epic_metadata_lines&lt;br/&gt;extract_parent_epic_id -&gt; _fetch_epic_context -&gt; show]
+    Epic --&gt; Labels[_format_labels_line&lt;br/&gt;read bead 'labels' list]
+    Labels --&gt; Design[_format_design_block&lt;br/&gt;read bead 'design']
+    Design --&gt; Accept[_format_acceptance_criteria_block&lt;br/&gt;read bead 'acceptance_criteria']
+    Accept --&gt; Lint[_format_lint_warnings_block&lt;br/&gt;_fetch_lint_warnings -&gt; lint_warnings]
+    Lint --&gt; Related[_format_related_context_block&lt;br/&gt;scan bead 'dependencies' for context edges]
+    Related --&gt; Mem[_format_memory_digest_block&lt;br/&gt;_fetch_memory_digest -&gt; memories]
+    Mem --&gt; Pre{preamble?}
+    Pre --&gt;|recovery=True| Rec[_RECOVERY_PREAMBLE]
+    Pre --&gt;|is_triaged_bug| Tri[_TRIAGE_VERIFY_PREAMBLE]
+    Pre --&gt;|otherwise| Non[no preamble]
+    Rec --&gt; Assemble
+    Tri --&gt; Assemble
+    Non --&gt; Assemble[Concatenate:&lt;br/&gt;preamble + identity + memory + metadata +&lt;br/&gt;design + acceptance + lint + related +&lt;br/&gt;done-checklist + _BUG_DISCOVERY_PROTOCOL]
+    Assemble --&gt; Out([return goal_prompt str -&gt; wiggum_state.start])
+</pre>
+<h2 id="step-by-step">Step-by-Step</h2>
+<table><thead><tr>
+<th>#</th>
+<th>What</th>
+<th>Where (file:symbol)</th>
+<th>Failure mode</th>
+</tr></thead><tbody>
+<tr>
+<td>1</td>
+<td>Pull <code>id</code>, <code>title</code>, <code>description</code>, <code>issue_type</code>, <code>priority</code> off the bead dict with safe defaults (<code>&lt;unknown&gt;</code>, <code>(no title)</code>, <code>(no description)</code>, <code>task</code>, <code>?</code>)</td>
+<td><code>prompt.py:format_bead_as_goal</code></td>
+<td>None — every field has a literal fallback, so a malformed dict still renders</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Seed metadata lines <code>- Type: &lt;issue_type&gt;</code> and <code>- Priority: P&lt;priority&gt;</code></td>
+<td><code>prompt.py:format_bead_as_goal</code></td>
+<td>None</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Resolve parent epic id, then fetch its title + first-paragraph excerpt and append <code>- Parent epic: &lt;id&gt; — &lt;title&gt;</code> (+ <code>  &gt; &lt;excerpt&gt;</code>)</td>
+<td><code>prompt.py:_format_epic_metadata_lines</code> → <code>beads.extract_parent_epic_id</code> → <code>prompt.py:_fetch_epic_context</code> → <code>beads.show</code></td>
+<td><code>bd show</code> raises <code>BeadsError</code> → <code>_fetch_epic_context</code> returns <code>None</code> → falls back to bare <code>- Parent epic: &lt;id&gt;</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Append <code>- Labels: a, b, c</code> from the bead's <code>labels</code> list (stripped, empties dropped)</td>
+<td><code>prompt.py:_format_labels_line</code></td>
+<td>Missing / non-list / all-empty → <code>[]</code> (line omitted)</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Render <code>## Design</code> block from the bead's <code>design</code> field (no double-heading if it already leads with one)</td>
+<td><code>prompt.py:_format_design_block</code></td>
+<td>Missing / empty / non-string → <code>""</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>Render <code>## Acceptance Criteria</code> block from the bead's <code>acceptance_criteria</code> field</td>
+<td><code>prompt.py:_format_acceptance_criteria_block</code></td>
+<td>Missing / empty / non-string → <code>""</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td>Run <code>bd lint &lt;id&gt;</code> on the claim path and render <code>## Template Lint Warnings</code> with one bullet per missing section</td>
+<td><code>prompt.py:_format_lint_warnings_block</code> ← <code>prompt.py:_fetch_lint_warnings</code> → <code>beads.lint_warnings</code></td>
+<td><code>bd lint</code> raises / unsupported → <code>_fetch_lint_warnings</code> returns <code>[]</code> → block is <code>""</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>Render <code>## Related Context</code> from the bead's <code>dependencies</code> array, keeping only the six non-gating context edges (<code>discovered-from</code>, <code>caused-by</code>, <code>validates</code>, <code>related</code>, <code>relates-to</code>, <code>tracks</code>), de-duped and grouped by gloss order</td>
+<td><code>prompt.py:_format_related_context_block</code> (<code>prompt.py:_edge_type</code>, <code>prompt.py:_edge_target_id</code>, <code>prompt.py:_CONTEXT_EDGE_GLOSSES</code>)</td>
+<td>No <code>dependencies</code> / only gating edges / non-list → <code>""</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td>Fetch <code>bd memories</code> and render the <code>## Persistent Memories</code> digest (≤ <code>_MEMORY_DIGEST_MAX_ENTRIES</code>, each excerpt ≤ <code>_MEMORY_EXCERPT_LIMIT</code>)</td>
+<td><code>prompt.py:_format_memory_digest_block</code> ← <code>prompt.py:_fetch_memory_digest</code> → <code>beads.memories</code></td>
+<td><code>bd memories</code> raises / unsupported → <code>_fetch_memory_digest</code> returns <code>{}</code> → block is <code>""</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td>Pick the preamble: <code>recovery=True</code> → recovery preamble; else triaged bug → triage preamble; else none (recovery wins over triage)</td>
+<td><code>prompt.py:format_bead_as_goal</code> (<code>_RECOVERY_PREAMBLE</code>, <code>prompt.py:is_triaged_bug</code>, <code>_TRIAGE_VERIFY_PREAMBLE</code>)</td>
+<td><code>is_triaged_bug</code> is defensive (non-dict / missing fields → <code>False</code>)</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Concatenate preamble + identity + memory + metadata + design + acceptance + lint + related + done-checklist + bug-discovery protocol into the final string</td>
+<td><code>prompt.py:format_bead_as_goal</code> (<code>_BUG_DISCOVERY_PROTOCOL</code>)</td>
+<td>None — pure string join</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Return the prompt to the caller, which arms wiggum's <code>/goal</code> mode</td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> / <code>lifecycle.py:activate_next_bead</code> → <code>wiggum_state.start</code></td>
+<td>None within the formatter</td>
+</tr>
+</tbody></table>
+<h2 id="data-transformations">Data Transformations</h2>
+<p>Input is one <code>bd ready --json</code> (or <code>bd show --json</code>) bead record; output is the goal-prompt string. The hops:</p>
+<ul>
+<li><strong>bead dict → identity header.</strong> <code>bead["id"]</code>, <code>bead["title"]</code>, <code>bead["description"]</code> → the leading <code>Complete beads issue &lt;id&gt;: &lt;title&gt;\n\n&lt;description&gt;</code> lines.</li>
+<li>**<code>bead["parent"]</code> (or legacy <code>parent_id</code>/<code>epic_id</code>) → epic context.** <code>extract_parent_epic_id</code> yields the id; <code>show(epic_id)</code> returns the full epic record; <code>_first_paragraph_excerpt(epic["description"], limit=280)</code> trims it to a one-line <code>&gt; excerpt</code>.</li>
+<li>**<code>bead["labels"]: list[str]</code> → <code>- Labels: a, b, c</code>.** Each entry <code>str(item).strip()</code>, empties dropped, comma-joined.</li>
+<li>**<code>bead["design"]: str</code> → <code>## Design</code> block.** Stripped; emitted as-is if it already starts with a <code>Design</code> heading, else prefixed with <code>## Design</code>.</li>
+<li>**<code>bead["acceptance_criteria"]: str</code> → <code>## Acceptance Criteria</code> block.** Same heading-dedup rule.</li>
+<li>**<code>bead["id"]</code> → <code>## Template Lint Warnings</code>.** <code>lint_warnings(id)</code> returns <code>list[str]</code> of missing section names → one <code>- &lt;name&gt;</code> bullet each.</li>
+<li>**<code>bead["dependencies"]: list[dict]</code> → <code>## Related Context</code>.** Each edge's type (<code>type</code> <em>or</em> <code>dependency_type</code>) and target (<code>depends_on_id</code> <em>or</em> <code>id</code>) are read shape-agnostically; only the six glossed context types survive, rendered <code>- &lt;gloss&gt; &lt;target&gt;[: &lt;title&gt;]</code>.</li>
+<li>**<code>bd memories</code> → <code>## Persistent Memories</code>.** <code>memories()</code> returns <code>dict[str, str]</code> (<code>{key: insight}</code>); first 12 entries, each excerpt trimmed to 280 chars, rendered <code>- key: excerpt</code>.</li>
+<li>**<code>recovery</code> flag + <code>is_triaged_bug(bead)</code> → preamble selection.** A boolean pair collapses to one of three constant strings (or none).</li>
+</ul>
+<h2 id="performance-characteristics">Performance Characteristics</h2>
+<ul>
+<li><strong>Synchronous, in-process.</strong> The whole assembly runs on the calling thread inside the turn-end / command hook; there is no async or threading here.</li>
+<li>**Up to three <code>bd</code> subprocess round-trips per call.** <code>show</code> (epic context), <code>lint_warnings</code>, and <code>memories</code> each shell out via <code>beads.py:_run_bd</code> (the single subprocess chokepoint — see <a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a>). <code>show</code> only fires when the bead has a parent epic. Each call carries the transport's retry/timeout policy (<code>DEFAULT_TIMEOUT = 30.0</code>, <code>MAX_ATTEMPTS = 3</code>).</li>
+<li><strong>No N+1.</strong> Exactly one <code>show</code> per prompt (the parent epic), not one per edge; <code>memories</code> and <code>lint</code> are one call apiece. The pure formatting helpers (<code>_format_*</code>) do no I/O.</li>
+<li><strong>Bounded output.</strong> <code>_EPIC_EXCERPT_LIMIT = 280</code>, <code>_MEMORY_DIGEST_MAX_ENTRIES = 12</code>, and <code>_MEMORY_EXCERPT_LIMIT = 280</code> cap the enrichment so a long-lived bd DB or a verbose epic can't blow the LLM's context budget across a ten-bead chain.</li>
+</ul>
+<h2 id="failure-handling">Failure Handling</h2>
+<ul>
+<li><strong>Soft-fail everywhere on the impure path.</strong> All three <code>bd</code> fetches catch <code>BeadsError</code> and degrade gracefully: <code>_fetch_epic_context</code> → <code>None</code> (bare <code>- Parent epic: &lt;id&gt;</code>), <code>_fetch_lint_warnings</code> → <code>[]</code> (no lint block), <code>_fetch_memory_digest</code> → <code>{}</code> (no memory block). A bd build lacking the <code>lint</code> or <code>memories</code> subcommand therefore leaves the prompt byte-for-byte unchanged rather than stalling the chain.</li>
+<li><strong>No retries here.</strong> Retries live one layer down in <code>beads.py:_run_bd</code> (transient <code>TimeoutExpired</code> only). The formatter just consumes the typed result or the typed error.</li>
+<li><strong>Defensive shape checks.</strong> <code>_format_labels_line</code>, <code>_format_related_context_block</code>, and <code>_format_memory_digest_block</code> guard <code>isinstance(..., (list, tuple))</code> / <code>isinstance(..., dict)</code> so a malformed record yields an empty block, not a traceback. <code>is_triaged_bug</code> returns <code>False</code> for non-dict / missing fields.</li>
+<li><strong>No compensation needed.</strong> The flow is read-only and produces a value; there is nothing to roll back. The claim that <em>precedes</em> this flow is reverted by the caller on a <em>later</em> failure (see <a href="BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a>), not by the formatter.</li>
+</ul>
+<h2 id="key-log-messages">Key Log Messages</h2>
+<p>The formatter itself is silent (it returns a string); the surrounding arm-wiggum step emits these:</p>
+<table><thead><tr>
+<th>Log line</th>
+<th>Where</th>
+<th>Means</th>
+</tr></thead><tbody>
+<tr>
+<td><code>Recovering stranded in_progress bead &lt;id&gt; -- agent will assess current state before doing new work.</code></td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> (<code>emit_warning</code>)</td>
+<td><code>is_recovery_bead</code> was true, so <code>format_bead_as_goal(..., recovery=True)</code> will prepend <code>_RECOVERY_PREAMBLE</code>.</td>
+</tr>
+<tr>
+<td><code>execution hints: &lt;hint&gt;; &lt;hint&gt;</code></td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> / <code>lifecycle.py:activate_next_bead</code> (<code>emit_info</code>)</td>
+<td>Execution-hint metadata was applied just before the prompt was built (see <a href="../Concepts/ExecutionHints.html">ExecutionHints</a>).</td>
+</tr>
+<tr>
+<td><code>BEAD-CHAIN ENGAGED!</code> + <code>First bead: &lt;id&gt; — &lt;title&gt;</code></td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> (<code>emit_success</code>/<code>emit_info</code>)</td>
+<td>The first goal prompt was built and wiggum's <code>/goal</code> mode armed.</td>
+</tr>
+<tr>
+<td><code>bead-chain claimed &lt;id&gt; — &lt;title&gt;</code> / <code>bead-chain recovered &lt;id&gt; — &lt;title&gt;</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> (<code>emit_info</code>)</td>
+<td>A mid-chain goal prompt was built and handed off (<code>action</code> = claimed vs recovered).</td>
+</tr>
+</tbody></table>
+<h2 id="common-issues">Common Issues</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>No <code>## Persistent Memories</code> block despite memories existing</td>
+<td>This <code>bd</code> build lacks the <code>memories</code> subcommand, or it errored → <code>_fetch_memory_digest</code> returned <code>{}</code></td>
+<td>Confirm <code>bd memories --json</code> works; the block is intentionally suppressed on any <code>BeadsError</code> so the chain never stalls on a missing subcommand.</td>
+</tr>
+<tr>
+<td>Parent epic shows only <code>- Parent epic: &lt;id&gt;</code> with no title/excerpt</td>
+<td><code>bd show &lt;epic_id&gt;</code> raised <code>BeadsError</code> (epic not found, timeout, garbage JSON) → <code>_fetch_epic_context</code> returned <code>None</code></td>
+<td>Verify the epic id exists and <code>bd show &lt;id&gt; --json</code> returns valid JSON; the bare line is the deliberate degraded fallback.</td>
+</tr>
+<tr>
+<td>LLM graded against criteria it never saw</td>
+<td>The bead's <code>acceptance_criteria</code> was empty/missing, so <code>_format_acceptance_criteria_block</code> emitted <code>""</code></td>
+<td>Populate the bead's <code>acceptance_criteria</code> field; the block only renders when the field is a non-empty string (coverage-audit gap FB-2).</td>
+</tr>
+<tr>
+<td><code>## Related Context</code> missing an edge you expected</td>
+<td>The edge's type isn't one of the six in <code>_CONTEXT_EDGE_GLOSSES</code>, or it's a gating edge (<code>blocks</code>/<code>parent-child</code>)</td>
+<td>Only the six non-gating context types are surfaced by design; gating edges are deliberately excluded (gating behaviour is untouched — FB-11).</td>
+</tr>
+<tr>
+<td>A triaged bug got the normal prompt, not the triage preamble</td>
+<td>Bead's <code>issue_type</code> isn't <code>bug</code>, or its <code>description</code> lacks the <code>[bead-chain:triaged]</code> marker, or <code>recovery=True</code> won (recovery wins over triage)</td>
+<td>Ensure the bug carries <code>TRIAGE_MARKER</code> in its description; recovery preamble intentionally subsumes triage when the bead is also stranded.</td>
+</tr>
+</tbody></table>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Features/GoalPromptEnrichment.html">GoalPromptEnrichment</a> — the user-facing feature this flow implements.</li>
+<li><a href="ChainIterationLoop.html">ChainIterationLoop</a> — the outer loop that calls this flow once per bead.</li>
+<li><a href="BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> — runs immediately before this flow; the claim that precedes prompt construction.</li>
+<li><a href="StrandedBeadRecovery.html">StrandedBeadRecovery</a> — supplies the recovery beads that flip this flow into recovery-preamble mode.</li>
+<li><a href="NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — picks the bead whose dict this flow formats.</li>
+<li><a href="../Features/RecoveryMode.html">RecoveryMode</a> — the recovery-preamble behaviour.</li>
+<li><a href="../Features/BugDiscoveryProtocol.html">BugDiscoveryProtocol</a> — the the always-appended <code>BUG DISCOVERY PROTOCOL</code> and triage-verification preamble.</li>
+<li><a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a> — the transport behind the <code>show</code> / <code>memories</code> / <code>lint_warnings</code> enrichment fetches.</li>
+<li><a href="../Concepts/ExecutionHints.html">ExecutionHints</a> — applied just before this flow builds the prompt.</li>
+<li><a href="../Concepts/ChainStateSingleton.html">ChainStateSingleton</a> — holds the <code>current_bead</code> whose dict feeds this flow.</li>
+<li><a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the SRP boundary: this flow renders the prompt but never grades completion.</li>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a> — the queue driver that calls this flow once per bead boundary to build the <code>/goal</code> prompt.</li>
+<li><a href="index.html">Flows Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

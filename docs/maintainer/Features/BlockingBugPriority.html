@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlockingBugPriority — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="../Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="../Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="../Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="../Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="../Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="../Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="index.html">Index</a>
+<a href="BeadChaining.html">Bead Chaining</a>
+<a href="BlockingBugPriority.html" class="active">Blocking Bug Priority</a>
+<a href="BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="CloseGuard.html">Close Guard</a>
+<a href="EpicAffinity.html">Epic Affinity</a>
+<a href="EpicRollup.html">Epic Rollup</a>
+<a href="GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="RecoveryMode.html">Recovery Mode</a>
+<a href="WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="blockingbugpriority">BlockingBugPriority</h1>
+<h2 id="what-it-does">What It Does</h2>
+<p>Lets any <strong>ready bug that has at least one dependent</strong> cut to the front of the chain's work queue: before bead-chain picks ordinary work, it asks bd for the top ready bug with <code>dependent_count &gt; 0</code> and, if one exists, claims <em>that</em> instead — because fixing a bug that other beads are waiting on unblocks the most downstream work.</p>
+<h2 id="why-it-exists">Why It Exists</h2>
+<p>bd's own <code>bd ready</code> frontier is priority-ordered, but priority alone doesn't capture <em>blast radius</em>: a P1 feature with no dependents and a P1 bug that three other beads are blocked on look identical to a naive "take the next ready bead" loop. Without an explicit escalation, the bug would wait its turn in queue order while the beads that depend on it sit stranded — the chain would burn iterations on work that can't actually merge cleanly until the bug is gone.</p>
+<p>This feature encodes the heuristic "<strong>unblock the graph first</strong>" as <strong>tier 1</strong> of the four-tier <code>pick_next_bead</code> waterfall (only the stranded-recovery tier 0 outranks it). It is the <em>consumer</em> half of the bug story: the <a href="BugDiscoveryProtocol.html">BugDiscoveryProtocol</a> tells an agent how to <em>file</em> a blocking bug (P1 + <code>--blocks=&lt;id&gt;</code> so it gains a dependent); this feature is what later notices that filed bug and jumps it to the head of the line. The two are deliberately split — filing is prompt text the agent runs, escalation is a read-only selection query bead-chain runs.</p>
+<h2 id="how-it-works">How It Works</h2>
+<h3 id="user-perspective">User Perspective</h3>
+<p>The user never triggers this directly. They see its effect in the run log: at the top of an iteration, instead of the usual global-ready pick, the chain emits</p>
+<pre><code>bead-chain: blocking bug detected -&gt; prioritising bead_chain-ab2</code></pre>
+<p>and the next agent is handed that bug's goal prompt. If the escalation candidate turns out to be (wrongly) blocked itself, the user instead sees a warning and the chain quietly falls through to the next tier:</p>
+<pre><code>bead-chain: blocking bug candidate bead_chain-ab2 has open blocker(s) [bead_chain-x1] -- refusing to claim it ...</code></pre>
+<h3 id="system-perspective">System Perspective</h3>
+<p>Each iteration, <code>lifecycle.pick_next_bead</code> runs its waterfall. After tier 0 (stranded recovery) finds nothing, it calls <code>beads.next_blocking_bug()</code>. That function loops over <code>BLOCKING_BUG_TYPES</code> (<code>("bug",)</code>), runs <code>bd ready --type=bug &lt;--exclude-type=…&gt; --json</code> so bd does priority/blocker ordering and container filtering server-side, then applies the one predicate bd can't express — <code>dependent_count &gt; 0</code> — client-side, returning the <strong>first</strong> (highest-priority) bug that has a dependent. <code>pick_next_bead</code> then passes that candidate through <code>_reject_if_blocked</code>, a defence-in-depth recheck via <code>beads.open_blocker_ids</code> that refuses the candidate if a <code>blocks</code>/<code>waits-for</code> edge was wired between the <code>bd ready</code> query and now (bd version drift). If it survives, the bug is returned, claimed, and armed exactly like any other bead. No source or bead is mutated — this is a pure read-only selection query.</p>
+<pre class="mermaid">
+sequenceDiagram
+    participant Loop as ChainIterationLoop
+    participant Pick as lifecycle.pick_next_bead
+    participant NBB as beads.next_blocking_bug
+    participant Bd as bd CLI (bd ready --type=bug)
+    participant Rej as lifecycle._reject_if_blocked
+    participant OBI as beads.open_blocker_ids
+
+    Loop-&gt;&gt;Pick: pick_next_bead(just_closed)
+    Note over Pick: tier 0 (stranded recovery) found nothing
+    Pick-&gt;&gt;NBB: next_blocking_bug()
+    loop for issue_type in BLOCKING_BUG_TYPES
+        NBB-&gt;&gt;Bd: bd ready --type=bug --exclude-type=… --json
+        Bd--&gt;&gt;NBB: ready bugs (priority-ordered)
+        NBB-&gt;&gt;NBB: first bead with dependent_count &gt; 0?
+    end
+    alt a blocking bug exists
+        NBB--&gt;&gt;Pick: that bug dict
+        Pick-&gt;&gt;Rej: _reject_if_blocked(bug, "blocking bug")
+        Rej-&gt;&gt;OBI: open_blocker_ids(bug.id)
+        OBI--&gt;&gt;Rej: [] (no open blockers)
+        Rej--&gt;&gt;Pick: False (not blocked)
+        Pick--&gt;&gt;Loop: emit "blocking bug detected -&gt; prioritising &lt;id&gt;"; return bug
+    else none ready / candidate blocked
+        NBB--&gt;&gt;Pick: None
+        Pick-&gt;&gt;Pick: fall through to tier 2 (epic affinity) / tier 3 (global ready)
+    end
+</pre>
+<h2 id="key-data-shapes">Key Data Shapes</h2>
+<p>This feature consumes ordinary <code>bd</code> bug records from <code>bd ready --json</code>; there is no bespoke DTO. The only fields the code reads are <code>id</code>, <code>issue_type</code> (must be in <code>BLOCKING_BUG_TYPES</code>), and <code>dependent_count</code> (must be <code>&gt; 0</code>). A qualifying candidate as <code>next_blocking_bug</code> sees it:</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-ab2",
+  "issue_type": "bug",
+  "priority": 1,
+  "title": "&lt;short title&gt;",
+  "status": "open",
+  "dependent_count": 1,
+  "dependencies": []
+}</code></pre>
+<p><code>_reject_if_blocked</code> then re-fetches the full record via <code>bd show &lt;id&gt; --json</code> (the only call that carries each dependency's <code>status</code> + <code>dependency_type</code>) and inspects the <code>dependencies</code> array for still-open <code>blocks</code>/<code>waits-for</code> edges:</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-ab2",
+  "issue_type": "bug",
+  "dependencies": [
+    {
+      "id": "bead_chain-x1",
+      "dependency_type": "blocks",
+      "status": "open"
+    }
+  ]
+}</code></pre>
+<p><code>next_blocking_bug</code> returns the <strong>bug dict</strong> unchanged (or <code>None</code>); <code>pick_next_bead</code> returns that same dict to the runner. No structured object is constructed by this feature.</p>
+<h2 id="api-surface">API Surface</h2>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>bead-chain is a terminal Code Puppy plugin with <strong>no HTTP endpoints</strong>. This feature's "surface" is in-process Python plus <code>bd</code> subprocess calls, not routes — so the <code>-&gt; Endpoint doc</code> column is N/A by design (see the Endpoints note in the FlowDoc Manifest).</p></div>
+<table><thead><tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+<th>-&gt; Endpoint doc</th>
+</tr></thead><tbody>
+<tr>
+<td><code>call</code></td>
+<td>`beads.next_blocking_bug() -&gt; dict \</td>
+<td>None`</td>
+<td>Tier-1 selection: top ready bug with <code>dependent_count &gt; 0</code></td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td>`lifecycle.pick_next_bead(just_closed) -&gt; dict \</td>
+<td>None`</td>
+<td>Four-tier waterfall; tier 1 is this feature</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td><code>lifecycle._reject_if_blocked(bead, tier) -&gt; bool</code></td>
+<td>Defence-in-depth: refuse a candidate that has open blockers</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td><code>beads.open_blocker_ids(bead_id) -&gt; list[str]</code></td>
+<td>The blocker-status check <code>_reject_if_blocked</code> consults</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>shell</code></td>
+<td><code>bd ready --type=bug --exclude-type=&lt;containers&gt; --json</code></td>
+<td>Server-side: priority-ordered ready bugs minus container types</td>
+<td>N/A — <code>bd</code> subprocess</td>
+</tr>
+<tr>
+<td><code>shell</code></td>
+<td><code>bd show &lt;id&gt; --json</code></td>
+<td>Re-fetch full record (with dep status) for the blocker recheck</td>
+<td>N/A — <code>bd</code> subprocess</td>
+</tr>
+</tbody></table>
+<h2 id="implementation-map">Implementation Map</h2>
+<table><thead><tr>
+<th>Responsibility</th>
+<th>File path</th>
+<th>Symbol</th>
+</tr></thead><tbody>
+<tr>
+<td>Which issue types count as "bug" for escalation</td>
+<td><code>beads.py:206</code></td>
+<td><code>BLOCKING_BUG_TYPES</code></td>
+</tr>
+<tr>
+<td>Tier-1 query: top ready bug with <code>dependent_count &gt; 0</code></td>
+<td><code>beads.py:593</code></td>
+<td><code>next_blocking_bug</code></td>
+</tr>
+<tr>
+<td>Container <code>--exclude-type=…</code> arg threaded into the query</td>
+<td><code>beads.py:209</code></td>
+<td><code>_exclude_type_arg</code></td>
+</tr>
+<tr>
+<td>Re-fetch dep status &amp; list still-open blockers</td>
+<td><code>beads.py:476</code></td>
+<td><code>open_blocker_ids</code></td>
+</tr>
+<tr>
+<td>Four-tier waterfall; tier 1 wiring + log line</td>
+<td><code>lifecycle.py:460</code></td>
+<td><code>pick_next_bead</code></td>
+</tr>
+<tr>
+<td>Defence-in-depth blocker recheck on the candidate</td>
+<td><code>lifecycle.py:521</code></td>
+<td><code>_reject_if_blocked</code></td>
+</tr>
+<tr>
+<td>Caller — every later bead hand-off runs the waterfall</td>
+<td><code>lifecycle.py:574</code></td>
+<td><code>activate_next_bead</code></td>
+</tr>
+</tbody></table>
+<h2 id="configuration">Configuration</h2>
+<table><thead><tr>
+<th>Key</th>
+<th>Default</th>
+<th>Effect</th>
+</tr></thead><tbody>
+<tr>
+<td><code>BLOCKING_BUG_TYPES</code></td>
+<td><code>("bug",)</code> (<code>beads.py:206</code>)</td>
+<td>Issue types eligible for tier-1 escalation; a tuple so adding a sibling type (e.g. <code>"regression"</code>) is a one-line change (DRY)</td>
+</tr>
+<tr>
+<td><code>dependent_count</code> predicate</td>
+<td><code>&gt; 0</code> (hard-coded in <code>next_blocking_bug</code>)</td>
+<td>A bug must have at least one dependent to escalate; a dependent-less bug is treated as ordinary work</td>
+</tr>
+<tr>
+<td><code>EXCLUDED_TYPES</code> (via <code>_exclude_type_arg</code>)</td>
+<td>epic/milestone/gate/molecule</td>
+<td>Container types stripped from the <code>bd ready --type=bug</code> query so a container never escalates as a "blocking bug"</td>
+</tr>
+<tr>
+<td><code>BLOCKING_DEP_TYPES</code></td>
+<td><code>blocks</code>, <code>waits-for</code> (<code>beads.py</code>)</td>
+<td>Which inbound edge types <code>open_blocker_ids</code> counts when <code>_reject_if_blocked</code> rechecks the candidate</td>
+</tr>
+<tr>
+<td>Waterfall tier rank</td>
+<td>tier 1 of 4 (after tier-0 recovery)</td>
+<td>Blocking bugs outrank epic-affinity and global-ready, but never pre-empt recovering a stranded in_progress bead</td>
+</tr>
+</tbody></table>
+<h2 id="edge-cases">Edge Cases</h2>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>A bug with no dependents does NOT escalate.</strong> The <code>dependent_count &gt; 0</code> predicate is the whole point — a P1 bug filed <em>without</em> a <code>--blocks</code> edge has zero dependents and is picked up by the ordinary global-ready tier in priority order, not jumped to the front.</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>Stranded recovery (tier 0) always outranks this.</strong> A bug that is <em>both</em> stranded <code>in_progress</code> <em>and</em> a blocking bug is recovered first — recovery is tier 0, blocking-bug escalation is tier 1. The bug only escalates once it's back to a clean <code>open</code>/ready state.</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>**<code>bd</code> supplies the priority order; bead-chain only picks the first.** <code>next_blocking_bug</code> returns the <em>first</em> ready bug with a dependent, trusting bd's server-side priority ordering. bead-chain never re-sorts bd's frontier (queue-driver-not-goal-engine) — so two blocking bugs resolve in bd's order, not any order this feature invents.</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>**A malformed <code>dependent_count</code> degrades to "not blocking".** A non-int / missing <code>dependent_count</code> is coerced to <code>0</code> inside <code>next_blocking_bug</code>, so a garbage value can only ever cause a bug to be <em>skipped</em>, never wrongly escalated.</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>Container types can't sneak in as bugs.</strong> <code>_exclude_type_arg</code> strips epic/milestone/gate/molecule server-side, and <code>next_blocking_bug</code> re-asserts <code>issue_type in BLOCKING_BUG_TYPES</code> client-side — a belt-and-suspenders guard against a future bd that ignored <code>--type</code>/<code>--exclude-type</code>.</p></div>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p><strong>Escalation never overrides a work-time block.</strong> If the chosen bug is itself blocked (a <code>blocks</code>/<code>waits-for</code> edge wired after the <code>bd ready</code> snapshot), <code>_reject_if_blocked</code> refuses it and the waterfall falls through — bead-chain respects blocks at <em>claim</em> time, not just at close (the bdboard-oals fix). A blocking bug never gets to barrel past its own open blocker.</p></div>
+<h2 id="error-scenarios">Error Scenarios</h2>
+<table><thead><tr>
+<th>Trigger</th>
+<th>Behavior</th>
+<th>User sees</th>
+</tr></thead><tbody>
+<tr>
+<td>A ready bug has <code>dependent_count &gt; 0</code> and no open blockers</td>
+<td>Returned from tier 1, claimed, armed</td>
+<td><code>bead-chain: blocking bug detected -&gt; prioritising &lt;id&gt;</code></td>
+</tr>
+<tr>
+<td>No ready bug has any dependents</td>
+<td><code>next_blocking_bug</code> returns <code>None</code>; fall through to epic-affinity / global-ready</td>
+<td>(silent) normal tier-2/3 pick</td>
+</tr>
+<tr>
+<td>Candidate bug is itself blocked (edge wired post-snapshot)</td>
+<td><code>_reject_if_blocked</code> returns <code>True</code>; waterfall falls through</td>
+<td><code>bead-chain: blocking bug candidate &lt;id&gt; has open blocker(s) [...] -- refusing to claim it ...</code></td>
+</tr>
+<tr>
+<td>Bug also stranded <code>in_progress</code></td>
+<td>Tier-0 recovery wins; bug recovered before any escalation</td>
+<td><code>bead-chain: found stranded in_progress bead &lt;id&gt; -- recovering before picking new work.</code></td>
+</tr>
+<tr>
+<td><code>dependent_count</code> missing / non-int on a candidate</td>
+<td>Coerced to <code>0</code>; bug skipped as non-blocking</td>
+<td>(silent) bug stays in ordinary queue</td>
+</tr>
+<tr>
+<td>Container leaks past <code>--type</code>/<code>--exclude-type</code> (bd drift)</td>
+<td>Client-side <code>issue_type in BLOCKING_BUG_TYPES</code> check skips it</td>
+<td>(silent) container never escalates</td>
+</tr>
+<tr>
+<td><code>bd ready</code> infra failure (bd missing/timeout/garbage JSON)</td>
+<td><code>BeadsError</code> propagates out of the waterfall</td>
+<td><code> bead-chain stopping — \</code>bd ready\<code> failed: &lt;err&gt;</code></td>
+</tr>
+</tbody></table>
+<h2 id="testing">Testing</h2>
+<p>The escalation tier has dedicated coverage:</p>
+<ul>
+<li><code>tests/test_pick_respects_blocks.py</code> — <code>test_blocked_blocking_bug_is_skipped_falls_through</code> pins that a blocking-bug candidate flows through tier 1 of <code>pick_next_bead</code> and is refused <em>only</em> when it is itself blocked (then the waterfall falls through to the global-ready bead <code>A</code>). The harness wires <code>lifecycle.next_blocking_bug</code> and <code>open_blocker_ids</code> via monkeypatch to drive the exact tier under test.</li>
+<li><code>tests/test_wisp_exclusion.py</code> — <code>test_blocking_bug_scan_never_includes_ephemeral</code> asserts <code>next_blocking_bug()</code> actually queries <code>bd</code> and never passes <code>--include-ephemeral</code>, so ephemeral wisps can't escalate.</li>
+<li><code>tests/test_hooked_pinned_strands.py</code> neutralises the tier by stubbing <code>lifecycle.next_blocking_bug -&gt; None</code>, confirming tiers 0/2/3 behave when no blocking bug exists.</li>
+</ul>
+<p>To eyeball it manually: build a dict <code>{"id": "x", "issue_type": "bug", "dependent_count": 1}</code>, monkeypatch <code>beads._run_bd</code> to return <code>[that dict]</code>, and call <code>beads.next_blocking_bug()</code> — it should return the dict; flip <code>dependent_count</code> to <code>0</code> and it should return <code>None</code>. Run the whole suite with <code>pytest -q</code> (245 tests).</p>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="BugDiscoveryProtocol.html">BugDiscoveryProtocol</a> — the <em>filing</em> half of the bug story: how an agent files a blocking bug (P1 + <code>--blocks</code>) so it gains the dependent this feature escalates on.</li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — the full four-tier waterfall this feature is tier 1 of, narrated step by step.</li>
+<li><a href="RecoveryMode.html">RecoveryMode</a> — tier 0, which outranks this tier-1 blocking-bug priority.</li>
+<li><a href="../Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> — tier 0, which always outranks blocking-bug escalation (recovery beats every other rule).</li>
+<li><a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a> — why <code>_exclude_type_arg</code> keeps epics/milestones/gates/molecules out of the <code>bd ready --type=bug</code> escalation query.</li>
+<li><a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the SRP boundary behind "trust bd's priority order, only re-rank by blast radius" — the chain picks from bd's frontier, it never invents goals.</li>
+<li><a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a> — the transport behind the <code>bd ready --type=bug</code> and <code>bd show</code> spawns this feature makes.</li>
+<li><a href="EpicAffinity.html">EpicAffinity</a> — tier 2, which this feature outranks: a ready bug with dependents jumps ahead of staying inside an epic.</li>
+<li><a href="WorkTimeBlockerGate.html">WorkTimeBlockerGate</a> — escalation never overrides a work-time block: a blocking bug that is itself blocked is skipped by <code>_reject_if_blocked</code> and falls through to the next tier.</li>
+<li><a href="BeadChaining.html">BeadChaining</a> — the queue driver this tier-1 escalation plugs into; its waterfall is where blocking bugs cut the line.</li>
+<li><a href="index.html">Features Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>
