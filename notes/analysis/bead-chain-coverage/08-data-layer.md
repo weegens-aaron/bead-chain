@@ -120,7 +120,7 @@ startup-time concern, handled by `lifecycle.enforce_single_in_progress` /
 
 - **Is this a bead-chain bug, or correct SRP?** Mostly the latter. bead-chain is
   a *queue driver*, not a sync engine, and the sibling explanation
-  `maintainer/explanation/queue-driver-not-goal-engine.md` makes "we don't own
+  [QueueDriverNotGoalEngine](../../../__docs/Concepts/QueueDriverNotGoalEngine.md) makes "we don't own
   X" a deliberate stance. Owning sync policy (which remote? push every bead or
   once per drain? pull on start?) would arguably violate that boundary. The real
   finding is therefore a **seam**, not a code defect: *nobody* in the documented

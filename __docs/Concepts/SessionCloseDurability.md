@@ -31,7 +31,7 @@ ADR 0001 (`notes/decisions/0001-dolt-push-lives-in-session-close.md`, bead
 putting the sync step **in session-close, option (b)**, because:
 
 - **Single Responsibility.** bead-chain is a *queue driver*, not a sync engine
-  (the boundary codified in `queue-driver-not-goal-engine.md`). Pushing on drain
+  (the boundary codified in [QueueDriverNotGoalEngine](QueueDriverNotGoalEngine.md)). Pushing on drain
   would force the driver to own sync *policy* it has no business owning: which
   remote, what cadence (every bead? once per drain?), and whether to
   `bd dolt pull` on start. Durability is a different axis than queue-draining.
