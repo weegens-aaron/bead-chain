@@ -262,6 +262,8 @@ Run the whole suite with `pytest -q` (245 tests).
   boundary behind "file, don't close": bead-chain instructs, the judges close.
 - [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md) — the transport
   behind the agent's `bd create` filing and the `next_blocking_bug` query.
+- [BeadChaining](BeadChaining.md) — the queue driver whose every `/goal` prompt
+  appends this file-don't-close protocol.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

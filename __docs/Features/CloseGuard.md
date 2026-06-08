@@ -314,6 +314,11 @@ should remain open until the judges sign off.
   command at the start of a line inside a quoted multi-line argument (e.g. a
   commit message) was wrongly blocked. Fixed by blanking quoted string literals
   (`_blank_quoted`) before the boundary scan.
+- [BeadChaining](BeadChaining.md) — the queue driver whose legitimate closes
+  bypass this guard, while any agent-issued `bd close` mid-chain is blocked.
+- [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md) — why
+  bead-chain's own `beads.close`/`subprocess.run` never traverses the command
+  runner this hook watches, so it bypasses the guard.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

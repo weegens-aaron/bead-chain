@@ -201,6 +201,10 @@ is emitted, and the chain proceeds with `model → gpt-5` still applied.
 - [BdSubprocessTransport](BdSubprocessTransport.md)
 - [QueueDriverNotGoalEngine](QueueDriverNotGoalEngine.md)
 - [ChainStateSingleton](ChainStateSingleton.md)
+- [GoalPromptEnrichment](../Features/GoalPromptEnrichment.md) — sibling per-bead
+  enrichment applied around the same point, just before the prompt is built.
+- [ChainIterationLoop](../Flows/ChainIterationLoop.md) — the loop applies these
+  `execution_*` hints to each bead before arming wiggum.
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

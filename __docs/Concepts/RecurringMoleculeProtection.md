@@ -179,6 +179,10 @@ proof against a real `bd`.
   four-tier picker whose blocker rechecks sit alongside the molecule/fan-out
   handling this concept covers.
 - [Session Close Durability](SessionCloseDurability.md)
+- [Bead Claim And Blocker Recheck](../Flows/BeadClaimAndBlockerRecheck.md) — its
+  gate check guards against the fan-out/molecule cases this concept covers.
+- [Chain Iteration Loop](../Flows/ChainIterationLoop.md) — the loop's empty-queue
+  rollup pass is where this protection keeps recurring/patrol epics open.
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

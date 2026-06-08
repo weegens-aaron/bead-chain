@@ -328,6 +328,8 @@ the continuation dict above (new bead).
   this loop applies to each bead before arming wiggum.
 - [EpicAffinity](../Features/EpicAffinity.md) — uses the just-closed dict this
   loop captures to prefer a sibling under the same epic next iteration.
+- [BeadChaining](../Features/BeadChaining.md) — the user-facing feature this
+  per-turn loop implements.
 - [Flows Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

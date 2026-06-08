@@ -225,6 +225,10 @@ closed-epic dicts plus log lines. The hops:
 - [ChainStateSingleton](../Concepts/ChainStateSingleton.md) — holds
   `completed_count` reported in the drain line and the `active` flag flipped by
   `state.stop()` at the end of this flow.
+- [BeadChaining](../Features/BeadChaining.md) — the queue driver whose drain
+  pass triggers this once-per-session rollup.
+- [BeadClaimAndBlockerRecheck](BeadClaimAndBlockerRecheck.md) — the activation
+  gauntlet whose `None` (empty queue) result hands control to this drain.
 - [Flows Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

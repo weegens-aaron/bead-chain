@@ -304,6 +304,10 @@ claim, hint application, and `/goal` arming happen downstream in
   related molecule/fan-out handling beyond the simple blocker rechecks here.
 - [EpicAffinity](../Features/EpicAffinity.md) — tier 2 of this waterfall in
   feature form: prefer the next ready sibling under the just-closed bead's epic.
+- [BeadChaining](../Features/BeadChaining.md) — the queue driver that calls this
+  waterfall (via `activate_next_bead`) each iteration.
+- [CloseGuard](../Features/CloseGuard.md) — the close-time backstop that catches
+  a blocked bead if one ever slips through this selection.
 - [Flows Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

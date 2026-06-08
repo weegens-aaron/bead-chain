@@ -255,6 +255,14 @@ to `bd` any other way:
 - [SessionCloseDurability](SessionCloseDurability.md)
 - [EpicAffinity](../Features/EpicAffinity.md) — its `bd ready --parent` lookup
   rides this subprocess transport.
+- [BlockingBugPriority](../Features/BlockingBugPriority.md) — its `bd ready
+  --type=bug` / `bd show` escalation queries ride this transport.
+- [BugDiscoveryProtocol](../Features/BugDiscoveryProtocol.md) — the agent's
+  `bd create` filing and the `next_blocking_bug` query ride this transport.
+- [GoalPromptEnrichment](../Features/GoalPromptEnrichment.md) — its `show` /
+  `memories` / `lint_warnings` enrichment fetches ride this transport.
+- [RecoveryMode](../Features/RecoveryMode.md) — its `bd list` / `bd show` /
+  `bd update` recovery spawns ride this transport.
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

@@ -194,6 +194,17 @@ container.
 - [WorkTimeBlockerGate](../Features/WorkTimeBlockerGate.md) — the sibling
   defence-in-depth gate: same belt-and-suspenders pattern (server-side filter +
   client-side recheck) applied to work-time blockers rather than container types.
+- [BlockingBugPriority](../Features/BlockingBugPriority.md) — why
+  `_exclude_type_arg` keeps containers out of the `bd ready --type=bug`
+  escalation query.
+- [RecoveryMode](../Features/RecoveryMode.md) — why epics are filtered out of
+  the recoverable set (a stranded container is reverted, never recovered).
+- [BeadClaimAndBlockerRecheck](../Flows/BeadClaimAndBlockerRecheck.md) — the
+  activation gauntlet that refuses container types at the claim boundary.
+- [ChainIterationLoop](../Flows/ChainIterationLoop.md) — why a container never
+  becomes a `current_bead` the loop drives.
+- [StrandedBeadRecovery](../Flows/StrandedBeadRecovery.md) — why a stranded
+  epic is reverted, never recovered (containers excluded from the recoverable set).
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

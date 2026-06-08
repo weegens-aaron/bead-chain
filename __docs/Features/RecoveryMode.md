@@ -365,6 +365,10 @@ its goal should open with the ` RECOVERY MODE` preamble.
   interrupted (recoverable) chain is local-only until the next session close.
 - [QueueDriverNotGoalEngine](../Concepts/QueueDriverNotGoalEngine.md) — the SRP
   boundary: recovery re-drives a strand but never owns durability or grading.
+- [BeadChaining](BeadChaining.md) — the queue driver whose cancel/close-failure
+  paths strand a bead `in_progress` for this feature to resume next run.
+- [GoalPromptEnrichment](GoalPromptEnrichment.md) — renders the
+  `_RECOVERY_PREAMBLE` this feature requests for a recovered bead.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

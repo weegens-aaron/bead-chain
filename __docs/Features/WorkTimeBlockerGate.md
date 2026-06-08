@@ -236,6 +236,8 @@ Run the whole suite with `pytest -q`.
 - [ContainerTypeExclusion](../Concepts/ContainerTypeExclusion.md) — the sibling
   defence-in-depth pattern (server-side filter + client-side recheck) applied to
   container types rather than blockers.
+- [BeadChaining](BeadChaining.md) — the queue driver whose claim and activate
+  boundaries run this work-time blocker recheck.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

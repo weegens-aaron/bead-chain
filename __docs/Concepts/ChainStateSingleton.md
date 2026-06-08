@@ -222,6 +222,12 @@ tier, but the singleton resets to idle.
 - [QueueDriverNotGoalEngine](QueueDriverNotGoalEngine.md)
 - [ExecutionHints](ExecutionHints.md)
 - [GoalPromptConstruction](../Flows/GoalPromptConstruction.md)
+- [GoalPromptEnrichment](../Features/GoalPromptEnrichment.md) — reads
+  `current_bead` from this singleton to build the `/goal` prompt.
+- [NextBeadSelectionWaterfall](../Flows/NextBeadSelectionWaterfall.md) — reads
+  `current_bead` (the `just_closed` source) and `max_iterations` from this box.
+- [StrandedBeadRecovery](../Flows/StrandedBeadRecovery.md) — the cancel hook
+  reads `current_bead_id` here when it leaves a bead stranded.
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

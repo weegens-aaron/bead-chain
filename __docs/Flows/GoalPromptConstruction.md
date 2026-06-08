@@ -190,6 +190,10 @@ the always-appended `BUG DISCOVERY PROTOCOL` and triage-verification preamble.
   flow builds the prompt.
 - [ChainStateSingleton](../Concepts/ChainStateSingleton.md) — holds the
   `current_bead` whose dict feeds this flow.
+- [QueueDriverNotGoalEngine](../Concepts/QueueDriverNotGoalEngine.md) — the SRP
+  boundary: this flow renders the prompt but never grades completion.
+- [BeadChaining](../Features/BeadChaining.md) — the queue driver that calls this
+  flow once per bead boundary to build the `/goal` prompt.
 - [Flows Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

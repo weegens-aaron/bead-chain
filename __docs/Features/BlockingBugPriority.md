@@ -270,6 +270,8 @@ and call `beads.next_blocking_bug()` — it should return the dict; flip
 - [WorkTimeBlockerGate](WorkTimeBlockerGate.md) — escalation never overrides a
   work-time block: a blocking bug that is itself blocked is skipped by
   `_reject_if_blocked` and falls through to the next tier.
+- [BeadChaining](BeadChaining.md) — the queue driver this tier-1 escalation
+  plugs into; its waterfall is where blocking bugs cut the line.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

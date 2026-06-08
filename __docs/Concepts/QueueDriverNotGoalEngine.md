@@ -225,6 +225,12 @@ This boundary is the reason these features/flows are shaped the way they are:
 - [Session-End Epic Rollup](../Flows/SessionEndEpicRollup.md)
 - [EpicAffinity](../Features/EpicAffinity.md) — reorders bd's frontier by
   preference (stay-in-epic) without ever inventing goals — the boundary in action.
+- [ChainStateSingleton](ChainStateSingleton.md) — the in-process boundary state
+  the driver owns (active / current_bead / counts) without ever owning goal logic.
+- [BeadClaimAndBlockerRecheck](../Flows/BeadClaimAndBlockerRecheck.md) — claims
+  and arms a bead but never grades it: this boundary applied to activation.
+- [NextBeadSelectionWaterfall](../Flows/NextBeadSelectionWaterfall.md) — picks
+  from bd's frontier and never invents goals: this boundary applied to selection.
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

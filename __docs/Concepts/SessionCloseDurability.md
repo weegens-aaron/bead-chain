@@ -208,6 +208,12 @@ not a bug, and not something bead-chain silently relies on.
   else in bead-chain, never pushes/persists — durability stays here.
 - [Bead Chaining](../Features/BeadChaining.md)
 - [Recovery Mode](../Features/RecoveryMode.md)
+- [Bead Claim And Blocker Recheck](../Flows/BeadClaimAndBlockerRecheck.md) —
+  flips bead status at claim time but, per this concept, never pushes/persists.
+- [Chain Iteration Loop](../Flows/ChainIterationLoop.md) — only transitions bead
+  status each turn and never pushes/pulls bead state: durability stays here.
+- [Stranded Bead Recovery](../Flows/StrandedBeadRecovery.md) — why an
+  interrupted chain's mutations are local-only until the next session close.
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

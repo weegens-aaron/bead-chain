@@ -298,6 +298,10 @@ The continuation dict this flow returns to the runner on a successful claim:
   related fan-out/molecule handling the gate check guards against.
 - [EpicAffinity](../Features/EpicAffinity.md) — tier 2 selection whose chosen
   sibling this activation gauntlet then claims and arms.
+- [BeadChaining](../Features/BeadChaining.md) — the queue driver whose engage
+  and iterate phases run this activation gauntlet.
+- [GoalPromptEnrichment](../Features/GoalPromptEnrichment.md) — renders the
+  claimed bead this flow surfaces into the `/goal` prompt.
 - [Flows Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

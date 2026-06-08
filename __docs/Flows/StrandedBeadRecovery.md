@@ -287,6 +287,8 @@ element (the strand list `_list_by_status` returns):
   boundary: recovery re-drives a strand but never owns durability.
 - [SessionCloseDurability](../Concepts/SessionCloseDurability.md) — why this
   flow flips status but never pushes bead state.
+- [BeadChaining](../Features/BeadChaining.md) — the queue driver whose
+  cancel/close-failure paths leave the bead this flow recovers on the next run.
 - [Flows Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)

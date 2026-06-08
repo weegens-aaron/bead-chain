@@ -273,6 +273,8 @@ rather than an unrelated ready bead. Run the whole suite with `pytest -q`.
   boundary: affinity reorders bd's frontier by preference, it never invents goals.
 - [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md) — the transport
   behind the `bd ready --parent` spawn.
+- [BeadChaining](BeadChaining.md) — the queue driver this tier-2 selection
+  preference plugs into between beads.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)
