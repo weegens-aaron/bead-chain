@@ -175,6 +175,9 @@ proof against a real `bd`.
 - [Epic Rollup](../Features/EpicRollup.md)
 - [Session-End Epic Rollup](../Flows/SessionEndEpicRollup.md)
 - [Container Type Exclusion](ContainerTypeExclusion.md)
+- [Next Bead Selection Waterfall](../Flows/NextBeadSelectionWaterfall.md) — the
+  four-tier picker whose blocker rechecks sit alongside the molecule/fan-out
+  handling this concept covers.
 - [Session Close Durability](SessionCloseDurability.md)
 - [Concepts Index](index.md)
 - [Architecture](../Architecture.md)
