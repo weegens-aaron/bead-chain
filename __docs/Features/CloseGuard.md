@@ -212,10 +212,16 @@ _BD_UPDATE_STATUS_CLOSED_RE = re.compile(
 > regex to catch all `bd update` or you'll deadlock the chain's own claims.
 
 > [!WARNING]
-> **A bd token inside a quoted string does not trip the guard.** Because
-> `_COMMAND_BOUNDARY` requires start-of-string or a real shell separator (a
-> plain space is *not* a boundary), `echo "remember to bd close cpp-1"` runs
-> fine. This is deliberate false-positive suppression, not a hole.
+> **A *single-line* bd token inside a quoted string does not trip the guard,
+> but a multi-line one CAN.** Because `_COMMAND_BOUNDARY` requires
+> start-of-string or a real shell separator (a plain space is *not* a boundary),
+> `echo "remember to bd close cpp-1"` runs fine. **However**, both regexes are
+> compiled with `re.MULTILINE`, so `^` also matches the start of *every embedded
+> line*. A close command at the **start of a line inside a quoted multi-line
+> argument** — e.g. a `git commit -m` body whose text happens to begin a line
+> with it — is a **false positive** and gets blocked even though no real bd
+> invocation is present. Workaround: don't begin a line with that text inside a
+> quoted string. Tracked as bug `bead_chain-21d` (see Related).
 
 > [!WARNING]
 > **Env-var-prefixed invocations slip through.** `FOO=bar bd close cpp-1` is
@@ -247,7 +253,8 @@ _BD_UPDATE_STATUS_CLOSED_RE = re.compile(
 | Agent runs `bd update <id> --claim` / `--status=in_progress` | No close pattern matches → `detect_premature_close` returns `None` | Command runs normally (claim/arm proceeds) |
 | Any `bd close` issued while chain is **idle** | `state.is_active()` is `False` → hook returns `None` before detection | Command runs normally |
 | Command has no `"bd"` substring | Pre-filter short-circuits → `None` | Command runs normally (no regex cost) |
-| `bd close` appears only inside a quoted string | `_COMMAND_BOUNDARY` not satisfied → no match → `None` | Command runs normally (false-positive avoided) |
+| `bd close` appears only inside a *single-line* quoted string | `_COMMAND_BOUNDARY` not satisfied → no match → `None` | Command runs normally (false-positive avoided) |
+| A close command starts a *line* inside a quoted multi-line arg (e.g. a commit message body) | `re.MULTILINE` makes `^` match the embedded line start → **false-positive match** | Command BLOCKED even though no real bd invocation exists (bug `bead_chain-21d`) |
 | `current_bead_id` is `None` at block time | Reminder falls back to the literal `"the active bead"` | `[stop]` reminder phrased with "the active bead" instead of an id |
 
 ## Testing
@@ -294,6 +301,9 @@ should remain open until the judges sign off.
   bead slips through selection.
 - [EpicRollup](EpicRollup.md) — bead-chain's *own* legitimate closes (epics at
   drain) go through `beads.close`/`subprocess.run` and bypass this hook.
+- Known bug `bead_chain-21d` — `re.MULTILINE` false-positive: a close command at
+  the start of a line inside a quoted multi-line argument (e.g. a commit
+  message) is wrongly blocked.
 - [Features Index](index.md)
 - [Architecture](../Architecture.md)
 - [FlowDoc Manifest](../_Manifest.md)
