@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="epicrollup">EpicRollup</h1>
 <h2 id="what-it-does">What It Does</h2>
 <p>When bead-chain's ready queue finally drains, it runs <strong>one</strong> courtesy sweep that auto-closes any epic whose children are now all complete — closing the <em>container</em> once the work it grouped is finished, while deliberately leaving recurring (<code>patrol</code>) molecule epics open so their monitoring keeps recurring.</p>

@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="recoverymode">RecoveryMode</h1>
 <h2 id="what-it-does">What It Does</h2>
 <p>When a previous <code>/bead-chain</code> run dies mid-bead — <code>Ctrl+C</code>, a runtime cancel, a hard crash, or a <code>bd close</code> failure — it leaves a bead claimed but never graded. On the next run, RecoveryMode detects that stranded <code>in_progress</code> (or <code>hooked</code>) bead <strong>before</strong> any fresh work, and re-drives it with a <em>recovery preamble</em> that tells the agent to assess what's already on disk instead of redoing the work from scratch.</p>

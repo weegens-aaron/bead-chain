@@ -28,6 +28,31 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* ── Skip-to-content link (WCAG 2.2 AA SC 2.4.1 Bypass Blocks) ── */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  z-index: 1000;
+}
+.skip-link:focus {
+  position: fixed;
+  left: 0.5rem;
+  top: 0.5rem;
+  width: auto;
+  height: auto;
+  padding: 0.6rem 1rem;
+  background: var(--c-link);
+  color: #fff;
+  border-radius: 4px;
+  text-decoration: none;
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+
 html { font-size: 16px; -webkit-text-size-adjust: 100%; }
 
 body {

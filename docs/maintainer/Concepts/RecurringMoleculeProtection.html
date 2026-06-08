@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="recurringmoleculeprotection">RecurringMoleculeProtection</h1>
 <h2 id="what-is-it">What Is It</h2>
 <p>A guard in bead-chain's epic-rollup path that <strong>refuses to auto-close the epic of a recurring molecule</strong> (today: a <code>patrol</code> monitor) even when all of its current children are complete. Closing such an epic would kill the recurrence — the whole point of a patrol molecule is to be re-poured and run again, so its epic must outlive any one batch of children. A sibling half of the same concept keeps ephemeral <strong>wisps</strong> off the queue entirely, so a recurring-monitor by-product never gets driven as if it were real code work.</p>

@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="queuedrivernotgoalengine">QueueDriverNotGoalEngine</h1>
 <h2 id="what-is-it">What Is It</h2>
 <p>The foundational Single-Responsibility boundary of the whole plugin: <strong>bead-chain is a <em>queue driver</em>, not a <em>goal engine</em>.</strong> It owns exactly one job — repeatedly pick the next ready <code>bd</code> bead and hand the wheel to a thing that already knows how to <em>do work and judge completion</em> (wiggum's <code>/goal</code> mode). It deliberately does <strong>not</strong> own: running the LLM work/judge loop, deciding when a bead is "done", persisting/syncing bead state, or grooming the dependency graph. Everything bead-chain does is queue mechanics — probe → claim → arm → observe → close → repeat — sitting <em>around</em> a goal engine it delegates to and never reimplements.</p>

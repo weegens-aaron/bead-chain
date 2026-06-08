@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="containertypeexclusion">ContainerTypeExclusion</h1>
 <h2 id="what-is-it">What Is It</h2>
 <p>A defence-in-depth filter that keeps <strong>container / handle</strong> bead types — <code>epic</code>, <code>milestone</code>, <code>gate</code>, <code>molecule</code> — out of every queue bead-chain drives. Container beads are <em>anatomy</em>, not <em>work</em>: they organise or gate other issues but have nothing to actually do. bead-chain only ever activates <strong>leaf work items</strong> (<code>task</code>, <code>bug</code>, <code>chore</code>, <code>feature</code>, …); the exclusion is enforced <em>twice</em> — once server-side as a <code>--exclude-type=...</code> flag on every <code>bd ready</code> / <code>bd list</code> query, and again client-side via a <code>is_excluded_type()</code> re-filter on the returned payload — because the server-side flag has been observed to leak epics through in the wild.</p>

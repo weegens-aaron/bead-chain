@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="bugdiscoveryprotocol">BugDiscoveryProtocol</h1>
 <h2 id="what-it-does">What It Does</h2>
 <p>Appends a fixed bug-handling rubric to <strong>every</strong> goal prompt bead-chain hands a working agent: if you trip over a bug that's unrelated to the bead you're on, <em>file</em> it as its own <code>bd</code> bug (one bug per bead) instead of silently fixing it or abandoning your task — then, on a future iteration, the chain recognises the filed bug and prompts a different agent to <em>verify</em> the fix rather than trust it blind.</p>

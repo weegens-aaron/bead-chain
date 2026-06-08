@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="bdsubprocesstransport">BdSubprocessTransport</h1>
 <h2 id="what-is-it">What Is It</h2>
 <p>The single, thin layer through which <strong>all</strong> of bead-chain talks to beads: every read and every mutation shells out to the <code>bd</code> CLI as a child process, captures its stdout, and parses bd's <code>--json</code> output. There is <strong>no</strong> Python beads API import anywhere in the plugin — <code>beads.py</code> is a stdlib-only (<code>subprocess</code> + <code>json</code>) wrapper, and one private chokepoint, <code>beads.py:_run_bd</code>, is the only place a <code>bd</code> process is ever spawned. Every public helper (<code>next_ready</code>, <code>show</code>, <code>claim</code>, <code>close</code>, <code>check_gates</code>, <code>memories</code>, …) is built on top of it.</p>

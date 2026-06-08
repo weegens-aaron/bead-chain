@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="sessionendepicrollup">SessionEndEpicRollup</h1>
 <h2 id="what-happens">What Happens</h2>
 <p>When bead-chain's ready queue finally drains (no claimable child bead left, even after the gate probe), it runs <strong>one</strong> courtesy sweep that auto-closes any epic whose children are now all complete. It does this exactly once per session — deliberately <em>not</em> after every individual child close — because <code>bd epic close-eligible</code> runs a server-side cascade (closing A's last child makes A eligible, which can make A's parent B eligible, and so on) that, if fired per-bead, can sweep up unrelated epics. Before letting <code>bd</code> cascade, the sweep <strong>previews</strong> the eligible set with a non-destructive <code>--dry-run</code> and partitions it: if any candidate is a recurring molecule epic (a poured <code>patrol</code>), it bypasses the bulk cascade and closes only the safe, non-recurring epics one at a time, leaving recurring epics open for re-pour. Every step soft-fails — a flaky/old/missing <code>bd epic</code> logs a warning and the chain still ends cleanly, because rollup is cleanup, not bead-chain's core mission.</p>

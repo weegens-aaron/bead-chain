@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="blockingbugpriority">BlockingBugPriority</h1>
 <h2 id="what-it-does">What It Does</h2>
 <p>Lets any <strong>ready bug that has at least one dependent</strong> cut to the front of the chain's work queue: before bead-chain picks ordinary work, it asks bd for the top ready bug with <code>dependent_count &gt; 0</code> and, if one exists, claims <em>that</em> instead — because fixing a bug that other beads are waiting on unblocks the most downstream work.</p>

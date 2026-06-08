@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="beadclaimandblockerrecheck">BeadClaimAndBlockerRecheck</h1>
 <h2 id="what-happens">What Happens</h2>
 <p>Once the <a href="NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> has handed back a single candidate bead, bead-chain does <strong>not</strong> blindly arm <code>/goal</code> with it. It runs a short <em>activation gauntlet</em> that re-validates the candidate one last time and then atomically claims it. In order: (1) refuse excluded container types (epic / milestone / gate / molecule), (2) **re-check work-time blockers fresh from <code>bd show</code>** even though <code>bd ready</code> already filtered them server-side, (3) refuse unsatisfied molecule fan-out gates, (4) claim the parent epic first then the bead itself with <code>bd update &lt;id&gt; --claim</code>, (5) stash the bead as <code>current_bead</code>, apply its execution hints, and arm wiggum's <code>/goal</code> loop.</p>

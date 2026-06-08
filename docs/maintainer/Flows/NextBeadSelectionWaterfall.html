@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="nextbeadselectionwaterfall">NextBeadSelectionWaterfall</h1>
 <h2 id="what-happens">What Happens</h2>
 <p>Between iterations, bead-chain has to answer exactly one question: <em>which single bead do we drive next?</em> It answers with a strict <strong>four-tier waterfall</strong> in <code>pick_next_bead</code> (<code>lifecycle.py:460</code>). The tiers are tried highest-priority first, and the first tier that yields a non-blocked candidate wins:</p>

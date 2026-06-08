@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="sessionclosedurability">SessionCloseDurability</h1>
 <h2 id="what-is-it">What Is It</h2>
 <p>The deliberate policy decision about <strong>where cross-machine durability of bead state lives</strong>: in the <strong>session-close protocol</strong> (<code>AGENTS.md</code>), right after <code>git push</code> — and explicitly <strong>not</strong> inside bead-chain's drain loop. Every <code>bd</code> mutation bead-chain makes (claim, close, revert-to-open, epic rollup) writes only to a <strong>local, git-ignored Dolt database</strong> (<code>.beads/embeddeddolt/</code>). A plain <code>git push</code> carries <code>refs/heads/*</code> only; it does <strong>not</strong> carry the bead state, which travels under <code>refs/dolt/data</code> and is moved by a separate command, <code>bd dolt push</code>. SessionCloseDurability is the rule that says: the human/CI session-close step owns running that <code>bd dolt push</code>, gated on a configured Dolt remote and soft-failing, and bead-chain stays 100% sync-agnostic.</p>

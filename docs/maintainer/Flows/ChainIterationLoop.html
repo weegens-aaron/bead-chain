@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="chainiterationloop">ChainIterationLoop</h1>
 <h2 id="what-happens">What Happens</h2>
 <p>The <strong>ChainIterationLoop</strong> is bead-chain's master cycle: the <em>probe → claim → /goal → close → next</em> heartbeat that drains your <code>bd ready</code> queue one bead at a time. It is <strong>not</strong> a goal engine — it is a queue driver that <em>delegates</em> the LLM-judged completion decision to wiggum's <code>/goal</code> mode and only steps in at the boundaries between beads (see <a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a>).</p>

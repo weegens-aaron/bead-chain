@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="worktimeblockergate">WorkTimeBlockerGate</h1>
 <h2 id="what-it-does">What It Does</h2>
 <p>bead-chain refuses to claim or drive any bead that still has an <strong>open work-time blocker</strong> — an inbound <code>blocks</code> or generic <code>waits-for</code> dependency edge whose target is not yet <code>closed</code>. The check runs at <em>claim/start time</em> (every selection and activation site), not just when <code>bd close</code> would later refuse, and a blocked stranded bead is reverted to <code>open</code> instead of being re-driven.</p>

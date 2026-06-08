@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="chainstatesingleton">ChainStateSingleton</h1>
 <h2 id="what-is-it">What Is It</h2>
 <p>A single, process-wide <code>BeadChainState</code> dataclass instance — created once as the module-level <code>_STATE</code> in <code>state.py</code> and handed out by <code>get_state()</code> — that holds the <strong>entire</strong> runtime state of a bead-chain run: whether the chain is engaged (<code>active</code>), the <strong>full dict</strong> of the bead it's currently chewing on (<code>current_bead</code>), how many beads it has closed this run (<code>completed_count</code>), and an optional safety cap (<code>max_iterations</code>). It is a deliberately <em>dumb data box</em>: it carries the four fields plus three trivial mutators (<code>start</code>, <code>stop</code>, <code>bump_completed</code>) and one read-only convenience property (<code>current_bead_id</code>). <strong>All</strong> behavior — claiming, closing, picking the next bead, recovery — lives in <code>register_callbacks.py</code> and <code>lifecycle.py</code>, never here.</p>

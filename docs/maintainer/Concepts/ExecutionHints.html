@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="executionhints">ExecutionHints</h1>
 <h2 id="what-is-it">What Is It</h2>
 <p>A thin adapter that lets a bead <strong>author</strong> shape the single <code>/goal</code> pass bead-chain runs for that bead, by reading a small, <em>unenforced</em> <code>execution_*</code> vocabulary out of the bead's free-form <code>metadata</code> JSON and mapping the serial-compatible subset onto code-puppy's own runtime knobs (reasoning effort, model select, agent select). <code>bd</code> itself does nothing special with these keys — they are a shared contract between bead authors and orchestrators, and bead-chain is one such orchestrator that <em>opts in</em> to the three keys that have a sensible one-worker meaning.</p>

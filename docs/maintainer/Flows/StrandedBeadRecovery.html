@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="StrandedBeadRecovery.html" class="active">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="strandedbeadrecovery">StrandedBeadRecovery</h1>
 <h2 id="what-happens">What Happens</h2>
 <p>A previous bead-chain run claimed a bead (flipped it to <code>in_progress</code>), did some real work on disk, then died before the LLM judges could close it — a <code>Ctrl+C</code>, a runtime cancel, a hard crash (SIGKILL / power loss / OS reboot), a <code>bd close</code> failure, or another agent flipping the bead to <code>hooked</code> mid-flight. That bead is now <strong>stranded</strong>: it's invisible to <code>bd ready</code> (claimed/hooked beads are off the ready frontier) yet it carries partial work that must not be orphaned or redone from scratch.</p>

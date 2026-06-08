@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="closeguard">CloseGuard</h1>
 <h2 id="what-it-does">What It Does</h2>
 <p>While bead-chain is actively driving a bead, CloseGuard intercepts every agent-issued shell command and <strong>blocks</strong> any attempt to close that bead by hand (<code>bd close …</code> or <code>bd update … --status=closed</code>), replacing the command's output with a reminder that the LLM judges are the only legitimate closer.</p>

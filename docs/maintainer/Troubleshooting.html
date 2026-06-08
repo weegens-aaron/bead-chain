@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
 <nav>
@@ -45,7 +46,7 @@
 <a href="Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
 </nav>
 </aside>
-<main class="content">
+<main id="main" class="content">
 <h1 id="troubleshooting-maintainer">Troubleshooting (maintainer)</h1>
 <p>Diagnostic guide for when bead-chain misbehaves. Symptoms are grouped by the subsystem they surface in; each row links to the doc that explains the intended behavior. <strong>Almost every entry has a "this is correct, not a bug" sibling</strong> — bead-chain is deliberately conservative, so a stall is usually the safety net working, not failing.</p>
 <div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>Golden rule of diagnosis: reach for <code>bd show &lt;id&gt; --json</code> first. The JSON view exposes <code>status</code>, <code>issue_type</code>, and <code>dependencies[].status</code> — the three fields every selection/gate/close decision is actually made from. The human-readable views can lag bd's per-parent tree cache; the JSON does not.</p></div>
