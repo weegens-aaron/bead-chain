@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BugDiscoveryProtocol — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="../Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="../Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="../Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="../Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="../Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="../Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="index.html">Index</a>
+<a href="BeadChaining.html">Bead Chaining</a>
+<a href="BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="BugDiscoveryProtocol.html" class="active">Bug Discovery Protocol</a>
+<a href="CloseGuard.html">Close Guard</a>
+<a href="EpicAffinity.html">Epic Affinity</a>
+<a href="EpicRollup.html">Epic Rollup</a>
+<a href="GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="RecoveryMode.html">Recovery Mode</a>
+<a href="WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="bugdiscoveryprotocol">BugDiscoveryProtocol</h1>
+<h2 id="what-it-does">What It Does</h2>
+<p>Appends a fixed bug-handling rubric to <strong>every</strong> goal prompt bead-chain hands a working agent: if you trip over a bug that's unrelated to the bead you're on, <em>file</em> it as its own <code>bd</code> bug (one bug per bead) instead of silently fixing it or abandoning your task — then, on a future iteration, the chain recognises the filed bug and prompts a different agent to <em>verify</em> the fix rather than trust it blind.</p>
+<h2 id="why-it-exists">Why It Exists</h2>
+<p>A disposable, stateless agent that stumbles on an unrelated bug has only bad options without a protocol: fix it inline (scope-creeping the current bead and muddying its commit/PR), ignore it (the bug evaporates with the agent's context), or — worst — close its own bead to "move on" (the LLM judges are the only legitimate closer). The bug-discovery protocol replaces all three with a single, always-present instruction so bug handling is <em>identical on every iteration of every bead</em> and never depends on an agent remembering the rules.</p>
+<p>It also closes the loop on <strong>blocking</strong> bugs. When a bug genuinely stops the current bead, the agent fixes it inline (scope expansion) <strong>and</strong> files it with a <code>[bead-chain:triaged]</code> marker + a <code>--blocks</code> edge. That marker buys two things: (1) tier-1 routing in <code>pick_next_bead</code> escalates the now-<code>dependent</code> bug ahead of ordinary work via <code>next_blocking_bug</code>, and (2) when a later iteration claims it, <code>is_triaged_bug</code> flips the prompt to a triage-verification preamble so the inline patch gets a real test / proper fix instead of being rubber-stamped. Filing-not-closing keeps the human-graded close gate intact while still capturing every defect the swarm finds.</p>
+<h2 id="how-it-works">How It Works</h2>
+<h3 id="user-perspective">User Perspective</h3>
+<p>The user never invokes this feature directly. They see its <em>effect</em>: every spawned agent's goal prompt ends with a <code>BUG DISCOVERY PROTOCOL</code> block, so when an agent hits an unrelated defect it emits a <code>bd create --type=bug ...</code> call (visible in the run log) and keeps going, rather than derailing. Later in the same <code>/bead-chain</code> session — or a future one — the user sees <code>bead-chain: blocking bug detected -&gt; prioritising &lt;id&gt;</code> as the chain jumps the filed bug to the front, and that bug's agent receives a <code>TRIAGE VERIFICATION</code> preamble telling it to confirm the earlier inline fix.</p>
+<h3 id="system-perspective">System Perspective</h3>
+<p>The protocol is a static constant, <code>_BUG_DISCOVERY_PROTOCOL</code>, that <code>format_bead_as_goal</code> concatenates onto the tail of <em>every</em> prompt regardless of which (mutually exclusive) preamble was selected. Filing is delegated entirely to the agent via raw <code>bd create</code> — bead-chain writes no code to create the bug; it only <em>instructs</em>. The downstream half is split across two modules: <code>beads.next_blocking_bug()</code> (server-side <code>bd ready --type=bug</code> filtered to <code>dependent_count &gt; 0</code>) feeds tier 1 of <code>lifecycle.pick_next_bead</code>, and <code>prompt.is_triaged_bug()</code> (a defensive substring check for <code>TRIAGE_MARKER</code> on a <code>bug</code>-typed bead's description) makes <code>format_bead_as_goal</code> prepend <code>_TRIAGE_VERIFY_PREAMBLE</code>. No source or bead is mutated by this feature — it is pure prompt text plus a read-only selection query.</p>
+<pre class="mermaid">
+sequenceDiagram
+    participant A1 as Working agent (bead N)
+    participant Bd as bd CLI (bd create)
+    participant Judges as LLM judges
+    participant Pick as lifecycle.pick_next_bead
+    participant NBB as beads.next_blocking_bug
+    participant Fmt as prompt.format_bead_as_goal
+    participant A2 as Verifying agent (future iteration)
+
+    Note over A1: prompt ends with _BUG_DISCOVERY_PROTOCOL
+    A1-&gt;&gt;A1: discovers unrelated bug
+    alt NON-BLOCKING
+        A1-&gt;&gt;Bd: bd create --type=bug --priority=2
+        A1-&gt;&gt;A1: continue original bead, then summarize
+    else BLOCKING
+        A1-&gt;&gt;Bd: bd create --type=bug --priority=1&lt;br/&gt;--blocks=&lt;bead N&gt; (desc has TRIAGE_MARKER)
+        A1-&gt;&gt;A1: fix inline as scope expansion, finish bead N
+    end
+    A1-&gt;&gt;Judges: present work (NEVER self-close)
+    Judges-&gt;&gt;Judges: close bead N
+    Note over Pick,NBB: a later /bead-chain iteration
+    Pick-&gt;&gt;NBB: tier 1: any ready bug w/ dependent_count &gt; 0?
+    NBB--&gt;&gt;Pick: the triaged blocking bug
+    Pick-&gt;&gt;Fmt: format_bead_as_goal(bug)
+    Fmt-&gt;&gt;Fmt: is_triaged_bug(bug) == True
+    Fmt--&gt;&gt;A2: _TRIAGE_VERIFY_PREAMBLE + body + protocol
+    A2-&gt;&gt;A2: verify/upgrade the inline fix, add tests
+    A2-&gt;&gt;Judges: present; judges close
+</pre>
+<h2 id="key-data-shapes">Key Data Shapes</h2>
+<p>This feature consumes/produces ordinary <code>bd</code> bug records — there is no bespoke DTO. A <strong>non-blocking</strong> bug, as the protocol tells the agent to file it:</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-ab1",
+  "issue_type": "bug",
+  "priority": 2,
+  "title": "&lt;short title&gt;",
+  "description": "&lt;what you saw, repro steps, suspected cause&gt;",
+  "status": "open",
+  "dependent_count": 0,
+  "dependencies": []
+}</code></pre>
+<p>A <strong>blocking</strong> bug carries the triage marker in <code>description</code> and a <code>blocks</code> edge back at the bead whose work it interrupted — that edge is what gives it <code>dependent_count &gt; 0</code> so tier-1 routing can escalate it:</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-ab2",
+  "issue_type": "bug",
+  "priority": 1,
+  "title": "&lt;short title&gt;",
+  "description": "[bead-chain:triaged] &lt;what you saw, what you fixed inline, why it blocked&gt;",
+  "status": "open",
+  "dependent_count": 1,
+  "dependencies": [
+    { "type": "blocks", "depends_on_id": "bead_chain-mol-bps.8" }
+  ]
+}</code></pre>
+<p>The only fields the <em>code</em> reads are <code>issue_type</code>, <code>description</code> (for <code>is_triaged_bug</code>), and <code>dependent_count</code> (for <code>next_blocking_bug</code>). The output of <code>format_bead_as_goal</code> is a single <code>str</code> — the protocol/preamble are plain text spliced into it, not a structured object.</p>
+<h2 id="api-surface">API Surface</h2>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>bead-chain is a terminal Code Puppy plugin with <strong>no HTTP endpoints</strong>. This feature's "surface" is in-process Python plus an instruction string the agent executes as a <code>bd</code> shell call, not a route — so the <code>-&gt; Endpoint doc</code> column is N/A by design (see the Endpoints note in the FlowDoc Manifest).</p></div>
+<table><thead><tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+<th>-&gt; Endpoint doc</th>
+</tr></thead><tbody>
+<tr>
+<td><code>call</code></td>
+<td><code>prompt.format_bead_as_goal(bead, *, recovery=False) -&gt; str</code></td>
+<td>Append <code>_BUG_DISCOVERY_PROTOCOL</code> to every prompt; select <code>_TRIAGE_VERIFY_PREAMBLE</code> for triaged bugs</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td><code>prompt.is_triaged_bug(bead) -&gt; bool</code></td>
+<td>Detect the <code>TRIAGE_MARKER</code> on a <code>bug</code>-typed bead to drive triage-verification</td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>call</code></td>
+<td>`beads.next_blocking_bug() -&gt; dict \</td>
+<td>None`</td>
+<td>Tier-1 selection: top ready bug with <code>dependent_count &gt; 0</code></td>
+<td>N/A — no HTTP surface</td>
+</tr>
+<tr>
+<td><code>shell</code></td>
+<td><code>bd create --type=bug --title=... --description=... --priority=2</code></td>
+<td>Agent files a NON-BLOCKING discovered bug</td>
+<td>N/A — <code>bd</code> subprocess</td>
+</tr>
+<tr>
+<td><code>shell</code></td>
+<td><code>bd create --type=bug --title=... --description='[bead-chain:triaged] ...' --blocks=&lt;id&gt; --priority=1</code></td>
+<td>Agent files a BLOCKING discovered bug (then fixes inline)</td>
+<td>N/A — <code>bd</code> subprocess</td>
+</tr>
+</tbody></table>
+<h2 id="implementation-map">Implementation Map</h2>
+<table><thead><tr>
+<th>Responsibility</th>
+<th>File path</th>
+<th>Symbol</th>
+</tr></thead><tbody>
+<tr>
+<td>The always-appended protocol text (file / fix-inline / don't-self-close rubric)</td>
+<td><code>prompt.py</code></td>
+<td><code>_BUG_DISCOVERY_PROTOCOL</code></td>
+</tr>
+<tr>
+<td>Stable description sentinel marking a triaged blocking bug</td>
+<td><code>prompt.py</code></td>
+<td><code>TRIAGE_MARKER</code></td>
+</tr>
+<tr>
+<td>Triage-verification preamble shown to the later verifying agent</td>
+<td><code>prompt.py</code></td>
+<td><code>_TRIAGE_VERIFY_PREAMBLE</code></td>
+</tr>
+<tr>
+<td>Detect a triaged bug (<code>issue_type == 'bug'</code> + marker substring)</td>
+<td><code>prompt.py</code></td>
+<td><code>is_triaged_bug</code></td>
+</tr>
+<tr>
+<td>Append protocol + select preamble (recovery &gt; triage &gt; none)</td>
+<td><code>prompt.py</code></td>
+<td><code>format_bead_as_goal</code></td>
+</tr>
+<tr>
+<td>Which issue types count as "bug" for tier-1 escalation</td>
+<td><code>beads.py</code></td>
+<td><code>BLOCKING_BUG_TYPES</code></td>
+</tr>
+<tr>
+<td>Tier-1 query: top ready bug with <code>dependent_count &gt; 0</code></td>
+<td><code>beads.py</code></td>
+<td><code>next_blocking_bug</code></td>
+</tr>
+<tr>
+<td>Tier-1 wiring in the selection waterfall</td>
+<td><code>lifecycle.py</code></td>
+<td><code>pick_next_bead</code></td>
+</tr>
+<tr>
+<td>Caller — first bead of the chain (prompt built here)</td>
+<td><code>register_callbacks.py:280</code></td>
+<td><code>handle_bead_chain_command</code></td>
+</tr>
+<tr>
+<td>Caller — every later bead hand-off (prompt built here)</td>
+<td><code>lifecycle.py:718</code></td>
+<td><code>activate_next_bead</code></td>
+</tr>
+</tbody></table>
+<h2 id="configuration">Configuration</h2>
+<table><thead><tr>
+<th>Key</th>
+<th>Default</th>
+<th>Effect</th>
+</tr></thead><tbody>
+<tr>
+<td><code>_BUG_DISCOVERY_PROTOCOL</code></td>
+<td>constant text (<code>prompt.py</code>)</td>
+<td>Appended verbatim to the bottom of <strong>every</strong> goal prompt, regardless of preamble</td>
+</tr>
+<tr>
+<td><code>TRIAGE_MARKER</code></td>
+<td><code>"[bead-chain:triaged]"</code></td>
+<td>Description sentinel that flips a claimed <code>bug</code> onto the triage-verification preamble; kept wire-stable so older filed bugs still resolve</td>
+</tr>
+<tr>
+<td><code>_TRIAGE_VERIFY_PREAMBLE</code></td>
+<td>constant text (<code>prompt.py</code>)</td>
+<td>Prepended when a claimed bead is a triaged bug and <code>recovery=False</code></td>
+</tr>
+<tr>
+<td><code>BLOCKING_BUG_TYPES</code></td>
+<td><code>("bug",)</code></td>
+<td>Issue types eligible for tier-1 blocking-bug escalation; tuple so adding e.g. <code>"regression"</code> is a one-line edit</td>
+</tr>
+<tr>
+<td>protocol non-blocking priority</td>
+<td><code>--priority=2</code> (baked into the rubric text)</td>
+<td>NON-BLOCKING bugs are filed at P2 and left for natural queue order</td>
+</tr>
+<tr>
+<td>protocol blocking priority</td>
+<td><code>--priority=1</code> + <code>--blocks=&lt;id&gt;</code> (baked into the rubric text)</td>
+<td>BLOCKING bugs are filed at P1 with a <code>blocks</code> edge so they gain <code>dependent_count &gt; 0</code> and jump the queue</td>
+</tr>
+</tbody></table>
+<h2 id="edge-cases">Edge Cases</h2>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>The protocol is on EVERY prompt — including recovery and triage.</strong> A recovering or triage-verifying agent still gets <code>_BUG_DISCOVERY_PROTOCOL</code> appended, because a bug can surface on any iteration. The preamble and the protocol are independent: preamble at the top, protocol at the bottom.</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>**<code>is_triaged_bug</code> fires only for <code>issue_type == 'bug'</code>.** A <code>task</code>/<code>docs</code> bead that merely <em>mentions</em> <code>[bead-chain:triaged]</code> in its description (e.g. this very doc) is <strong>not</strong> flipped into verification mode — the marker is meaningful only on bug beads filed via the protocol.</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>Marker match is an un-anchored substring.</strong> <code>TRIAGE_MARKER in description</code> deliberately doesn't require start-of-string, so a user may prepend their own formatting (a triage timestamp, a <code>[P1]</code> tag) without breaking detection.</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>Recovery beats triage.</strong> A bug that is <em>both</em> stranded <code>in_progress</code> <em>and</em> carries the marker gets the recovery preamble only — "assess current state" subsumes "verify a prior fix" (see the ordering in <code>format_bead_as_goal</code>).</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>**A blocking bug must carry <code>--blocks</code> to escalate.** Tier-1 <code>next_blocking_bug</code> requires <code>dependent_count &gt; 0</code>; a P1 bug filed <em>without</em> a <code>blocks</code> edge has no dependents and is treated as ordinary work, picked up by the global ready tier instead of jumping the queue.</p></div>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p><strong>Agents must never self-close.</strong> The protocol explicitly forbids closing any bead — the LLM judges are the only legitimate closer. The triaged bug stays open <em>on purpose</em> so it can be claimed and verified in a later iteration; that's not a leak, it's the design.</p></div>
+<h2 id="error-scenarios">Error Scenarios</h2>
+<table><thead><tr>
+<th>Trigger</th>
+<th>Behavior</th>
+<th>User sees</th>
+</tr></thead><tbody>
+<tr>
+<td>Agent files a NON-BLOCKING bug, keeps working</td>
+<td>Bug sits at P2 in the backlog; no escalation (no dependents)</td>
+<td>New <code>bug</code> bead in <code>bd list</code>; original bead finishes normally</td>
+</tr>
+<tr>
+<td>Agent files a BLOCKING bug with <code>--blocks</code> + marker, fixes inline</td>
+<td><code>next_blocking_bug</code> later returns it (<code>dependent_count &gt; 0</code>); tier-1 escalation</td>
+<td><code>bead-chain: blocking bug detected -&gt; prioritising &lt;id&gt;</code></td>
+</tr>
+<tr>
+<td>Triaged bug later claimed, <code>issue_type == 'bug'</code>, marker present, not recovering</td>
+<td><code>format_bead_as_goal</code> prepends <code>_TRIAGE_VERIFY_PREAMBLE</code></td>
+<td>A <code>TRIAGE VERIFICATION</code> prompt</td>
+</tr>
+<tr>
+<td>Triaged bug claimed but <code>issue_type != 'bug'</code> (or marker absent)</td>
+<td><code>is_triaged_bug</code> returns <code>False</code>; ordinary prompt</td>
+<td>No triage preamble</td>
+</tr>
+<tr>
+<td>Triaged bug also stranded <code>in_progress</code></td>
+<td>Recovery preamble wins via ordering</td>
+<td>Recovery prompt, not triage</td>
+</tr>
+<tr>
+<td><code>bead</code> is non-dict / missing <code>issue_type</code>/<code>description</code></td>
+<td><code>is_triaged_bug</code> returns <code>False</code> (defensive, no raise)</td>
+<td>Ordinary prompt; chain never stalls</td>
+</tr>
+<tr>
+<td>Blocked candidate leaks into tier 1 (bd version drift)</td>
+<td><code>_reject_if_blocked</code> refuses to drive it; waterfall falls through</td>
+<td><code>bead-chain: blocking bug candidate &lt;id&gt; has open blocker(s)</code></td>
+</tr>
+</tbody></table>
+<h2 id="testing">Testing</h2>
+<p>The protocol is exercised as part of <code>format_bead_as_goal</code>'s output: since <code>_BUG_DISCOVERY_PROTOCOL</code> is appended on every call, the prompt-shape suites (<code>tests/test_prompt_acceptance_criteria.py</code>, <code>tests/test_prompt_memory_digest.py</code>, <code>tests/test_prompt_lint_warnings.py</code>, <code>tests/test_prompt_related_context.py</code>) all build full prompts and would catch its accidental removal.</p>
+<p>The tier-1 routing half has dedicated coverage:</p>
+<ul>
+<li><code>tests/test_pick_respects_blocks.py</code> — <code>test_blocked_blocking_bug_is_skipped_falls_through</code> pins that a blocking-bug candidate flows through <code>pick_next_bead</code> tier 1 (and is refused only when itself blocked).</li>
+<li><code>tests/test_wisp_exclusion.py</code> — asserts <code>next_blocking_bug()</code> actually queries <code>bd</code> with the container <code>--exclude-type</code> filter applied.</li>
+</ul>
+<p><code>is_triaged_bug</code> and preamble selection are pure functions: build a dict with <code>issue_type="bug"</code> and a <code>[bead-chain:triaged]</code> description and call <code>prompt.is_triaged_bug(bead)</code> / <code>prompt.format_bead_as_goal(bead)</code> in a REPL to eyeball the triage preamble (and confirm a non-<code>bug</code> type does <em>not</em> flip). Run the whole suite with <code>pytest -q</code> (245 tests).</p>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="BlockingBugPriority.html">BlockingBugPriority</a> — the <em>consumer</em> half: how the tier-1 waterfall escalates the blocking bug this protocol tells the agent to file (P1 + <code>--blocks</code>).</li>
+<li><a href="GoalPromptEnrichment.html">GoalPromptEnrichment</a> — the umbrella feature whose <code>format_bead_as_goal</code> appends this protocol and selects the preamble.</li>
+<li><a href="../Flows/GoalPromptConstruction.html">GoalPromptConstruction</a> — the flow that narrates, step by step, where the protocol and triage preamble are spliced in.</li>
+<li><a href="RecoveryMode.html">RecoveryMode</a> — its recovery preamble wins precedence over this protocol's triage-verify preamble when a bead is both.</li>
+<li><a href="../Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> — the recovery path whose preamble <em>wins</em> over the triage preamble when a bug is also stranded.</li>
+<li><a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the SRP boundary behind "file, don't close": bead-chain instructs, the judges close.</li>
+<li><a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a> — the transport behind the agent's <code>bd create</code> filing and the <code>next_blocking_bug</code> query.</li>
+<li><a href="BeadChaining.html">BeadChaining</a> — the queue driver whose every <code>/goal</code> prompt appends this file-don't-close protocol.</li>
+<li><a href="index.html">Features Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

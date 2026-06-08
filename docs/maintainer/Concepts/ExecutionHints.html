@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ExecutionHints — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="index.html">Index</a>
+<a href="BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="ChainStateSingleton.html">Chain State Singleton</a>
+<a href="ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="ExecutionHints.html" class="active">Execution Hints</a>
+<a href="QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="executionhints">ExecutionHints</h1>
+<h2 id="what-is-it">What Is It</h2>
+<p>A thin adapter that lets a bead <strong>author</strong> shape the single <code>/goal</code> pass bead-chain runs for that bead, by reading a small, <em>unenforced</em> <code>execution_*</code> vocabulary out of the bead's free-form <code>metadata</code> JSON and mapping the serial-compatible subset onto code-puppy's own runtime knobs (reasoning effort, model select, agent select). <code>bd</code> itself does nothing special with these keys — they are a shared contract between bead authors and orchestrators, and bead-chain is one such orchestrator that <em>opts in</em> to the three keys that have a sensible one-worker meaning.</p>
+<h2 id="why-this-approach">Why This Approach</h2>
+<p>Coverage-audit gap <strong>FB-8</strong> (<code>bead_chain-9n3</code>, swarms#2) found that <code>bd</code> carries five canonical execution keys in each bead's <code>metadata</code> — <code>execution_parallel_group</code>, <code>execution_agent_type</code>, <code>execution_model</code>, <code>execution_effort</code>, <code>execution_mode</code> (settable via <code>bd update --set-metadata k=v</code>) — but bead-chain historically read <strong>none</strong> of them. An author therefore had no lever to influence even the lone <code>/goal</code> pass the chain runs per bead.</p>
+<p>bead-chain is a <strong>one-bead-at-a-time serial driver</strong> (single-<code>in_progress</code> invariant — see <a href="QueueDriverNotGoalEngine.html">Queue Driver, Not Goal Engine</a>), so only three of the five keys have a coherent single-worker meaning. The design deliberately maps <em>only those three</em> and lets everything else fall through the "unknown keys ignored" path rather than inventing fake semantics:</p>
+<table><thead><tr>
+<th><code>execution_*</code> key</th>
+<th>Serial meaning?</th>
+<th>bead-chain behavior</th>
+</tr></thead><tbody>
+<tr>
+<td><code>execution_effort</code></td>
+<td>yes — reasoning budget for one worker</td>
+<td>mapped → <code>config.set_openai_reasoning_effort</code></td>
+</tr>
+<tr>
+<td><code>execution_model</code></td>
+<td>yes — which model the one worker uses</td>
+<td>mapped → <code>config.set_model_name</code></td>
+</tr>
+<tr>
+<td><code>execution_agent_type</code></td>
+<td>yes — which agent persona drives</td>
+<td>mapped → <code>config.set_default_agent</code></td>
+</tr>
+<tr>
+<td><code>execution_parallel_group</code></td>
+<td>no — there is no parallelism</td>
+<td>ignored (falls through)</td>
+</tr>
+<tr>
+<td><code>execution_mode</code></td>
+<td>no — run mode is always <code>goal</code></td>
+<td>ignored (falls through)</td>
+</tr>
+</tbody></table>
+<p>The whole thing is built as a <strong>pure core + soft-fail shell</strong> so one fat-fingered hint can never strand the chain, and it does <strong>no auto-restore</strong> (YAGNI): a hint persists exactly like a user typing <code>/model</code> or <code>/agent</code> mid-session, and a bead with no hints leaves the prior selection untouched.</p>
+<h2 id="how-it-works">How It Works</h2>
+<p>Two functions, split for testability:</p>
+<ol>
+<li>**<code>extract_execution_hints(metadata)</code><em>* — the </em>pure* dict→dict core. It coerces <code>metadata</code> to a dict (accepting both a parsed object and a stringified <code>"{}"</code>, collapsing absent/<code>None</code>/garbage to <code>{}</code>), then keeps only keys present in <code>_RECOGNIZED_HINTS</code>, stringifies+strips each value, and drops empty/whitespace-only values (a blank <code>execution_model=</code> means "no preference", not "the empty model").</li>
+<li>**<code>apply_execution_hints(bead)</code><em>* — the </em>impure* orchestrator. It resolves the bead's <code>metadata</code> (using the cached dict's <code>metadata</code> if present, else re-fetching via <code>beads.show</code> — because <code>bd ready --json</code> omits <code>metadata</code> while <code>bd show &lt;id&gt; --json</code> carries it), extracts the hints, and calls each recognized setter. It <strong>soft-fails per hint</strong>: an invalid value is logged via <code>emit_warning</code> and skipped; other valid hints in the same bead still apply. It returns a list of <code>"label → value"</code> strings for the caller to log.</li>
+</ol>
+<pre class="mermaid">
+flowchart TD
+    Start([activate_next_bead /&lt;br/&gt;handle_bead_chain_command&lt;br/&gt;after claim, before /goal arm]) --&gt; Apply[apply_execution_hints bead]
+    Apply --&gt; IsDict{bead is a dict?}
+    IsDict --&gt;|no| Empty[return []]
+    IsDict --&gt;|yes| Resolve[_resolve_metadata&lt;br/&gt;cached metadata? else beads.show id]
+    Resolve --&gt; Extract[extract_execution_hints&lt;br/&gt;pure filter]
+    Extract --&gt; Coerce[_coerce_metadata&lt;br/&gt;dict / JSON-string / garbage to dict]
+    Coerce --&gt; Keep{recognized, non-empty&lt;br/&gt;execution_* keys?}
+    Keep --&gt;|none| Empty
+    Keep --&gt;|some| Loop[for each hint:&lt;br/&gt;resolve setter via getattr config]
+    Loop --&gt; Callable{setter callable&lt;br/&gt;on this build?}
+    Callable --&gt;|no| Skip[skip silently&lt;br/&gt;version drift]
+    Callable --&gt;|yes| Try[setter value]
+    Try --&gt;|raises| Warn[emit_warning,&lt;br/&gt;skip this hint]
+    Try --&gt;|ok| Add[append 'label -&gt; value']
+    Add --&gt; More{more hints?}
+    Skip --&gt; More
+    Warn --&gt; More
+    More --&gt;|yes| Loop
+    More --&gt;|no| Return[return applied list]
+    Return --&gt; Log[caller emits&lt;br/&gt;' execution hints: ...']
+    Log --&gt; Goal([format_bead_as_goal -&gt;&lt;br/&gt;wiggum /goal])
+</pre>
+<h3 id="concrete-example">Concrete example</h3>
+<p>An author files a bead and pins its execution shape:</p>
+<pre><code class="language-bash">bd update bead_chain-abc \
+  --set-metadata execution_effort=high \
+  --set-metadata execution_model=gpt-5 \
+  --set-metadata execution_parallel_group=alpha</code></pre>
+<p><code>bd show bead_chain-abc --json</code> then carries (trimmed):</p>
+<pre><code class="language-json">{
+  "id": "bead_chain-abc",
+  "title": "Tricky refactor",
+  "status": "in_progress",
+  "metadata": {
+    "execution_effort": "high",
+    "execution_model": "gpt-5",
+    "execution_parallel_group": "alpha"
+  }
+}</code></pre>
+<p>When the chain activates this bead, <code>apply_execution_hints(bead)</code>:</p>
+<ul>
+<li>runs <code>extract_execution_hints</code> → <code>{"execution_effort": "high", "execution_model": "gpt-5"}</code> (<code>execution_parallel_group</code> is dropped — not recognized);</li>
+<li>calls <code>config.set_openai_reasoning_effort("high")</code> and <code>config.set_model_name("gpt-5")</code>;</li>
+<li>returns <code>["reasoning effort → high", "model → gpt-5"]</code>, which the caller logs as <code> execution hints: reasoning effort → high; model → gpt-5</code>.</li>
+</ul>
+<p>The <code>/goal</code> pass for this bead then runs at high reasoning effort on <code>gpt-5</code>. If the author had instead written <code>execution_effort=ludicrous</code> (an invalid budget), <code>set_openai_reasoning_effort</code> would raise, the warning <code>bead-chain: ignoring execution_effort='ludicrous' — couldn't set reasoning effort: ...</code> is emitted, and the chain proceeds with <code>model → gpt-5</code> still applied.</p>
+<h3 id="implementation-references">Implementation references</h3>
+<table><thead><tr>
+<th>Responsibility</th>
+<th>File:Symbol</th>
+</tr></thead><tbody>
+<tr>
+<td>Recognized key → (setter name, label) table</td>
+<td><code>execution_hints.py:_RECOGNIZED_HINTS</code></td>
+</tr>
+<tr>
+<td>Metadata coercion (dict / JSON-string / garbage → dict)</td>
+<td><code>execution_hints.py:_coerce_metadata</code></td>
+</tr>
+<tr>
+<td>Pure recognized-hint filter</td>
+<td><code>execution_hints.py:extract_execution_hints</code></td>
+</tr>
+<tr>
+<td>Metadata resolution (cached vs <code>bd show</code> re-fetch)</td>
+<td><code>execution_hints.py:_resolve_metadata</code></td>
+</tr>
+<tr>
+<td>Impure soft-fail orchestrator</td>
+<td><code>execution_hints.py:apply_execution_hints</code></td>
+</tr>
+<tr>
+<td>Re-fetch transport</td>
+<td><code>beads.py:show</code> (via <code>execution_hints.py</code> import)</td>
+</tr>
+<tr>
+<td>Per-hint failure log</td>
+<td><code>code_puppy.messaging.emit_warning</code> (imported in <code>execution_hints.py</code>)</td>
+</tr>
+<tr>
+<td>Apply site — first bead on engage</td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code> (line ~276)</td>
+</tr>
+<tr>
+<td>Apply site — every subsequent bead</td>
+<td><code>lifecycle.py:activate_next_bead</code> (line ~714)</td>
+</tr>
+</tbody></table>
+<h2 id="where-used">Where Used</h2>
+<ul>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a> — the core feature whose per-bead <code>/goal</code> pass these hints shape, applied right after claim and before the goal prompt is built.</li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> — the flow (<code>lifecycle.activate_next_bead</code>) that calls <code>apply_execution_hints</code> immediately after claiming each subsequent bead.</li>
+<li><a href="../Flows/GoalPromptConstruction.html">GoalPromptConstruction</a> — hints are applied in the same step, just before <code>format_bead_as_goal</code> arms wiggum's <code>/goal</code> loop.</li>
+<li><a href="BdSubprocessTransport.html">BdSubprocessTransport</a> — <code>_resolve_metadata</code> re-fetches missing <code>metadata</code> via <code>beads.show</code>, riding the same subprocess transport.</li>
+<li><a href="QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the serial, single-<code>in_progress</code> invariant is exactly why <code>execution_parallel_group</code> and <code>execution_mode</code> are deliberately ignored.</li>
+</ul>
+<h2 id="conventions">Conventions</h2>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>- <strong>Adding a recognized key is a one-line edit.</strong> Extend   <code>_RECOGNIZED_HINTS</code> with <code>"&lt;key&gt;": ("&lt;config_setter_name&gt;", "&lt;label&gt;")</code> —   only do this for keys with a coherent <em>single-worker</em> meaning, mirroring how   <code>EXCLUDED_TYPES</code> / <code>RECOVERABLE_STATUSES</code> are extended. DRY. - <strong>Store setters by name, resolve at apply time.</strong> Setters are looked up via   <code>getattr(config, name)</code> at apply time, never bound at import — so tests can   monkeypatch <code>code_puppy.config</code> cleanly and a setter that vanishes under   code-puppy version drift degrades to a silent no-op instead of an import   error that breaks the whole plugin. - <strong>Keep the core pure.</strong> <code>extract_execution_hints</code> and <code>_coerce_metadata</code>   must stay side-effect-free dict→dict functions; all I/O and config mutation   lives in <code>apply_execution_hints</code>. - <strong>Soft-fail per hint, always.</strong> A bad value is logged and skipped; one   fat-fingered hint must never raise or strand the chain.</p></div>
+<h2 id="anti-patterns">Anti-Patterns</h2>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p>- **Don't act on <code>execution_parallel_group</code> or <code>execution_mode</code>.** bead-chain   is serial (single <code>in_progress</code>) and always runs <code>mode="goal"</code>; honoring   parallel grouping or alternate run modes would violate the queue-driver   contract. - <strong>Don't snapshot/restore config around each bead.</strong> There is intentionally   no auto-restore — a hint persists like a user-typed <code>/model</code> or <code>/agent</code>.   Re-introducing per-bead isolation here is a separate, larger feature, not a   quiet addition. - **Don't assume <code>bd ready --json</code> carries <code>metadata</code>.** It doesn't on this   build; rely on <code>_resolve_metadata</code> to re-fetch via <code>beads.show</code> rather than   reading a <code>metadata</code> key that may be absent. - <strong>Don't bind config setters at import time.</strong> That re-breaks both the test   monkeypatch story and version-drift resilience. - <strong>Don't raise on a bad hint value.</strong> Treat invalid values as "ignore and   warn", never as a fatal error.</p></div>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a></li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a></li>
+<li><a href="../Flows/GoalPromptConstruction.html">GoalPromptConstruction</a></li>
+<li><a href="BdSubprocessTransport.html">BdSubprocessTransport</a></li>
+<li><a href="QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a></li>
+<li><a href="ChainStateSingleton.html">ChainStateSingleton</a></li>
+<li><a href="../Features/GoalPromptEnrichment.html">GoalPromptEnrichment</a> — sibling per-bead enrichment applied around the same point, just before the prompt is built.</li>
+<li><a href="../Flows/ChainIterationLoop.html">ChainIterationLoop</a> — the loop applies these <code>execution_*</code> hints to each bead before arming wiggum.</li>
+<li><a href="index.html">Concepts Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

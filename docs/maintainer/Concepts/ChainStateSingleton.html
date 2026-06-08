@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChainStateSingleton — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="index.html">Index</a>
+<a href="BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="ChainStateSingleton.html" class="active">Chain State Singleton</a>
+<a href="ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="ExecutionHints.html">Execution Hints</a>
+<a href="QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="chainstatesingleton">ChainStateSingleton</h1>
+<h2 id="what-is-it">What Is It</h2>
+<p>A single, process-wide <code>BeadChainState</code> dataclass instance — created once as the module-level <code>_STATE</code> in <code>state.py</code> and handed out by <code>get_state()</code> — that holds the <strong>entire</strong> runtime state of a bead-chain run: whether the chain is engaged (<code>active</code>), the <strong>full dict</strong> of the bead it's currently chewing on (<code>current_bead</code>), how many beads it has closed this run (<code>completed_count</code>), and an optional safety cap (<code>max_iterations</code>). It is a deliberately <em>dumb data box</em>: it carries the four fields plus three trivial mutators (<code>start</code>, <code>stop</code>, <code>bump_completed</code>) and one read-only convenience property (<code>current_bead_id</code>). <strong>All</strong> behavior — claiming, closing, picking the next bead, recovery — lives in <code>register_callbacks.py</code> and <code>lifecycle.py</code>, never here.</p>
+<h2 id="why-this-approach">Why This Approach</h2>
+<p>bead-chain's control flow is spread across three event hooks that fire at different moments and share no call stack: the <code>/bead-chain</code> command handler that <em>starts</em> a run, the interactive-turn-end hook that <em>advances</em> it bead-to-bead, and the interactive-turn-cancel hook that <em>halts</em> it on Ctrl+C. These callbacks need a shared answer to "are we engaged, and on which bead?" that survives between turns. A function-local variable can't — each hook is a fresh call — so the state has to live somewhere durable for the lifetime of the process.</p>
+<p>The chosen answer is a <strong>module-level singleton</strong>, mirroring wiggum's own tiny-singleton pattern (<code>code_puppy.plugins.wiggum.state</code>). The two singletons coexist and complement each other: bead-chain owns <em>which bead</em> and <em>whether the chain is engaged</em>; wiggum owns *whether a <code>/goal</code> pass is still running*. The turn-end hook reads <code>wiggum_state.is_active()</code> to know when wiggum has finished a bead's goal loop, then consults its own <code>state.is_active()</code> to know whether to advance the chain. Keeping bead-chain's slice of that picture in a matching singleton keeps the two layers symmetrical and easy to reason about.</p>
+<p>Holding the <strong>full bead dict</strong> (not just the id) is a deliberate trade: callers like <code>close_current_bead_success</code> and <code>activate_next_bead</code> need to peek at the just-closed bead's parent epic for epic-affinity routing, and at its <code>issue_type</code> for the container-leak guard, <strong>without</strong> paying a round-trip to <code>bd show</code>. Code that genuinely only needs the id uses the <code>current_bead_id</code> property, so the richer field doesn't leak complexity onto simple callers.</p>
+<p>Splitting data (here) from behavior (in the hook/lifecycle modules) keeps this file under a screen, side-effect-free, and trivial to reset between tests — every state-touching test just pokes <code>get_state()</code> fields directly in a fixture.</p>
+<h2 id="how-it-works">How It Works</h2>
+<p>The concept is one dataclass plus a handful of module-level functions:</p>
+<table><thead><tr>
+<th>Member</th>
+<th>Kind</th>
+<th>Meaning</th>
+</tr></thead><tbody>
+<tr>
+<td><code>active</code></td>
+<td><code>bool</code> field (default <code>False</code>)</td>
+<td>Is a chain run engaged right now?</td>
+</tr>
+<tr>
+<td><code>current_bead</code></td>
+<td>`dict[str, Any] \</td>
+<td>None<code> field (default </code>None`)</td>
+<td>The full <code>bd ready</code>/<code>bd show</code> dict for the bead being worked, or <code>None</code> between beads.</td>
+</tr>
+<tr>
+<td><code>completed_count</code></td>
+<td><code>int</code> field (default <code>0</code>)</td>
+<td>How many beads this run has successfully closed.</td>
+</tr>
+<tr>
+<td><code>max_iterations</code></td>
+<td>`int \</td>
+<td>None<code> field (default </code>None`)</td>
+<td>Optional <code>--max=N</code> safety cap; <code>None</code> means run until the queue drains.</td>
+</tr>
+<tr>
+<td><code>current_bead_id</code></td>
+<td>read-only <code>@property</code></td>
+<td><code>str(current_bead["id"])</code> or <code>None</code> — surgical accessor for id-only callers.</td>
+</tr>
+<tr>
+<td><code>start()</code></td>
+<td>method</td>
+<td>Sets <code>active=True</code>, clears <code>current_bead</code>, **resets <code>completed_count</code> to 0** so each run reports its own tally.</td>
+</tr>
+<tr>
+<td><code>stop()</code></td>
+<td>method</td>
+<td>Sets <code>active=False</code>, clears <code>current_bead</code>, and **clears <code>max_iterations</code>** so the next run starts uncapped unless re-armed.</td>
+</tr>
+<tr>
+<td><code>bump_completed()</code></td>
+<td>method</td>
+<td><code>completed_count += 1</code>; returns the new total (used for the <code>#N completed this run</code> log line).</td>
+</tr>
+<tr>
+<td><code>get_state()</code></td>
+<td>module fn</td>
+<td>Returns the one <code>_STATE</code> instance.</td>
+</tr>
+<tr>
+<td><code>is_active()</code></td>
+<td>module fn</td>
+<td>Thin shortcut for <code>_STATE.active</code>.</td>
+</tr>
+<tr>
+<td><code>start()</code> / <code>stop()</code></td>
+<td>module fns</td>
+<td>Thin shortcuts delegating to <code>_STATE.start()</code> / <code>_STATE.stop()</code>.</td>
+</tr>
+</tbody></table>
+<p>The singleton's <code>active</code> flag transitions exactly along this lifecycle:</p>
+<pre class="mermaid">
+stateDiagram-v2
+    [*] --&gt; Idle
+    Idle: active=False&lt;br/&gt;current_bead=None
+    Engaged: active=True&lt;br/&gt;current_bead=&lt;bead dict&gt;
+    BetweenBeads: active=True&lt;br/&gt;current_bead=None
+
+    Idle --&gt; Engaged: handle_bead_chain_command&lt;br/&gt;state.start() + set current_bead + max_iterations
+    Engaged --&gt; BetweenBeads: close_current_bead_success&lt;br/&gt;bump_completed() + current_bead=None
+    BetweenBeads --&gt; Engaged: activate_next_bead&lt;br/&gt;set current_bead (next bead)
+    BetweenBeads --&gt; Idle: queue empty / --max cap hit&lt;br/&gt;state.stop()
+    Engaged --&gt; Idle: Ctrl+C (turn cancel) /&lt;br/&gt;close-failure / epic leak&lt;br/&gt;state.stop()
+</pre>
+<h3 id="concrete-example">Concrete example</h3>
+<p>A user runs <code>/bead-chain --max=2</code>. Walking the singleton through the run:</p>
+<ol>
+<li><strong>Start.</strong> <code>handle_bead_chain_command</code> checks <code>state.is_active()</code> (False, so it proceeds), probes for a ready bead, then calls <code>state.start()</code>. Now <code>active=True</code>, <code>completed_count=0</code>, <code>current_bead=None</code>. It records the cap via <code>state.get_state().max_iterations = 2</code>, claims the bead, and stores the full dict: <code>state.get_state().current_bead = bead</code>. At this point the singleton reads: <code>state.get_state().current_bead_id</code> returns <code>"bead_chain-abc"</code>.<pre><code class="language-json">{
+  "active": true,
+  "current_bead": {
+    "id": "bead_chain-abc",
+    "issue_type": "task",
+    "status": "in_progress",
+    "title": "First bead",
+    "parent": "bead_chain-mol-xyz"
+  },
+  "completed_count": 0,
+  "max_iterations": 2
+}</code></pre></li>
+<li><strong>Advance.</strong> wiggum finishes the goal loop; the turn-end hook sees <code>wiggum_state.is_active() == False</code> and calls <code>close_current_bead_success()</code>. That reads <code>current_bead</code>/<code>current_bead_id</code>, closes the bead, calls <code>bump_completed()</code> (→ <code>completed_count=1</code>), and sets <code>current_bead = None</code>.</li>
+<li><strong>Cap check.</strong> <code>activate_next_bead</code> reads the singleton: <code>max_iterations=2</code>, <code>completed_count=1</code>, so <code>completed_count + 1 (=2) &gt; 2</code> is <strong>False</strong> — under the cap, keep going. It picks bead #2, claims it, and stores it in <code>current_bead</code>.</li>
+<li><strong>Cap hit.</strong> After bead #2 closes (<code>completed_count=2</code>), the next <code>activate_next_bead</code> finds <code>completed_count + 1 (=3) &gt; 2</code> — <strong>True</strong> — so it emits <code> bead-chain: --max=2 cap reached</code> and calls <code>state.stop()</code>. The singleton returns to <code>active=False</code>, <code>current_bead=None</code>, and crucially <code>max_iterations=None</code> again, so a later bare <code>/bead-chain</code> runs uncapped.</li>
+</ol>
+<p>If the user had pressed Ctrl+C mid-bead instead, <code>_on_interactive_turn_cancel</code> reads <code>current_bead_id</code> for the "left in_progress" message, then calls <code>state.stop()</code> — the bead stays <code>in_progress</code> in bd for the next run's recovery tier, but the singleton resets to idle.</p>
+<h3 id="implementation-references">Implementation references</h3>
+<table><thead><tr>
+<th>Responsibility</th>
+<th>File:Symbol</th>
+</tr></thead><tbody>
+<tr>
+<td>State dataclass (the four fields)</td>
+<td><code>state.py:BeadChainState</code></td>
+</tr>
+<tr>
+<td>Id-only convenience accessor</td>
+<td><code>state.py:BeadChainState.current_bead_id</code></td>
+</tr>
+<tr>
+<td>Engage (reset tally, clear bead)</td>
+<td><code>state.py:BeadChainState.start</code></td>
+</tr>
+<tr>
+<td>Disengage (clear bead + cap)</td>
+<td><code>state.py:BeadChainState.stop</code></td>
+</tr>
+<tr>
+<td>Completed tally increment</td>
+<td><code>state.py:BeadChainState.bump_completed</code></td>
+</tr>
+<tr>
+<td>The one process-wide instance</td>
+<td><code>state.py:_STATE</code></td>
+</tr>
+<tr>
+<td>Singleton accessor</td>
+<td><code>state.py:get_state</code></td>
+</tr>
+<tr>
+<td>Active-flag shortcut</td>
+<td><code>state.py:is_active</code></td>
+</tr>
+<tr>
+<td>Module-level start/stop shortcuts</td>
+<td><code>state.py:start</code> / <code>state.py:stop</code></td>
+</tr>
+<tr>
+<td>Start a run, set <code>current_bead</code> + <code>max_iterations</code></td>
+<td><code>register_callbacks.py:handle_bead_chain_command</code></td>
+</tr>
+<tr>
+<td>Advance / cancel guards reading <code>is_active()</code></td>
+<td><code>register_callbacks.py:_on_interactive_turn_end</code> / <code>register_callbacks.py:_on_interactive_turn_cancel</code></td>
+</tr>
+<tr>
+<td>Read just-closed bead, <code>bump_completed</code>, clear</td>
+<td><code>lifecycle.py:close_current_bead_success</code></td>
+</tr>
+<tr>
+<td><code>--max</code> cap check + set next <code>current_bead</code></td>
+<td><code>lifecycle.py:activate_next_bead</code></td>
+</tr>
+<tr>
+<td>Coexisting wiggum singleton (goal-loop active?)</td>
+<td><code>code_puppy.plugins.wiggum.state</code> (imported as <code>wiggum_state</code>)</td>
+</tr>
+</tbody></table>
+<h2 id="where-used">Where Used</h2>
+<ul>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a> — the core feature; the singleton <em>is</em> the per-run memory that lets its three hooks coordinate the claim → <code>/goal</code> → close → next loop across turns.</li>
+<li><a href="../Flows/ChainIterationLoop.html">ChainIterationLoop</a> — the turn-end loop reads <code>state.is_active()</code> / <code>wiggum_state.is_active()</code> each turn and advances the singleton bead-to-bead.</li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a></li>
+<li><a href="../Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> — reads <code>current_bead</code> / <code>current_bead_id</code> when the cancel hook leaves a bead stranded for the next run. — <code>activate_next_bead</code> stores each newly-claimed bead in <code>current_bead</code> after the blocker/gate guards pass.</li>
+<li><a href="../Flows/SessionEndEpicRollup.html">SessionEndEpicRollup</a> — the drain pass that fires when the queue empties reads <code>completed_count</code> for the final "Closed N this run" tally before <code>state.stop()</code>.</li>
+<li><a href="../Features/RecoveryMode.html">RecoveryMode</a> — on Ctrl+C / close-failure the singleton stops while the bead stays <code>in_progress</code>; <code>current_bead_id</code> feeds the "left in_progress" hand-off message.</li>
+<li><a href="QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the single <code>current_bead</code> slot is the mechanical embodiment of the one-bead-at-a-time serial contract.</li>
+<li><a href="ExecutionHints.html">ExecutionHints</a> — hints are applied right after the bead is stored in <code>current_bead</code>, on the same path in both activation sites.</li>
+<li><a href="../Flows/GoalPromptConstruction.html">GoalPromptConstruction</a> — the <code>current_bead</code> dict held here is the exact record that flow formats into the <code>/goal</code> prompt, immediately after it's stored.</li>
+</ul>
+<h2 id="conventions">Conventions</h2>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>- **There is exactly one instance — always reach it through <code>get_state()</code>.**   Never construct a second <code>BeadChainState()</code>; the module owns the singleton   so every hook sees the same state. - **Keep <code>state.py</code> a dumb data box.<em>* New </em>behavior* belongs in   <code>register_callbacks.py</code> or <code>lifecycle.py</code>. Only add a field/method here when   it is genuinely state, not logic. - **Set <code>current_bead</code>, read <code>current_bead_id</code>.** To change the active bead,   assign the full bd dict to <code>current_bead</code>; callers that only need the id read   the property. This keeps the rich-dict trade-off surgical. - **<code>start()</code> resets the tally; <code>stop()</code> clears the cap.** Each <code>/bead-chain</code>   run reports its own <code>completed_count</code>, and <code>max_iterations</code> never leaks from   one run into the next unless re-armed via <code>--max=N</code>. - **Read <code>wiggum_state.is_active()</code> for the goal loop, <code>state.is_active()</code> for   the chain.** They answer different questions; the turn-end hook needs both.</p></div>
+<h2 id="anti-patterns">Anti-Patterns</h2>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p>- <strong>Don't stash a second copy of "current bead" anywhere.</strong> A local cache that   drifts from <code>current_bead</code> reintroduces exactly the cross-turn coordination   bug the singleton exists to prevent. - **Don't put close/claim/recovery logic in <code>state.py</code>.** It must stay   side-effect-free; behavior here would make the data box untestable and   couple it to <code>bd</code>. - **Don't reach into <code>_STATE</code> directly.** Import-time binding of the instance   defeats the <code>get_state()</code> indirection that tests rely on to inspect/reset   state cleanly. - **Don't forget <code>current_bead</code> can be <code>None</code> mid-loop.** Between a successful   close and the next activation the slot is cleared; use <code>current_bead_id</code>   (which returns <code>None</code> safely) rather than indexing <code>current_bead["id"]</code>. - **Don't conflate <code>state.stop()</code> with bead status.<strong> Stopping the chain does   </strong>not** revert or close the in-flight bead — on cancel it stays   <code>in_progress</code> on purpose for the next run's recovery tier.</p></div>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a></li>
+<li><a href="../Flows/ChainIterationLoop.html">ChainIterationLoop</a></li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a></li>
+<li><a href="../Flows/SessionEndEpicRollup.html">SessionEndEpicRollup</a></li>
+<li><a href="../Features/RecoveryMode.html">RecoveryMode</a></li>
+<li><a href="QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a></li>
+<li><a href="ExecutionHints.html">ExecutionHints</a></li>
+<li><a href="../Flows/GoalPromptConstruction.html">GoalPromptConstruction</a></li>
+<li><a href="../Features/GoalPromptEnrichment.html">GoalPromptEnrichment</a> — reads <code>current_bead</code> from this singleton to build the <code>/goal</code> prompt.</li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — reads <code>current_bead</code> (the <code>just_closed</code> source) and <code>max_iterations</code> from this box.</li>
+<li><a href="../Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> — the cancel hook reads <code>current_bead_id</code> here when it leaves a bead stranded.</li>
+<li><a href="index.html">Concepts Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

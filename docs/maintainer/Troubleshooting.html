@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Troubleshooting (maintainer) — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="index.html">Index</a>
+<a href="Architecture.html">Architecture</a>
+<a href="Troubleshooting.html" class="active">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="Concepts/index.html">Index</a>
+<a href="Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="Features/index.html">Index</a>
+<a href="Features/BeadChaining.html">Bead Chaining</a>
+<a href="Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="Features/CloseGuard.html">Close Guard</a>
+<a href="Features/EpicAffinity.html">Epic Affinity</a>
+<a href="Features/EpicRollup.html">Epic Rollup</a>
+<a href="Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="Features/RecoveryMode.html">Recovery Mode</a>
+<a href="Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="Flows/index.html">Index</a>
+<a href="Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="troubleshooting-maintainer">Troubleshooting (maintainer)</h1>
+<p>Diagnostic guide for when bead-chain misbehaves. Symptoms are grouped by the subsystem they surface in; each row links to the doc that explains the intended behavior. <strong>Almost every entry has a "this is correct, not a bug" sibling</strong> — bead-chain is deliberately conservative, so a stall is usually the safety net working, not failing.</p>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>Golden rule of diagnosis: reach for <code>bd show &lt;id&gt; --json</code> first. The JSON view exposes <code>status</code>, <code>issue_type</code>, and <code>dependencies[].status</code> — the three fields every selection/gate/close decision is actually made from. The human-readable views can lag bd's per-parent tree cache; the JSON does not.</p></div>
+<hr>
+<h2 id="fast-triage-table">Fast triage table</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>First check</th>
+<th>Deep dive</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/bead-chain</code> does nothing / "already running"</td>
+<td><code>state.active</code> wedged from a prior run</td>
+<td><a href="Flows/ChainIterationLoop.html#common-issues">ChainIterationLoop</a></td>
+</tr>
+<tr>
+<td>Loop ends immediately with <code>No ready beads</code></td>
+<td>only containers left, or all work blocked</td>
+<td><a href="Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a></td>
+</tr>
+<tr>
+<td>Same <code>in_progress</code> bead re-driven every run</td>
+<td>tier-0 recovery has a strand to drain</td>
+<td><a href="Flows/StrandedBeadRecovery.html#common-issues">StrandedBeadRecovery</a></td>
+</tr>
+<tr>
+<td>"refused to activate … open blocker(s)" on a ready-looking bead</td>
+<td>a <code>blocks</code>/<code>waits-for</code> edge added after <code>bd ready</code></td>
+<td><a href="Flows/BeadClaimAndBlockerRecheck.html#common-issues">BeadClaimAndBlockerRecheck</a></td>
+</tr>
+<tr>
+<td>"excluded container type" refusal</td>
+<td>an epic/milestone/gate/molecule leaked the frontier</td>
+<td><a href="Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a></td>
+</tr>
+<tr>
+<td>A blocking bug isn't jumping the queue</td>
+<td>bug has no dependents, or wrong type</td>
+<td><a href="Features/BlockingBugPriority.html">BlockingBugPriority</a></td>
+</tr>
+<tr>
+<td>Bead state invisible on another machine</td>
+<td><code>bd dolt push</code> never ran at session close</td>
+<td><a href="Concepts/SessionCloseDurability.html">SessionCloseDurability</a></td>
+</tr>
+<tr>
+<td>A <code>patrol</code>/recurring epic got auto-closed</td>
+<td>epic missing its recurrence marker</td>
+<td><a href="Concepts/RecurringMoleculeProtection.html">RecurringMoleculeProtection</a></td>
+</tr>
+<tr>
+<td>Fan-out-gated bead refused with all children "done"</td>
+<td>a child isn't actually <code>closed</code>, or gate-mode ambiguity</td>
+<td><a href="#fan-out-gates-the-write-only-mode-trap">Fan-out gates</a></td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="chain-won-t-start-or-won-t-advance">Chain won't start or won't advance</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/bead-chain</code> does nothing / "already running"</td>
+<td><code>state.active</code> is still <code>True</code> from a prior run that didn't stop cleanly</td>
+<td>The chain auto-stops on empty queue / cap / cancel; if it's wedged, cancel the turn (Ctrl+C) to fire the cancel hook, then re-engage.</td>
+</tr>
+<tr>
+<td>Loop ends immediately with <code>No ready beads</code></td>
+<td>the only items are container types, or all work is blocked/pinned</td>
+<td><code>bd ready</code> to inspect; containers are filtered by design — see <a href="Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a>.</td>
+</tr>
+<tr>
+<td>Chain won't advance past a pinned bead</td>
+<td>the current bead was <code>pinned</code> mid-flight; close is refused to honor the park</td>
+<td>Unpin (<code>bd update &lt;id&gt; --unpin</code>) if it should proceed; otherwise the chain correctly drops it and moves on.</td>
+</tr>
+<tr>
+<td><code>--max</code> ignored</td>
+<td>invalid value (non-int / ≤0) refused the engage, OR the cap was hit and <code>stop()</code> reset it to <code>None</code></td>
+<td>Pass <code>--max=N</code> with a positive integer each run; the cap is intentionally <strong>not</strong> sticky across runs.</td>
+</tr>
+<tr>
+<td>Queue "empty" but you expected work</td>
+<td>targets are held behind unresolved gates</td>
+<td>The loop re-probes gates once on empty (<code>probe_resolved_gates</code>); a genuinely unresolved gate keeps its target out of <code>bd ready</code> until it closes. See <a href="Flows/SessionEndEpicRollup.html">SessionEndEpicRollup</a>.</td>
+</tr>
+</tbody></table>
+<p>See <a href="Flows/ChainIterationLoop.html">ChainIterationLoop</a> for the full loop.</p>
+<hr>
+<h2 id="selection-picks-the-wrong-bead">Selection picks the "wrong" bead</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>Chain keeps re-picking the same <code>in_progress</code> bead</td>
+<td>tier-0 recovery is firing: a prior run left a strand the judges never closed</td>
+<td>Finish or <code>bd close &lt;id&gt;</code> the strand; tier 0 only yields while a recoverable strand exists.</td>
+</tr>
+<tr>
+<td>Chain hops out of an epic mid-way</td>
+<td>tier 2 only fires when an <em>unblocked</em> sibling exists; all remaining siblings are blocked or done</td>
+<td><code>bd ready --parent=&lt;epic_id&gt;</code>; blocked siblings correctly defer to the global frontier. See <a href="Features/EpicAffinity.html">EpicAffinity</a>.</td>
+</tr>
+<tr>
+<td>Epic affinity never kicks in</td>
+<td>the just-closed bead had no <code>parent</code>/<code>parent_id</code>/<code>epic_id</code></td>
+<td>Confirm the bead is actually parented; standalone beads correctly skip tier 2.</td>
+</tr>
+<tr>
+<td>Waterfall returns <code>None</code> though <code>bd ready</code> shows work</td>
+<td>tier-3 candidate was found blocked at recheck (no fall-through), or every ready bead is a container</td>
+<td><code>bd show &lt;head&gt; --json</code> and inspect <code>dependencies[].status</code>. See <a href="Flows/NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a>.</td>
+</tr>
+<tr>
+<td>A blocking bug isn't jumping the queue</td>
+<td>the bug has <code>dependent_count == 0</code>, or its type isn't in <code>BLOCKING_BUG_TYPES</code> (<code>("bug",)</code>)</td>
+<td><code>bd show &lt;id&gt; --json</code>; confirm <code>issue_type == "bug"</code> and at least one bead depends on it; add the dependency edge. See <a href="Features/BlockingBugPriority.html">BlockingBugPriority</a>.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="claim-blocker-recheck-and-the-close-guard">Claim, blocker recheck, and the close guard</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>"refused to activate … open blocker(s)" on a ready-looking bead</td>
+<td>a <code>blocks</code>/<code>waits-for</code> edge was added after <code>bd ready</code> ran, or bd version drift leaked a blocked bead</td>
+<td><code>bd show &lt;id&gt; --json</code>; only <code>closed</code> blockers satisfy. The post-ready recheck is the backstop.</td>
+</tr>
+<tr>
+<td><code>bd update --claim</code> fails and the chain halts</td>
+<td>another agent claimed it in the race window, bd connectivity dropped, or the bead was deleted</td>
+<td><code>bd show &lt;id&gt;</code>; if already claimed elsewhere, stopping is correct. Restore bd connectivity and re-run.</td>
+</tr>
+<tr>
+<td>"excluded container type" refusal</td>
+<td>an upstream filter leaked an epic/milestone/gate/molecule onto the frontier</td>
+<td>This is a real bug if it recurs — the waterfall must never return containers. See <a href="Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a>.</td>
+</tr>
+<tr>
+<td>A blocked bead got driven anyway</td>
+<td><code>open_blocker_ids</code> fail-opens on a flaky <code>bd show</code></td>
+<td>The close-time guard (<code>close_guard.py</code>) is the backstop; check bd connectivity. See <a href="Features/CloseGuard.html">CloseGuard</a>.</td>
+</tr>
+</tbody></table>
+<p>See <a href="Flows/BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> for the recheck contract.</p>
+<hr>
+<h2 id="stranded-bead-recovery">Stranded-bead recovery</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>A crashed-on bead got re-run from scratch</td>
+<td>the agent ignored <code>_RECOVERY_PREAMBLE</code>, or the bead was reverted to <code>open</code> (open blockers) so it returned as a <em>fresh</em> claim</td>
+<td>Confirm status at restart with <code>bd show &lt;id&gt;</code>.</td>
+</tr>
+<tr>
+<td>A <code>hooked</code> bead never gets recovered</td>
+<td>running a pre-FB-12 build that queried only <code>--status=in_progress</code></td>
+<td>Recovery now enumerates <code>RECOVERABLE_STATUSES = (in_progress, hooked)</code>; upgrade.</td>
+</tr>
+<tr>
+<td>Two beads stuck <code>in_progress</code>, only one moves per run</td>
+<td>residue from a hard crash; recovery deliberately drains one head per iteration</td>
+<td>Expected — extras drain one-at-a-time via tier 0. Let the chain run.</td>
+</tr>
+<tr>
+<td>A stranded bead with a closed blocker still got reverted</td>
+<td>stale <code>bd show</code> cache, or the blocker isn't actually <code>closed</code></td>
+<td><code>bd show &lt;id&gt; --json</code>; only <code>closed</code> satisfies (<code>SATISFIED_BLOCKER_STATUSES</code>).</td>
+</tr>
+<tr>
+<td>Recovery silently did nothing on startup</td>
+<td>the strand query hit a bd outage and soft-failed</td>
+<td>Look for <code>couldn't enumerate in_progress beads</code>; fix bd and re-run. Startup falls through to <code>next_ready</code> rather than halting.</td>
+</tr>
+</tbody></table>
+<p>See <a href="Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> and <a href="Features/RecoveryMode.html">RecoveryMode</a>.</p>
+<hr>
+<h2 id="session-end-rollup-durability-and-sync">Session-end rollup, durability, and sync</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>Bead state (claim/close/revert) invisible on another machine</td>
+<td><code>bd dolt push</code> never ran — <code>git push</code> only carries <code>refs/heads/*</code>, not <code>refs/dolt/data</code></td>
+<td>Run <code>bd dolt push</code> at session close (gated on a configured Dolt remote). See <a href="Concepts/SessionCloseDurability.html">SessionCloseDurability</a>.</td>
+</tr>
+<tr>
+<td>Interrupted chain's mutations missing</td>
+<td>a Ctrl+C / crash skipped session-close, so the push never ran</td>
+<td>Documented behavior — the <strong>next</strong> session-close pushes them. Don't rely on the drain path; bead-chain is a queue driver, not a sync engine.</td>
+</tr>
+<tr>
+<td>A <code>patrol</code>/recurring epic got auto-closed</td>
+<td>the epic carries none of the recurrence markers <code>is_recurring_epic</code> checks</td>
+<td>Tag the molecule's epic with a <code>patrol</code> / <code>recurring</code> / <code>mol-type:patrol</code> label. See <a href="Concepts/RecurringMoleculeProtection.html">RecurringMoleculeProtection</a>.</td>
+</tr>
+<tr>
+<td>Eligible epics didn't close this session</td>
+<td><code>bd epic close-eligible</code> errored (caught → warning), returned <code>[]</code>, or the queue never drained</td>
+<td>Confirm <code>bd epic close-eligible --dry-run --json</code> returns valid JSON. See <a href="Flows/SessionEndEpicRollup.html">SessionEndEpicRollup</a>.</td>
+</tr>
+<tr>
+<td>A parent epic closed one session late</td>
+<td>rollup is once-per-session (<code>bead_chain-tfn</code>); cascade is single-pass to avoid sweeping unrelated epics</td>
+<td>Expected trade-off (data safety over single-pass cascade); next session catches it.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="goal-prompt-enrichment">Goal-prompt enrichment</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>No <code>## Persistent Memories</code> block despite memories existing</td>
+<td>this <code>bd</code> build lacks the <code>memories</code> subcommand, or it errored</td>
+<td>Confirm <code>bd memories --json</code> works; the block is suppressed on any <code>BeadsError</code>. See <a href="Features/GoalPromptEnrichment.html">GoalPromptEnrichment</a>.</td>
+</tr>
+<tr>
+<td>LLM graded against criteria it never saw</td>
+<td>the bead's <code>acceptance_criteria</code> was empty, so the block rendered empty</td>
+<td>Populate <code>acceptance_criteria</code>; the block only renders for a non-empty value.</td>
+</tr>
+<tr>
+<td><code>## Related Context</code> missing an edge</td>
+<td>the edge type isn't one of the six in <code>_CONTEXT_EDGE_GLOSSES</code>, or it's a gating edge (<code>blocks</code>/<code>parent-child</code>)</td>
+<td>Only non-gating context edges surface by design; gating edges are deliberately excluded. See <a href="Flows/GoalPromptConstruction.html">GoalPromptConstruction</a>.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="fan-out-gates-the-write-only-mode-trap">Fan-out gates: the write-only-mode trap</h2>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><code>bd create --waits-for-gate any-children|all-children</code> <strong>accepts</strong> a mode but does <strong>not</strong> surface it anywhere machine-readable (verified on bd 1.0.5). <code>bd show --json</code> reports only <code>dependency_type: "waits-for"</code> and <code>bd dep list</code> prints just "via waits-for" — no <code>gate_mode</code>/<code>fan_out</code> field. So at read time you <strong>cannot</strong> distinguish <code>any-children</code> from <code>all-children</code>.</p></div>
+<p>Practical consequences when a fan-out-gated bead (like this finalize bead) behaves unexpectedly:</p>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>Gated bead refused though all children look done</td>
+<td>a spawned child isn't actually <code>closed</code>, or a stale <code>bd list</code> view</td>
+<td><code>bd list --json</code> and check <strong>every</strong> issue with <code>parent == &lt;spawner&gt;</code>; close any non-<code>closed</code> straggler.</td>
+</tr>
+<tr>
+<td>Gated bead "should" be ready under <code>any-children</code> but isn't</td>
+<td>the chosen gate mode is invisible at read time, so the conservative path waits for all</td>
+<td>Known bd limitation; recheck after a bd upgrade by looking for a <code>gate_mode</code> field in <code>bd show --json</code> <code>.dependencies[]</code>.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="when-in-doubt">When in doubt</h2>
+<ol>
+<li><code>bd show &lt;id&gt; --json</code> — status, type, and <code>dependencies[].status</code> drive every decision.</li>
+<li><code>bd ready</code> / <code>bd ready --parent=&lt;epic&gt;</code> — what the frontier actually offers.</li>
+<li><code>bd list --json</code> — to verify fan-out children are all <code>closed</code>.</li>
+<li>Watch for soft-fail warnings (<code>couldn't …</code>) — bead-chain degrades gracefully and logs rather than halting, so the warning is your breadcrumb.</li>
+</ol>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="Architecture.html">Architecture</a> — system overview and component map.</li>
+<li><a href="Features/CloseGuard.html">CloseGuard</a> — the close-time backstop.</li>
+<li><a href="Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a> — why containers never reach the frontier.</li>
+<li><a href="Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> — recovery tier behavior.</li>
+<li><a href="Concepts/SessionCloseDurability.html">SessionCloseDurability</a> — the <code>bd dolt push</code> contract.</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

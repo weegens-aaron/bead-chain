@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SessionCloseDurability — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="index.html">Index</a>
+<a href="BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="ChainStateSingleton.html">Chain State Singleton</a>
+<a href="ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="ExecutionHints.html">Execution Hints</a>
+<a href="QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="SessionCloseDurability.html" class="active">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="../Flows/index.html">Index</a>
+<a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="../Flows/GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="../Flows/SessionEndEpicRollup.html">Session End Epic Rollup</a>
+<a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="sessionclosedurability">SessionCloseDurability</h1>
+<h2 id="what-is-it">What Is It</h2>
+<p>The deliberate policy decision about <strong>where cross-machine durability of bead state lives</strong>: in the <strong>session-close protocol</strong> (<code>AGENTS.md</code>), right after <code>git push</code> — and explicitly <strong>not</strong> inside bead-chain's drain loop. Every <code>bd</code> mutation bead-chain makes (claim, close, revert-to-open, epic rollup) writes only to a <strong>local, git-ignored Dolt database</strong> (<code>.beads/embeddeddolt/</code>). A plain <code>git push</code> carries <code>refs/heads/*</code> only; it does <strong>not</strong> carry the bead state, which travels under <code>refs/dolt/data</code> and is moved by a separate command, <code>bd dolt push</code>. SessionCloseDurability is the rule that says: the human/CI session-close step owns running that <code>bd dolt push</code>, gated on a configured Dolt remote and soft-failing, and bead-chain stays 100% sync-agnostic.</p>
+<h2 id="why-this-approach">Why This Approach</h2>
+<p>The coverage audit (<code>notes/analysis/bead-chain-coverage/08-data-layer.md</code>, gaps #1 and #2 — both rated <strong>P1</strong>) found a <strong>seam</strong>, not a code defect: <em>nobody</em> in the documented end-to-end loop actually ran <code>bd dolt push</code>. bead-chain's drain path (<code>lifecycle.py</code> <code>activate_next_bead</code> tail: <code>rollup_completed_epics()</code> → <code>emit_success</code> → <code>state.stop()</code>) does no sync, and the <code>AGENTS.md</code> "Session Completion" workflow ran only <code>git pull --rebase</code> / <code>git push</code> / <code>git status</code> — none of which moves <code>refs/dolt/data</code>. On a single persistent dev box this is harmless (the local Dolt DB is authoritative), but on a <strong>fresh clone, CI, a second machine, or a disposable agent</strong>, every claim/close/revert from a run was stranded locally and invisible to other actors.</p>
+<p>ADR 0001 (<code>notes/decisions/0001-dolt-push-lives-in-session-close.md</code>, bead <code>bead_chain-uo4</code> / FB-4, under epic <code>bead_chain-2p3</code>) resolves the seam by putting the sync step <strong>in session-close, option (b)</strong>, because:</p>
+<ul>
+<li><strong>Single Responsibility.</strong> bead-chain is a <em>queue driver</em>, not a sync engine (the boundary codified in <a href="QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a>). Pushing on drain would force the driver to own sync <em>policy</em> it has no business owning: which remote, what cadence (every bead? once per drain?), and whether to <code>bd dolt pull</code> on start. Durability is a different axis than queue-draining.</li>
+<li><strong>The home already exists.</strong> Durability and hand-off already live in the session-close protocol, beside <code>git push</code>. Adding <code>bd dolt push</code> there puts one durability concern next to the other, instead of scattering it.</li>
+<li><strong>A drain is not a session boundary.</strong> You may run several chains in one session; pushing on every drain is premature or redundant. Pushing once at session-close matches the <code>git push</code> cadence already in the protocol.</li>
+<li><strong>CI/disposable is solved at the right layer.</strong> Rather than special-casing the queue driver, those environments are treated as <em>additional callers</em> of the same session-close responsibility in their own teardown — the fix generalizes instead of accreting branches in <code>lifecycle.py</code>.</li>
+</ul>
+<p>Rejected alternatives: <strong>(a)</strong> bead-chain pushes on successful drain — rejected as primary (wrong cadence, violates the queue-driver boundary; kept only as a <em>possible future safety net</em>, YAGNI for now); <strong>(c)</strong> document local-only with no change — rejected (leaves a known P1 footgun the moment a remote is configured).</p>
+<h2 id="how-it-works">How It Works</h2>
+<p>Two refs, two commands, two layers:</p>
+<pre class="mermaid">
+flowchart TD
+    subgraph chain["bead-chain (queue driver — sync-agnostic)"]
+        claim["bd update --claim"]
+        close["bd close"]
+        revert["bd update --status=open (revert)"]
+        rollup["rollup_completed_epics()&lt;br/&gt;lifecycle.py"]
+    end
+    claim --&gt; LOCAL[(Local Dolt DB&lt;br/&gt;.beads/embeddeddolt/&lt;br/&gt;git-ignored)]
+    close --&gt; LOCAL
+    revert --&gt; LOCAL
+    rollup --&gt; LOCAL
+
+    LOCAL -.-&gt;|drain end:&lt;br/&gt;NO push, NO pull,&lt;br/&gt;NO export/import| STOP([state.stop&amp;#40;&amp;#41; — work is LOCAL-ONLY])
+
+    subgraph sc["Session-Close protocol (AGENTS.md — owns durability)"]
+        gp["git push&lt;br/&gt;(carries refs/heads/* = CODE only)"]
+        gate{"bd dolt remote list&lt;br/&gt;non-empty?"}
+        push["bd dolt push&lt;br/&gt;(carries refs/dolt/data = BEAD STATE)"]
+        warn["WARN: bead state local-only&lt;br/&gt;(soft-fail, do not halt)"]
+        info["INFO: no remote — skip&lt;br/&gt;(soft-skip)"]
+    end
+    STOP --&gt; gp
+    gp --&gt; gate
+    gate --&gt;|yes| push
+    push --&gt;|ok| REMOTE[(Git remote&lt;br/&gt;refs/heads/* + refs/dolt/data)]
+    push --&gt;|error| warn
+    gate --&gt;|no| info
+    gp --&gt; REMOTE
+</pre>
+<p>The session-close step, verbatim from <code>AGENTS.md</code>, runs **immediately after <code>git push</code> succeeds**:</p>
+<pre><code class="language-bash"># AFTER `git push` succeeds:
+if [ -n "$(bd dolt remote list 2&gt;/dev/null)" ]; then
+  bd dolt push || echo "WARN: bd dolt push failed — bead state is local-only this session"
+else
+  echo "INFO: no Dolt remote configured — skipping bd dolt push (bead state stays local)"
+fi</code></pre>
+<p>It is <strong>gated</strong> (only attempts the push when <code>bd dolt remote list</code> prints a configured remote) and <strong>soft-fails</strong> (a push error logs a WARN and does <em>not</em> halt session-close — mirroring the soft-fail stance of <code>lifecycle.rollup_completed_epics</code> and <code>lifecycle.probe_resolved_gates</code>).</p>
+<h3 id="concrete-example">Concrete example</h3>
+<p>A disposable CI agent runs <code>/bead-chain</code>, which claims <code>bead_chain-mol-bps.18</code>, drives it through wiggum's <code>/goal</code>, and the LLM judges close it. The chain drains: <code>bd ready</code> returns empty, <code>activate_next_bead</code> calls <code>rollup_completed_epics()</code>, emits <em>"no more ready beads… Good boy!"</em>, and calls <code>state.stop()</code>. At this instant the claim+close are written <strong>only</strong> to <code>.beads/embeddeddolt/</code> on the CI box — <code>git for-each-ref refs/dolt</code> on the remote is still empty.</p>
+<p>If CI then runs the session-close teardown and a Dolt remote <em>is</em> configured, <code>git push</code> ships the code on <code>refs/heads/main</code>, and <code>bd dolt push</code> ships the claim/close on <code>refs/dolt/data</code> — now machine B sees <code>mol-bps.18</code> as closed. If CI <strong>skips</strong> session-close (or exits before it), the close is stranded locally and <code>mol-bps.18</code> looks <code>open</code>/<code>in_progress</code> to every other actor until <em>some</em> later session-close runs <code>bd dolt push</code>. That is documented, expected behavior — not a bug, and not something bead-chain silently relies on.</p>
+<h3 id="where-the-boundary-is-enforced-in-code">Where the boundary is enforced in code</h3>
+<table><thead><tr>
+<th>Concern</th>
+<th>Behavior</th>
+<th>Where (<code>file:symbol</code> / location)</th>
+</tr></thead><tbody>
+<tr>
+<td>Local-only bead writes</td>
+<td>All mutations shell out to <code>bd</code>; the only persistence is the local Dolt DB</td>
+<td><code>beads.py:_run_bd</code> (single spawn chokepoint) feeding <code>beads.claim</code>, <code>beads.close</code>, <code>beads.revert_to_open</code>, <code>beads.close_eligible_epics</code></td>
+</tr>
+<tr>
+<td>Drain end does NOT sync</td>
+<td>Tail of the iteration loop is <code>rollup → emit → stop</code>, with no push/pull/export/import</td>
+<td><code>lifecycle.py:activate_next_bead</code> (drain branch: <code>rollup_completed_epics()</code> → <code>emit_success</code> → <code>state.stop()</code>)</td>
+</tr>
+<tr>
+<td>Rollup is courtesy, not sync</td>
+<td>Epic rollup soft-fails and never touches <code>refs/dolt/data</code></td>
+<td><code>lifecycle.py:rollup_completed_epics</code> → <code>beads.close_eligible_epics</code></td>
+</tr>
+<tr>
+<td>Interrupted chain leaves state local</td>
+<td>Ctrl+C / cancel stops the chain with the bead still <code>in_progress</code>, no sync</td>
+<td><code>register_callbacks.py:_on_interactive_turn_cancel</code></td>
+</tr>
+<tr>
+<td>Durability lives elsewhere</td>
+<td>Gated, soft-fail <code>bd dolt push</code> after <code>git push</code></td>
+<td><code>AGENTS.md</code> → "Session Completion — Dolt Sync Step"</td>
+</tr>
+<tr>
+<td>Recorded policy</td>
+<td>The SRP rationale and rejected alternatives</td>
+<td><code>notes/decisions/0001-dolt-push-lives-in-session-close.md</code> (ADR 0001)</td>
+</tr>
+<tr>
+<td>Sync wire format reference</td>
+<td>Architecture row: "bead-chain itself never pushes (session-close does)"</td>
+<td><code>__docs/Architecture.md</code> (External Dependencies → Dolt DB row)</td>
+</tr>
+</tbody></table>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p><code>.beads/issues.jsonl</code> is a <strong>passive export</strong>, not the wire protocol. On this repo <code>export.auto = false</code> and no JSONL exists, so it is <strong>not</strong> a sync fallback either — the local Dolt DB is the only copy until <code>bd dolt push</code> runs. Never treat JSONL as the source of truth, and never <code>bd import</code> during normal operation.</p></div>
+<h2 id="where-used">Where Used</h2>
+<ul>
+<li><a href="../Flows/SessionEndEpicRollup.html">Session-End Epic Rollup</a></li>
+<li><a href="../Flows/StrandedBeadRecovery.html">StrandedBeadRecovery</a> — flips bead status on recovery/revert but, like this concept, never pushes bead state. — the drain-time flow whose mutations (<code>rollup_completed_epics</code>) are exactly the local-only writes that SessionCloseDurability later ships via <code>bd dolt push</code>.</li>
+<li><a href="../Features/BeadChaining.html">Bead Chaining</a> — the core loop whose every claim/close lands in the local Dolt DB and depends on session-close for cross-machine visibility.</li>
+<li><a href="../Features/RecoveryMode.html">Recovery Mode</a> — relies on interrupted/<code>in_progress</code> beads persisting locally; SessionCloseDurability documents that such state is local-only until the next session-close push.</li>
+</ul>
+<h2 id="conventions">Conventions</h2>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>- <strong>Sync lives in session-close, never in the drain path.</strong> Add <code>bd dolt push</code>   <em>after</em> <code>git push</code> in the <code>AGENTS.md</code> session-close workflow — do not add   push/pull/export/import to <code>lifecycle.py</code>. - <strong>Gate on a configured remote.</strong> Only attempt the push when   <code>bd dolt remote list</code> is non-empty; otherwise log INFO and skip. - <strong>Soft-fail, never halt.</strong> A failed <code>bd dolt push</code> logs a WARN and lets   session-close finish — bead state being local-only for one session is far   less bad than blocking the hand-off. - <strong>A drain is not a session boundary.</strong> Multiple chains may run per session;   push once at session-close, matching the <code>git push</code> cadence. - <strong>CI/disposable agents own their own teardown.</strong> Any environment that does   not run the <code>AGENTS.md</code> session-close must invoke the same gated, soft-fail   <code>bd dolt push</code> in its teardown — it is just another caller at the same layer. - <strong>Document, don't silently rely on, interrupted-chain behavior.</strong> A Ctrl+C   chain is local-only until the next session-close push; say so explicitly.</p></div>
+<h2 id="anti-patterns">Anti-Patterns</h2>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p>- <strong>Don't push on drain.</strong> Making bead-chain run <code>bd dolt push</code> when a chain   drains drags sync <em>policy</em> (which remote, cadence, pull-on-start) into the   queue driver — the exact SRP violation ADR 0001 rejected (alternative (a)). - **Don't assume <code>git push</code> carries bead state.** It moves <code>refs/heads/*</code>   only. The Dolt DB is git-ignored (<code>.beads/.gitignore</code> → <code>embeddeddolt/</code>);   bead state travels on <code>refs/dolt/data</code> via <code>bd dolt push</code> exclusively. - **Don't treat <code>.beads/issues.jsonl</code> as the wire protocol or a sync   fallback.** It is a passive export (and disabled here); <code>bd import</code> during   normal operation will fight the Dolt source of truth. - <strong>Don't hard-fail session-close on a push error.</strong> Halting strands the rest   of the hand-off; warn and continue. - **Don't reach for third-party Dolt hosting before the default   <code>refs/dolt/data</code> remote.** The git-compatible protocol on your existing git   remote is the intended path.</p></div>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="QueueDriverNotGoalEngine.html">Queue Driver, Not Goal Engine</a> — the SRP boundary that makes "bead-chain doesn't own sync" a deliberate stance.</li>
+<li><a href="BdSubprocessTransport.html">Bd Subprocess Transport</a> — every bead mutation that becomes local-only state flows through the <code>bd</code> CLI shell-out documented there.</li>
+<li><a href="RecurringMoleculeProtection.html">Recurring Molecule Protection</a> — sibling drain-time concept; shares the "a drain is not a session boundary" + soft-fail posture.</li>
+<li><a href="../Flows/SessionEndEpicRollup.html">Session-End Epic Rollup</a></li>
+<li><a href="../Features/EpicRollup.html">Epic Rollup</a> — the drain-time feature that closes epics but, per this concept, never pushes bead state.</li>
+<li><a href="../Flows/NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a> — the pick-time flow that mutates bead status (tier-0 revert) but, like everything else in bead-chain, never pushes/persists — durability stays here.</li>
+<li><a href="../Features/BeadChaining.html">Bead Chaining</a></li>
+<li><a href="../Features/RecoveryMode.html">Recovery Mode</a></li>
+<li><a href="../Flows/BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a> — flips bead status at claim time but, per this concept, never pushes/persists.</li>
+<li><a href="../Flows/ChainIterationLoop.html">Chain Iteration Loop</a> — only transitions bead status each turn and never pushes/pulls bead state: durability stays here.</li>
+<li><a href="../Flows/StrandedBeadRecovery.html">Stranded Bead Recovery</a> — why an interrupted chain's mutations are local-only until the next session close.</li>
+<li><a href="index.html">Concepts Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+<li>ADR 0001 — <code>notes/decisions/0001-dolt-push-lives-in-session-close.md</code></li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

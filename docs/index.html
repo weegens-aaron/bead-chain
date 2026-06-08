@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bead-chain Documentation</title>
+<link rel="stylesheet" href="maintainer/style.css">
+</head>
+<body>
+<main class="content" style="max-width:880px;margin:0 auto;padding:3rem 1.5rem;">
+<h1 id="bead-chain-documentation">bead-chain Documentation</h1>
+
+<p>Static documentation site for <strong>bead-chain</strong> — the Code Puppy
+plugin that drives your <code>bd ready</code> queue through wiggum's
+<code>/goal</code> mode one bead at a time. Built from the FlowDoc markdown
+sources with the <code>md-to-html</code> skill.</p>
+
+<div class="exec-grid">
+  <div class="box-blue">
+    <strong>&#128296; Maintainer FlowDoc</strong>
+    <p>Deep architectural docs for people who hack on bead-chain itself:
+    Features, Flows, and Concepts with mermaid diagrams and impl maps.</p>
+  </div>
+</div>
+
+<h2 id="maintainer-site">Maintainer FlowDoc site</h2>
+
+<p>The maintainer site documents what the code <em>does</em> and how each flow
+runs end to end. Start at the site index, or jump straight to a section:</p>
+
+<ul>
+  <li><a href="maintainer/index.html"><strong>Maintainer site home</strong></a>
+  &mdash; the full FlowDoc index with site-wide navigation.</li>
+  <li><a href="maintainer/Architecture.html">Architecture</a>
+  &mdash; the big-picture component map.</li>
+  <li><a href="maintainer/Features/index.html">Features</a>
+  &mdash; user-facing capabilities (BeadChaining, CloseGuard, RecoveryMode,
+  EpicRollup, &hellip;).</li>
+  <li><a href="maintainer/Flows/index.html">Flows</a>
+  &mdash; end-to-end processes (ChainIterationLoop, NextBeadSelectionWaterfall,
+  StrandedBeadRecovery, &hellip;).</li>
+  <li><a href="maintainer/Concepts/index.html">Concepts</a>
+  &mdash; the design ideas behind the code (QueueDriverNotGoalEngine,
+  ContainerTypeExclusion, SessionCloseDurability, &hellip;).</li>
+  <li><a href="maintainer/Troubleshooting.html">Troubleshooting</a>
+  &mdash; common symptoms and fixes.</li>
+</ul>
+
+<div class="callout callout-note">
+<div class="callout-title">NOTE</div>
+<p>This site is generated output. Edit the markdown under
+<code>__docs/</code> and rebuild &mdash; do not hand-edit the HTML.</p>
+</div>
+
+</main>
+</body>
+</html>

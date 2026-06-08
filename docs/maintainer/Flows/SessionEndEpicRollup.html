@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SessionEndEpicRollup — bead-chain Maintainer FlowDoc</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain Maintainer FlowDoc</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../Architecture.html">Architecture</a>
+<a href="../Troubleshooting.html">Troubleshooting</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/BdSubprocessTransport.html">Bd Subprocess Transport</a>
+<a href="../Concepts/ChainStateSingleton.html">Chain State Singleton</a>
+<a href="../Concepts/ContainerTypeExclusion.html">Container Type Exclusion</a>
+<a href="../Concepts/ExecutionHints.html">Execution Hints</a>
+<a href="../Concepts/QueueDriverNotGoalEngine.html">Queue Driver Not Goal Engine</a>
+<a href="../Concepts/RecurringMoleculeProtection.html">Recurring Molecule Protection</a>
+<a href="../Concepts/SessionCloseDurability.html">Session Close Durability</a>
+<div class="nav-section">Features</div>
+<a href="../Features/index.html">Index</a>
+<a href="../Features/BeadChaining.html">Bead Chaining</a>
+<a href="../Features/BlockingBugPriority.html">Blocking Bug Priority</a>
+<a href="../Features/BugDiscoveryProtocol.html">Bug Discovery Protocol</a>
+<a href="../Features/CloseGuard.html">Close Guard</a>
+<a href="../Features/EpicAffinity.html">Epic Affinity</a>
+<a href="../Features/EpicRollup.html">Epic Rollup</a>
+<a href="../Features/GoalPromptEnrichment.html">Goal Prompt Enrichment</a>
+<a href="../Features/RecoveryMode.html">Recovery Mode</a>
+<a href="../Features/WorkTimeBlockerGate.html">Work Time Blocker Gate</a>
+<div class="nav-section">Flows</div>
+<a href="index.html">Index</a>
+<a href="BeadClaimAndBlockerRecheck.html">Bead Claim And Blocker Recheck</a>
+<a href="ChainIterationLoop.html">Chain Iteration Loop</a>
+<a href="GoalPromptConstruction.html">Goal Prompt Construction</a>
+<a href="NextBeadSelectionWaterfall.html">Next Bead Selection Waterfall</a>
+<a href="SessionEndEpicRollup.html" class="active">Session End Epic Rollup</a>
+<a href="StrandedBeadRecovery.html">Stranded Bead Recovery</a>
+</nav>
+</aside>
+<main class="content">
+<h1 id="sessionendepicrollup">SessionEndEpicRollup</h1>
+<h2 id="what-happens">What Happens</h2>
+<p>When bead-chain's ready queue finally drains (no claimable child bead left, even after the gate probe), it runs <strong>one</strong> courtesy sweep that auto-closes any epic whose children are now all complete. It does this exactly once per session — deliberately <em>not</em> after every individual child close — because <code>bd epic close-eligible</code> runs a server-side cascade (closing A's last child makes A eligible, which can make A's parent B eligible, and so on) that, if fired per-bead, can sweep up unrelated epics. Before letting <code>bd</code> cascade, the sweep <strong>previews</strong> the eligible set with a non-destructive <code>--dry-run</code> and partitions it: if any candidate is a recurring molecule epic (a poured <code>patrol</code>), it bypasses the bulk cascade and closes only the safe, non-recurring epics one at a time, leaving recurring epics open for re-pour. Every step soft-fails — a flaky/old/missing <code>bd epic</code> logs a warning and the chain still ends cleanly, because rollup is cleanup, not bead-chain's core mission.</p>
+<h2 id="trigger">Trigger</h2>
+<p><code>lifecycle.rollup_completed_epics()</code> (<code>lifecycle.py:322</code>) is called from exactly one site: the <strong>drain pass</strong> inside <code>lifecycle.activate_next_bead</code> (<code>lifecycle.py:617</code>). That branch is reached only when <code>pick_next_bead</code> returns <code>None</code> <em>twice</em> — once on the first probe, and again after <code>probe_resolved_gates()</code> failed to re-open any gate target — i.e. there is genuinely no ready work and no gate about to release some. The per-bead rollup that used to live in <code>register_callbacks._on_interactive_turn_end</code> (<code>register_callbacks.py:336</code>) was deliberately removed (the <code>bead_chain-tfn</code> fix); that call site now only documents <em>why</em> rollup is session-scoped and defers to <code>activate_next_bead</code>.</p>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>A <strong>drain is not a session boundary</strong> for durability. This flow closes epics but never pushes/pulls/exports bead state — <code>bd dolt push</code> lives in session-close, not here (see <a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a> and <a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a>). The only mutation this flow performs is closing eligible epics.</p></div>
+<h2 id="outcome">Outcome</h2>
+<p>Zero or more epics transition to closed in the bd database, each announced with an <code>epic &lt;id&gt; rolled up (all children complete)</code> success line (the live source string is emoji-prefixed; emojis are omitted here per project convention). The function returns <code>None</code> (it is a side-effecting cleanup, not a value producer); the drain pass then emits the final <code>no more ready beads … Good boy!</code> line, calls <code>state.stop()</code>, and returns <code>None</code> to end the chain. No child beads, no <code>current_bead</code>, and no source files are touched — only epic <em>containers</em> get closed. Recurring (<code>patrol</code>) epics are intentionally left open.</p>
+<pre class="mermaid">
+flowchart TD
+    Drain([activate_next_bead: bd ready empty&lt;br/&gt;+ no gate resolved]) --&gt; Roll[rollup_completed_epics&lt;br/&gt;lifecycle.py:322]
+    Roll --&gt; Call[close_eligible_epics&lt;br/&gt;beads.py:786]
+    Call --&gt; Preview[_preview_close_eligible&lt;br/&gt;bd epic close-eligible --dry-run --json]
+    Preview --&gt; Parse1[_parse_close_eligible_payload&lt;br/&gt;-&gt; list of epic dicts]
+    Parse1 --&gt; Any{any candidate&lt;br/&gt;is_recurring_epic?}
+    Any --&gt;|No — fast path| Bulk[_bulk_close_eligible&lt;br/&gt;bd epic close-eligible --json]
+    Bulk --&gt; Parse2[_parse_close_eligible_payload&lt;br/&gt;-&gt; closed epic dicts]
+    Any --&gt;|Yes — protect patrol| NonRec[_close_non_recurring&lt;br/&gt;loop candidates]
+    NonRec --&gt; Skip{is_recurring_epic?}
+    Skip --&gt;|Yes| Leave[skip — leave epic open for re-pour]
+    Skip --&gt;|No| Close1[close epic_id, reason=...&lt;br/&gt;beads.py:757]
+    Close1 --&gt; Append[append to closed list]
+    Leave --&gt; NonRecDone[return closed list]
+    Append --&gt; NonRecDone
+    Parse2 --&gt; RetClosed([return closed: list of epic dicts])
+    NonRecDone --&gt; RetClosed
+    RetClosed --&gt; Log[for each: emit_success epic id rolled up]
+    Log --&gt; Stop[drain pass: emit 'no more ready beads' -&gt; state.stop]
+</pre>
+<h2 id="step-by-step">Step-by-Step</h2>
+<table><thead><tr>
+<th>#</th>
+<th>What</th>
+<th>Where (file:symbol)</th>
+<th>Failure mode</th>
+</tr></thead><tbody>
+<tr>
+<td>1</td>
+<td>Reach the drain branch: <code>pick_next_bead</code> returned <code>None</code>, <code>probe_resolved_gates()</code> re-opened nothing, second <code>pick_next_bead</code> still <code>None</code></td>
+<td><code>lifecycle.py:activate_next_bead</code></td>
+<td><code>bd ready</code> raising <code>BeadsError</code> short-circuits earlier with a "bd ready failed" warning + <code>state.stop()</code> — rollup is never reached</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Invoke the once-per-session rollup</td>
+<td><code>lifecycle.py:rollup_completed_epics</code> → <code>beads.close_eligible_epics</code></td>
+<td>Any <code>BeadsError</code> from the close path is caught here → <code>emit_warning("bead-chain: epic rollup failed (continuing)")</code> and <code>return</code> (chain still ends cleanly)</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Preview the eligible set non-destructively</td>
+<td><code>beads.py:close_eligible_epics</code> → <code>beads.py:_preview_close_eligible</code> → <code>_run_bd("epic","close-eligible","--dry-run","--json")</code></td>
+<td>Empty / non-JSON output → <code>_parse_close_eligible_payload</code> returns <code>[]</code> (nothing to close); real infra failure (bd missing, non-zero exit) raises <code>BeadsError</code>, caught at step 2</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Normalise the dry-run payload into epic dicts (so <code>labels</code> are visible)</td>
+<td><code>beads.py:_parse_close_eligible_payload</code> (<code>_is_closed_epic</code>, <code>_normalise_closed_epic</code>)</td>
+<td>Unrecognised JSON shape → <code>[]</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>Decide path: is <strong>any</strong> candidate a recurring molecule epic?</td>
+<td><code>beads.py:close_eligible_epics</code> → <code>beads.py:is_recurring_epic</code></td>
+<td><code>is_recurring_epic</code> treats non-dict/missing markers as <em>not recurring</em> (safe default — an ordinary epic still rolls up)</td>
+</tr>
+<tr>
+<td>6a</td>
+<td><strong>Fast path</strong> (no recurring epic): run bd's native one-shot cascade</td>
+<td><code>beads.py:_bulk_close_eligible</code> → <code>_run_bd("epic","close-eligible","--json")</code> → <code>_parse_close_eligible_payload</code></td>
+<td>Unparseable-but-successful output → <code>[]</code> (rollup <em>still happened</em>, just unlogged); real failure raises <code>BeadsError</code></td>
+</tr>
+<tr>
+<td>6b</td>
+<td><strong>Protect path</strong> (≥1 recurring epic): close each non-recurring candidate individually, skip recurring ones</td>
+<td><code>beads.py:_close_non_recurring</code> → <code>beads.py:close</code> (<code>reason="all children complete (bead-chain rollup)"</code>)</td>
+<td>Per-epic <code>BeadsError</code> is swallowed (<code>continue</code>) so one stubborn epic can't strand the rest; the next session retries it</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Log every closed epic</td>
+<td><code>lifecycle.py:rollup_completed_epics</code> (<code>emit_success</code>)</td>
+<td>None — pure formatting of <code>id</code> / <code>title</code> (<code>&lt;unknown&gt;</code> / empty-title fallbacks)</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Emit the drain-complete line and stop the chain</td>
+<td><code>lifecycle.py:activate_next_bead</code> (<code>emit_success</code>, <code>state.stop</code>)</td>
+<td>None</td>
+</tr>
+</tbody></table>
+<h2 id="data-transformations">Data Transformations</h2>
+<p>The whole flow consumes bd's <code>epic close-eligible</code> JSON and produces a list of closed-epic dicts plus log lines. The hops:</p>
+<ul>
+<li>**<code>bd epic close-eligible --dry-run --json</code> → candidate epic dicts.** bd emits a list of <code>{"epic": {…full record incl labels…}, "eligible_for_close": true}</code> envelopes. <code>_normalise_closed_epic</code> unwraps each nested <code>epic</code> key so <code>is_recurring_epic</code> can read the inner <code>labels</code> / <code>metadata</code> / <code>mol_type</code> fields.</li>
+<li><strong>candidate dict → recurrence verdict.</strong> <code>is_recurring_epic(epic)</code> inspects three signals: the forward-compat <code>mol_type</code> / <code>mol-type</code> / <code>molecule_type</code> field (top-level <em>and</em> nested under <code>metadata</code>) against <code>RECURRING_MOL_TYPES = ("patrol",)</code>, and the epic's <code>labels</code> list (lowercased) against <code>RECURRING_EPIC_LABELS = ("patrol", "mol-type:patrol", "recurring")</code>. Either positive signal → <code>True</code> (protect); otherwise <code>False</code>.</li>
+<li>**fast path: <code>bd epic close-eligible --json</code> → closed epic dicts.** Several shapes are tolerated and flattened by <code>_parse_close_eligible_payload</code>:</li>
+<li>bd 1.0.4 wraps bare string ids: <code>{"closed": ["abc-1","abc-2"], "count": 2}</code> → each id normalised to <code>{"id": "abc-1"}</code>.</li>
+<li>older bd: a bare top-level <code>list</code> of epic dicts.</li>
+<li>alt envelope: <code>{"epics": [...]}</code>.</li>
+<li>per-item envelope: <code>{"epic": {...}}</code> → unwrapped to the inner dict.</li>
+<li><strong>protect path: candidate list → close calls.</strong> For each non-recurring candidate, <code>str(epic.get("id","")).strip()</code> yields the id passed to <code>close(epic_id, reason="all children complete (bead-chain rollup)")</code>, which shells out <code>bd close &lt;id&gt; --reason &lt;reason&gt;</code>.</li>
+<li><strong>closed list → log lines.</strong> Each closed epic's <code>id</code> (<code>str(epic.get("id","&lt;unknown&gt;"))</code>) and <code>title</code> (<code>str(epic.get("title","")).strip()</code>) render <code>epic &lt;id&gt; rolled up (all children complete) — &lt;title&gt;</code> (the <code>— &lt;title&gt;</code> suffix is dropped when the title is empty).</li>
+</ul>
+<pre><code class="language-json">{
+  "epic": {
+    "id": "bead_chain-mol-bps",
+    "title": "FlowDoc maintainer: discover &amp; scaffold",
+    "issue_type": "epic",
+    "labels": ["docs", "flowdoc"]
+  },
+  "eligible_for_close": true
+}</code></pre>
+<pre><code class="language-json">{ "closed": ["bead_chain-mol-bps", "bead_chain-2p3"], "count": 2 }</code></pre>
+<h2 id="performance-characteristics">Performance Characteristics</h2>
+<ul>
+<li><strong>Synchronous, in-process, once per session.</strong> The sweep runs on the calling thread inside the drain branch of <code>activate_next_bead</code>, exactly once per chain run (never per-bead). There is no async or threading.</li>
+<li>**Bounded <code>bd</code> subprocess round-trips.** Always one <code>epic close-eligible --dry-run</code> (the preview). Then <strong>either</strong> one <code>epic close-eligible</code> (fast path) <strong>or</strong> <em>N</em> <code>close</code> calls — one per non-recurring eligible epic (protect path). In the common case (nothing recurring) the whole flow is <strong>2</strong> bd spawns: dry-run + bulk close. Every spawn goes through the single chokepoint <code>beads.py:_run_bd</code> and carries its retry/timeout policy (<code>DEFAULT_TIMEOUT = 30.0</code>, <code>MAX_ATTEMPTS = 3</code>) — see <a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a>.</li>
+<li><strong>The cascade lives server-side.</strong> The fast path's single <code>bd epic close-eligible</code> does bd's full parent-chain cascade in one call, so a deep epic→parent→grandparent chain rolls up without bead-chain looping.</li>
+<li><strong>No N+1 in the common case.</strong> Only the protect path is O(N) in eligible epics, and it is taken solely when a recurring epic is present — the price of not trusting bd's bulk cascade not to sweep the patrol epic.</li>
+</ul>
+<h2 id="failure-handling">Failure Handling</h2>
+<ul>
+<li><strong>Soft-fail at the lifecycle boundary.</strong> <code>rollup_completed_epics</code> wraps the entire close path in <code>try/except BeadsError</code>; any infra failure (bd missing, non-zero exit, timeout exhausted) is logged as a warning and swallowed so the drain still finishes and <code>state.stop()</code> runs. Rollup is courtesy cleanup, not the core mission.</li>
+<li><strong>Silent-success on unparseable output.</strong> <code>_parse_close_eligible_payload</code> returns <code>[]</code> for empty / non-JSON / unexpected-shape payloads rather than raising — an older bd that prints non-JSON even under <code>--json</code> <em>did</em> still run the rollup; we just can't enumerate what closed, which only means quieter logs.</li>
+<li><strong>Per-epic isolation on the protect path.</strong> <code>_close_non_recurring</code> catches <code>BeadsError</code> per epic and <code>continue</code>s, so one stubborn epic can't strand the rest of the rollup; the next session's pass retries it.</li>
+<li><strong>No retries here; no compensation.</strong> Transient-timeout retries live one layer down in <code>_run_bd</code>. There is nothing to roll back — closing an epic is the terminal cleanup; a failed close simply means the epic stays open for the next session to retry.</li>
+<li><strong>Recurring epics are never closed.</strong> Detected by <code>is_recurring_epic</code> and skipped on the protect path; on the fast path the protect path is taken <em>instead of</em> the bulk cascade precisely so a <code>patrol</code> epic is never swept up (see <a href="../Concepts/RecurringMoleculeProtection.html">RecurringMoleculeProtection</a>).</li>
+</ul>
+<h2 id="key-log-messages">Key Log Messages</h2>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>The live source log strings are emoji-prefixed (e.g. a target emoji on the rollup lines, an hourglass on the gate line). Emojis are omitted from this doc per the project's no-emoji-in-writes convention; the text after the prefix is verbatim.</p></div>
+<table><thead><tr>
+<th>Log line</th>
+<th>Where</th>
+<th>Means</th>
+</tr></thead><tbody>
+<tr>
+<td><code>epic &lt;id&gt; rolled up (all children complete) — &lt;title&gt;</code></td>
+<td><code>lifecycle.py:rollup_completed_epics</code> (<code>emit_success</code>)</td>
+<td>An eligible epic was closed (suffix <code>— &lt;title&gt;</code> omitted when the epic has no title).</td>
+</tr>
+<tr>
+<td><code>bead-chain: epic rollup failed (continuing): &lt;exc&gt;</code></td>
+<td><code>lifecycle.py:rollup_completed_epics</code> (<code>emit_warning</code>)</td>
+<td><code>close_eligible_epics</code> raised <code>BeadsError</code>; the rollup was skipped but the chain ends cleanly.</td>
+</tr>
+<tr>
+<td><code>bead-chain: no more ready beads. Closed &lt;n&gt; this run. Good boy!</code></td>
+<td><code>lifecycle.py:activate_next_bead</code> (<code>emit_success</code>)</td>
+<td>The drain pass completed (rollup ran, then the chain stopped).</td>
+</tr>
+<tr>
+<td><code>&lt;n&gt; gate(s) resolved on the empty-queue probe …</code></td>
+<td><code>lifecycle.py:probe_resolved_gates</code> (<code>emit_success</code>)</td>
+<td>A gate re-opened a target <em>before</em> this rollup ran, so the chain re-probed <code>bd ready</code> and did <strong>not</strong> reach the rollup this pass.</td>
+</tr>
+</tbody></table>
+<h2 id="common-issues">Common Issues</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>A <code>patrol</code> epic got auto-closed</td>
+<td>The epic carries none of the recurrence markers <code>is_recurring_epic</code> checks (no <code>patrol</code>/<code>recurring</code> label, no <code>mol_type</code> field)</td>
+<td>Tag the poured molecule's epic with a <code>patrol</code> (or <code>recurring</code> / <code>mol-type:patrol</code>) label — that's the contract that fires today, since bd 1.0.x doesn't surface <code>mol_type</code> on <code>epic close-eligible --json</code>.</td>
+</tr>
+<tr>
+<td>Eligible epics didn't close this session</td>
+<td><code>bd epic close-eligible</code> errored (caught → warning), or returned unparseable output (<code>[]</code>), or the queue never actually drained</td>
+<td>Confirm <code>bd epic close-eligible --dry-run --json</code> returns valid JSON; the rollup only runs on a genuinely empty queue after the gate probe, and a parse failure is treated as silent success.</td>
+</tr>
+<tr>
+<td>A parent epic closed one session later than expected</td>
+<td>Per <code>bead_chain-tfn</code>, rollup is once-per-session; bd's cascade is limited to a single pass to avoid sweeping unrelated epics</td>
+<td>Expected trade-off (data safety over single-pass cascade). The next session's drain rolls up the newly-eligible parent.</td>
+</tr>
+<tr>
+<td>Rollup logged success but no epic shows closed</td>
+<td>Unparseable-but-successful bd output → the close happened, the enumeration didn't</td>
+<td>Verify with <code>bd show &lt;epic_id&gt;</code>; the empty return is a deliberate degrade, not a failed close.</td>
+</tr>
+<tr>
+<td>One epic in a batch stayed open while others closed</td>
+<td>That epic's individual <code>close</code> raised <code>BeadsError</code> on the protect path and was swallowed per-epic</td>
+<td>Inspect that epic (<code>bd show &lt;id&gt;</code>); the next session's rollup retries it.</td>
+</tr>
+</tbody></table>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Features/EpicRollup.html">EpicRollup</a> — the user-facing feature this flow implements.</li>
+<li><a href="ChainIterationLoop.html">ChainIterationLoop</a> — the outer loop whose drain pass triggers this flow.</li>
+<li><a href="NextBeadSelectionWaterfall.html">NextBeadSelectionWaterfall</a> — returns <code>None</code> (empty queue), the precondition that hands control to this rollup.</li>
+<li><a href="StrandedBeadRecovery.html">StrandedBeadRecovery</a> — tier 0 of that same waterfall; both are consulted before the drain pass reaches this rollup.</li>
+<li><a href="../Concepts/RecurringMoleculeProtection.html">RecurringMoleculeProtection</a> — the preview-then-partition guard that keeps <code>patrol</code> epics open.</li>
+<li><a href="../Concepts/ContainerTypeExclusion.html">ContainerTypeExclusion</a> — why epics are containers bead-chain closes here but never <em>drives</em> as work.</li>
+<li><a href="../Concepts/SessionCloseDurability.html">SessionCloseDurability</a> — why this drain-time flow closes epics but never pushes bead state.</li>
+<li><a href="../Concepts/QueueDriverNotGoalEngine.html">QueueDriverNotGoalEngine</a> — the SRP boundary: a drain is not a session boundary.</li>
+<li><a href="../Concepts/BdSubprocessTransport.html">BdSubprocessTransport</a> — the transport behind the <code>epic close-eligible</code> / <code>close</code> spawns.</li>
+<li><a href="../Concepts/ChainStateSingleton.html">ChainStateSingleton</a> — holds <code>completed_count</code> reported in the drain line and the <code>active</code> flag flipped by <code>state.stop()</code> at the end of this flow.</li>
+<li><a href="../Features/BeadChaining.html">BeadChaining</a> — the queue driver whose drain pass triggers this once-per-session rollup.</li>
+<li><a href="BeadClaimAndBlockerRecheck.html">BeadClaimAndBlockerRecheck</a> — the activation gauntlet whose <code>None</code> (empty queue) result hands control to this drain.</li>
+<li><a href="index.html">Flows Index</a></li>
+<li><a href="../Architecture.html">Architecture</a></li>
+<li>FlowDoc Manifest</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>
