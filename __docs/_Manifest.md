@@ -11,8 +11,8 @@ it finishes its item, ticks the box `[x]` and bumps the counters below.
 ## Progress
 
 - **Total:** 22
-- **Done:** 10
-- **Remaining:** 12
+- **Done:** 11
+- **Remaining:** 11
 
 ---
 
@@ -32,7 +32,7 @@ it finishes its item, ticks the box `[x]` and bumps the counters below.
 
 - [ ] 010 | Flow: ChainIterationLoop -> [ChainIterationLoop](Flows/ChainIterationLoop.md)
 - [ ] 011 | Flow: NextBeadSelectionWaterfall -> [NextBeadSelectionWaterfall](Flows/NextBeadSelectionWaterfall.md)
-- [ ] 012 | Flow: BeadClaimAndBlockerRecheck -> [BeadClaimAndBlockerRecheck](Flows/BeadClaimAndBlockerRecheck.md)
+- [x] 012 | Flow: BeadClaimAndBlockerRecheck -> [BeadClaimAndBlockerRecheck](Flows/BeadClaimAndBlockerRecheck.md)
 - [x] 013 | Flow: StrandedBeadRecovery -> [StrandedBeadRecovery](Flows/StrandedBeadRecovery.md)
 - [x] 014 | Flow: SessionEndEpicRollup -> [SessionEndEpicRollup](Flows/SessionEndEpicRollup.md)
 - [x] 015 | Flow: GoalPromptConstruction -> [GoalPromptConstruction](Flows/GoalPromptConstruction.md)
