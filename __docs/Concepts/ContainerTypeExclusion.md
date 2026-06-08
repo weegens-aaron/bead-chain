@@ -136,6 +136,8 @@ container.
   every tier of the picker filters containers out via this concept.
 - [Bead Claim And Blocker Recheck](../Flows/BeadClaimAndBlockerRecheck.md) — the
   activation boundary re-asserts the invariant here before claiming.
+- [RecoveryMode](../Features/RecoveryMode.md) — relies on epics being filtered
+  out of the recoverable strand set.
 - [Stranded Bead Recovery](../Flows/StrandedBeadRecovery.md) — the recovery
   query (`list_recoverable_strands`) excludes containers too, so a stranded epic
   is reverted rather than re-driven.

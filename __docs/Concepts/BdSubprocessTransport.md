@@ -178,6 +178,8 @@ to `bd` any other way:
   `next_in_progress` queries are all transport reads.
 - [BeadClaimAndBlockerRecheck](../Flows/BeadClaimAndBlockerRecheck.md) —
   `claim`, `open_blocker_ids`, and `revert_to_open` are transport calls.
+- [RecoveryMode](../Features/RecoveryMode.md) — its `bd list` / `bd show` /
+  `bd update` recovery spawns all ride this transport.
 - [StrandedBeadRecovery](../Flows/StrandedBeadRecovery.md) —
   `list_recoverable_strands` and `revert_to_open` ride the transport.
 - [SessionEndEpicRollup](../Flows/SessionEndEpicRollup.md) —

@@ -300,6 +300,8 @@ the continuation dict above (new bead).
 - [BeadClaimAndBlockerRecheck](BeadClaimAndBlockerRecheck.md) — the activation
   gauntlet (claim, blocker/fan-out recheck, epic claim, hint application, wiggum
   arming) that runs inside both the engage and iterate phases of this loop.
+- [RecoveryMode](../Features/RecoveryMode.md) — the feature the cancel path
+  feeds: a stranded bead is recovered on the next run.
 - [StrandedBeadRecovery](StrandedBeadRecovery.md) — what happens to the
   in-flight bead when this loop is cancelled or a close fails; how the next run
   resumes it.

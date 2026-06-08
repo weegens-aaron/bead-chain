@@ -254,6 +254,8 @@ Run the whole suite with `pytest -q` (245 tests).
   `format_bead_as_goal` appends this protocol and selects the preamble.
 - [GoalPromptConstruction](../Flows/GoalPromptConstruction.md) — the flow that
   narrates, step by step, where the protocol and triage preamble are spliced in.
+- [RecoveryMode](RecoveryMode.md) — its recovery preamble wins precedence over
+  this protocol's triage-verify preamble when a bead is both.
 - [StrandedBeadRecovery](../Flows/StrandedBeadRecovery.md) — the recovery path
   whose preamble *wins* over the triage preamble when a bug is also stranded.
 - [QueueDriverNotGoalEngine](../Concepts/QueueDriverNotGoalEngine.md) — the SRP

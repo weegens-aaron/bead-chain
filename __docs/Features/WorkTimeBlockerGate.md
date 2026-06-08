@@ -224,6 +224,8 @@ Run the whole suite with `pytest -q`.
 - [NextBeadSelectionWaterfall](../Flows/NextBeadSelectionWaterfall.md) — the
   four-tier picker whose tier-0 strand revert and tiers 1-3 `_reject_if_blocked`
   recheck enforce this gate.
+- [RecoveryMode](RecoveryMode.md) — the feature whose blocked-strand revert
+  path is one of this gate's enforcement sites.
 - [StrandedBeadRecovery](../Flows/StrandedBeadRecovery.md) — tier 0 in depth:
   how `_unblocked_strands` reverts+drops a blocked stranded bead instead of
   re-driving it.

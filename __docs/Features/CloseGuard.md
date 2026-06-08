@@ -296,6 +296,8 @@ should remain open until the judges sign off.
 - [ContainerTypeExclusion](../Concepts/ContainerTypeExclusion.md) — keeping
   containers off `bd ready` prevents the un-closable-bead stall that CloseGuard
   would otherwise have to turn into a halt.
+- [RecoveryMode](RecoveryMode.md) — the close-time guard backstops a recovered
+  bead until the LLM judges grade it.
 - [NextBeadSelectionWaterfall](../Flows/NextBeadSelectionWaterfall.md) — names
   the close-time guard (`close_guard.py`) as the final backstop when a blocked
   bead slips through selection.

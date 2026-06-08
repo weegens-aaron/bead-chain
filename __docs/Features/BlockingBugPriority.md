@@ -253,6 +253,8 @@ and call `beads.next_blocking_bug()` — it should return the dict; flip
   dependent this feature escalates on.
 - [NextBeadSelectionWaterfall](../Flows/NextBeadSelectionWaterfall.md) — the
   full four-tier waterfall this feature is tier 1 of, narrated step by step.
+- [RecoveryMode](RecoveryMode.md) — tier 0, which outranks this tier-1
+  blocking-bug priority.
 - [StrandedBeadRecovery](../Flows/StrandedBeadRecovery.md) — tier 0, which
   always outranks blocking-bug escalation (recovery beats every other rule).
 - [ContainerTypeExclusion](../Concepts/ContainerTypeExclusion.md) — why

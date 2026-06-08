@@ -272,6 +272,8 @@ claim, hint application, and `/goal` arming happen downstream in
 - [BeadClaimAndBlockerRecheck](BeadClaimAndBlockerRecheck.md) — the activation
   gauntlet that claims and arms the single candidate this waterfall returns;
   shares `open_blocker_ids` / `revert_to_open` / `is_excluded_type`.
+- [RecoveryMode](../Features/RecoveryMode.md) — the user-facing feature whose
+  tier-0 behaviour this waterfall implements.
 - [StrandedBeadRecovery](StrandedBeadRecovery.md) — tier 0 in depth: how
   `_unblocked_strands` / `list_recoverable_strands` find and revert strands.
 - [ChainIterationLoop](ChainIterationLoop.md) — the outer loop that closes the
