@@ -1,6 +1,7 @@
 {
   "formula": "flowdoc-html",
   "version": 1,
+  "phase": "liquid",
   "type": "workflow",
   "pour": true,
   "description": "Build the static HTML documentation site(s) from the FlowDoc markdown using the \nmd-to-html skill. Converts __docs/ -> docs/maintainer/ and/or _docs/ -> \ndocs/user/. Standalone capability (the old DocsToHTML / HTMLSiteBuild flow); \npour it after a generate or maintain pass. The md-to-html skill is PREFERRED but \nOPTIONAL: the build step resolves it from several locations and, if it is not \nvendored in the target repo, falls back to an explicit portable build contract \nso the site still builds faithfully. Run via 'bd mol pour flowdoc-html \n--var target=both|maintainer|user'.\nAfter the build child, a validate child (depends_on build) scores the rebuilt site against the build contract + rubric.\n",
@@ -27,11 +28,7 @@
       "id": "build",
       "type": "task",
       "priority": 2,
-      "parent": "root",
       "title": "FlowDoc: convert markdown docs to the static HTML site ({{target}})",
-      "skills": [
-        "md-to-html"
-      ],
       "labels": [
         "flowdoc",
         "docs",
@@ -43,7 +40,6 @@
       "id": "validate",
       "type": "task",
       "priority": 2,
-      "parent": "root",
       "depends_on": [
         "build"
       ],

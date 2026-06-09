@@ -2,6 +2,7 @@
   "formula": "code-health-audit",
   "description": "Code-health audit for the bead_chain code-puppy plugin (pure-Python: beads.py, lifecycle.py, prompt.py, register_callbacks.py, close_guard.py, state.py). This repo has NO CI, NO .github/ workflows, and NO dependency manifest, so each child RUNS its tool locally and triages the output. File one bead per finding via the Bug Discovery Protocol; do NOT fix inline unless blocking. Run via 'bd mol pour code-health-audit'.",
   "version": 2,
+  "phase": "liquid",
   "type": "workflow",
   "pour": true,
   "steps": [
@@ -25,8 +26,7 @@
       "labels": [
         "code-health",
         "lint"
-      ],
-      "parent": "audit-root"
+      ]
     },
     {
       "id": "dry-triage",
@@ -37,8 +37,7 @@
       "labels": [
         "code-health",
         "DRY"
-      ],
-      "parent": "audit-root"
+      ]
     },
     {
       "id": "solid-review",
@@ -49,8 +48,7 @@
       "labels": [
         "code-health",
         "SOLID"
-      ],
-      "parent": "audit-root"
+      ]
     },
     {
       "id": "dead-code-triage",
@@ -61,8 +59,7 @@
       "labels": [
         "code-health",
         "dead-code"
-      ],
-      "parent": "audit-root"
+      ]
     }
   ]
 }

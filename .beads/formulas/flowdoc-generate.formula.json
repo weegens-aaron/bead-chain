@@ -1,6 +1,7 @@
 {
   "formula": "flowdoc-generate",
   "version": 1,
+  "phase": "liquid",
   "type": "workflow",
   "pour": true,
   "description": "Generate feature/flow documentation for a repo from scratch, FlowDoc-style (document what the code DOES, not a file inventory). Spawns: root epic -> a single discover spawner -> one doc bead per manifest item (created at runtime) -> a finalize bead gated on all the discovered docs -> a validate bead (depends_on finalize) that scores the generated docs against the authoring contract. Replaces the flowdoc / flowdoc-user agent-loop. Template/section/naming fidelity is carried by the inlined _FlowDocGuide.md the discover step authors (there is no external 'flowdoc' skill). The maintainer edition documents code structure (Features/Flows/Endpoints/Views/Concepts); the user edition organizes docs by the Diataxis framework (Getting-Started/Guides/Tutorials/Reference/Concepts), follows task-oriented writing rules, and never exposes code, file paths, or internal URLs. Pour with --var audience=maintainer (default) or --var audience=user. Run via 'bd mol pour flowdoc-generate --var audience=...'.\n",
@@ -27,7 +28,6 @@
       "id": "discover",
       "type": "task",
       "priority": 1,
-      "parent": "root",
       "title": "FlowDoc {{audience}}: discover & scaffold, then spawn one bead per doc",
       "labels": [
         "flowdoc",
@@ -40,7 +40,6 @@
       "id": "finalize",
       "type": "task",
       "priority": 3,
-      "parent": "root",
       "title": "FlowDoc {{audience}}: finalize docs (troubleshooting, indexes, links)",
       "waits_for": "children-of(discover)",
       "labels": [
@@ -54,7 +53,6 @@
       "id": "validate",
       "type": "task",
       "priority": 1,
-      "parent": "root",
       "depends_on": [
         "finalize"
       ],

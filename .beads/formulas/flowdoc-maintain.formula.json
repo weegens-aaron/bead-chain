@@ -1,6 +1,7 @@
 {
   "formula": "flowdoc-maintain",
   "version": 1,
+  "phase": "liquid",
   "type": "workflow",
   "pour": true,
   "description": "Audit existing FlowDoc documentation for drift and apply fixes, one item per \nloop/judge cycle. Spawns: root epic -> a single audit spawner (detect drift, \nscore by impact, write _UpdateQueue.md) -> one bead per queue item created at \nruntime (UPDATE / NEW / REMOVE / VERIFY / LEAKAGE) -> a finalize bead gated on \nall of them that archives the queue into _AuditLog.md, then a validate bead \n(depends_on finalize) that scores the maintained docs against the authoring \ncontract. Replaces the \nflowdoc-maintainer / flowdoc-user-maintainer agent-loop. Requires the matching \nDOCS_DIR/_Manifest.md already exists (run flowdoc-generate first). Run via \n'bd mol pour flowdoc-maintain --var audience=maintainer|user'.\n",
@@ -27,7 +28,6 @@
       "id": "audit",
       "type": "task",
       "priority": 1,
-      "parent": "root",
       "title": "FlowDoc {{audience}}: audit for drift, then spawn one fix bead per finding",
       "labels": [
         "flowdoc",
@@ -40,7 +40,6 @@
       "id": "finalize",
       "type": "task",
       "priority": 3,
-      "parent": "root",
       "title": "FlowDoc {{audience}}: finalize maintenance (archive queue to audit log)",
       "waits_for": "children-of(audit)",
       "labels": [
@@ -54,7 +53,6 @@
       "id": "validate",
       "type": "task",
       "priority": 1,
-      "parent": "root",
       "depends_on": [
         "finalize"
       ],
