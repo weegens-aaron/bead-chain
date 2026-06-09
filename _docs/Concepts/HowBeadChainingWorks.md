@@ -234,6 +234,8 @@ bead-chain is aware of this hierarchy:
 - [How to Handle Bugs Discovered During Work](../Guides/HandleBugsDuringWork.md)
   — what happens when the agent spots an unrelated bug during the "drive" phase
   and how filed bugs feed back into the chain.
+- [How to Run a Capped Session](../Guides/RunACappedSession.md) — limit how
+  many tasks process in one run using `--max=N`.
 - [Status Messages](../Reference/StatusMessages.md) — what every emoji-prefixed
   message means and what to do when you see it.
 - [Configuration](../Reference/Configuration.md) — environment variables,

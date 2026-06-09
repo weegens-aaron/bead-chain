@@ -191,6 +191,8 @@ If bead-chain refuses a bead because of its type, you'll see a refusal message i
 - [Installation](../GettingStarted/Installation.md) — download and set up
   the plugin; covers setting `BEADS_BIN` as a prerequisite.
 - [Overview](../Overview.md) — bead-chain at a glance.
+- [How to Run a Capped Session](../Guides/RunACappedSession.md) — using the
+  `--max` flag to limit how many tasks process in a single run.
 
 ---
 

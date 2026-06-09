@@ -277,6 +277,9 @@ respects a deliberate pin.
   filed bugs feed into tier 1 priority routing.
 - [Overview](../Overview.md) — bead-chain at a glance, including the "smart
   task ordering" feature that this document details.
+- [How to Run a Capped Session](../Guides/RunACappedSession.md) — using
+  `--max=N` to cap the number of tasks the selection waterfall processes in one
+  run.
 
 ---
 

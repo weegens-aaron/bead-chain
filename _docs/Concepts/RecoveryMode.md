@@ -180,6 +180,8 @@ won't override a deliberate pin.
   what to do.
 - [How to Resume After an Interruption](../Guides/ResumeAfterInterruption.md)
   — step-by-step instructions for what to do when a run is cut short.
+- [How to Run a Capped Session](../Guides/RunACappedSession.md) — using
+  `--max=N` to stop the chain at a planned point instead of pressing Ctrl+C.
 - [How to Upgrade or Uninstall bead-chain](../Guides/UpgradeOrUninstall.md)
   — upgrading after an interrupted run; Recovery Mode picks up the stranded
   task automatically after the restart.

@@ -177,6 +177,8 @@ to do.
   when using these commands.
 - [How to Handle Bugs Discovered During Work](../Guides/HandleBugsDuringWork.md)
   — what happens when the agent finds an unrelated bug mid-task.
+- [How to Run a Capped Session](../Guides/RunACappedSession.md) — step-by-step
+  guide to using `--max=N` for bounded, predictable runs.
 - [Installation](../GettingStarted/Installation.md) — download and set up
   the plugin.
 - [Overview](../Overview.md) — bead-chain at a glance.

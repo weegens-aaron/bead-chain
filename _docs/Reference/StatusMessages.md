@@ -256,6 +256,9 @@ flowchart TD
 - [Overview](../Overview.md) — bead-chain at a glance.
 - [Configuration](Configuration.md) — environment variables, timeout/retry
   defaults, and excluded container types.
+- [How to Run a Capped Session](../Guides/RunACappedSession.md) — the
+  step-by-step guide for using `--max=N`, which produces the cap-reached
+  message documented above.
 
 ---
 
