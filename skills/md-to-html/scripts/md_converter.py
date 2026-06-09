@@ -19,17 +19,47 @@ def _escape(text: str) -> str:
     return html.escape(text, quote=False)
 
 
+def slugify(text: str) -> str:
+    """Convert heading text to a URL-safe slug.
+
+    Decodes HTML entities first so emoji / special chars are stripped rather
+    than leaving their hex codes in the slug (e.g. ``&#x1F517;`` decodes to
+    a non-alphanumeric char that is then removed, instead of leaking
+    ``x1f517`` into the id).
+
+    This is the **single** slugifier used for heading ``id=`` attributes AND
+    for normalising ``#fragment`` links — using the same function for both
+    guarantees they always agree.
+    """
+    text = html.unescape(text)
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
 # ── Link rewriting ───────────────────────────────────────────────────────────
+
+
+def _normalize_fragment(fragment: str) -> str:
+    """Normalise a ``#fragment`` through the same slugifier used for heading ids.
+
+    Accepts either ``#some-slug`` or bare ``some-slug``; always returns with
+    the leading ``#``. Returns ``""`` for empty/blank input.
+    """
+    raw = fragment.lstrip("#")
+    if not raw:
+        return ""
+    return "#" + slugify(raw)
 
 
 def _rewrite_href_anchor(href: str, anchor_map: dict[str, str]) -> str:
     """Rewrite href using an anchor map (single-page mode)."""
-    if href.startswith(("http://", "https://", "mailto:", "#")):
+    if href.startswith(("http://", "https://", "mailto:")):
         return href
+    if href.startswith("#"):
+        return _normalize_fragment(href)
     fragment = ""
     if "#" in href:
         href, fragment = href.split("#", 1)
-        fragment = "#" + fragment
+        fragment = _normalize_fragment(fragment)
     if not href:
         return fragment
 
@@ -88,12 +118,14 @@ def _rewrite_href_multipage(
     files (e.g. ``_Manifest.md``) and out-of-site targets (``README.md``,
     ``AGENTS.md``, ADRs under ``notes/``). See bead_chain-w8w.
     """
-    if href.startswith(("http://", "https://", "mailto:", "#")):
+    if href.startswith(("http://", "https://", "mailto:")):
         return href
+    if href.startswith("#"):
+        return _normalize_fragment(href)
     anchor = ""
     if "#" in href:
         href, anchor = href.split("#", 1)
-        anchor = "#" + anchor
+        anchor = _normalize_fragment(anchor)
     if not href:
         return anchor
     if href.lower().endswith(".md"):
@@ -365,7 +397,7 @@ class MarkdownConverter:
     def _heading(self, hm: re.Match):
         level = len(hm.group(1))
         text = hm.group(2).strip()
-        slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+        slug = slugify(text)
         self.out.append(f'<h{level} id="{slug}">{self._inline(text)}</h{level}>')
         if level == 1 and not self.title:
             self.title = text

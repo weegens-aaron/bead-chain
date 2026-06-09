@@ -3,14 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The Close Guard — bead-chain User Docs</title>
+<title>The Close Guard — Bead Chain</title>
 <link rel="stylesheet" href="../style.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
-<div class="sidebar-title">bead-chain User Docs</div>
+<div class="sidebar-title">Bead Chain</div>
 <nav>
 <div class="nav-section">Overview</div>
 <a href="../index.html">Index</a>
@@ -42,7 +41,7 @@
 <a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
 </nav>
 </aside>
-<main id="main" class="content">
+<main class="content">
 <h1 id="the-close-guard">The Close Guard</h1>
 <h2 id="what-is-it">What Is It</h2>
 <p>The Close Guard is bead-chain's built-in safety rail that prevents the AI agent doing the work from also being the one who marks that work as done. While a chain is running, any attempt by the agent to close a task — whether by running <code>bd close</code> or by setting a task's status to closed — is silently blocked. The agent sees a reminder that it should keep working and let the independent judges make the call.</p>

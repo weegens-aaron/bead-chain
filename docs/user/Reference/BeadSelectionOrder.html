@@ -3,14 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bead Selection Order Reference — bead-chain User Docs</title>
+<title>Bead Selection Order Reference — Bead Chain</title>
 <link rel="stylesheet" href="../style.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
-<div class="sidebar-title">bead-chain User Docs</div>
+<div class="sidebar-title">Bead Chain</div>
 <nav>
 <div class="nav-section">Overview</div>
 <a href="../index.html">Index</a>
@@ -42,7 +41,7 @@
 <a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
 </nav>
 </aside>
-<main id="main" class="content">
+<main class="content">
 <h1 id="bead-selection-order-reference">Bead Selection Order Reference</h1>
 <h2 id="overview">Overview</h2>
 <p>When bead-chain finishes one task and moves to the next, it doesn't just grab whatever happens to be at the top of the queue. Instead, it follows a strict four-tier priority waterfall — checking each tier in order and taking the first match it finds. This ordering ensures that interrupted work is never forgotten, urgent blockers are resolved before they snowball, related tasks stay together for coherent output, and the general queue drains steadily when nothing else takes priority.</p>
@@ -58,25 +57,25 @@
 </tr></thead><tbody>
 <tr>
 <td><strong>0</strong></td>
-<td><a href="#tier-0--recovery">Recovery</a></td>
+<td><a href="#tier-0-recovery">Recovery</a></td>
 <td>Any task left in-progress from a previous interrupted run</td>
 <td>Unfinished work must be assessed before anything new begins — one task at a time, always</td>
 </tr>
 <tr>
 <td><strong>1</strong></td>
-<td><a href="#tier-1--blocking-bugs">Blocking Bug</a></td>
+<td><a href="#tier-1-blocking-bugs">Blocking Bug</a></td>
 <td>A ready bug that other tasks depend on</td>
 <td>Fixing it unblocks downstream work, so it always cuts the line</td>
 </tr>
 <tr>
 <td><strong>2</strong></td>
-<td><a href="#tier-2--epic-affinity">Epic Affinity</a></td>
+<td><a href="#tier-2-epic-affinity">Epic Affinity</a></td>
 <td>A ready sibling under the same parent epic as the just-completed task</td>
 <td>Finishing related work together produces coherent commits and focused output</td>
 </tr>
 <tr>
 <td><strong>3</strong></td>
-<td><a href="#tier-3--global-ready-queue">Global Queue</a></td>
+<td><a href="#tier-3-global-ready-queue">Global Queue</a></td>
 <td>Whatever <code>bd ready</code> returns next</td>
 <td>The general-purpose fallback when nothing higher-priority applies</td>
 </tr>

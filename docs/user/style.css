@@ -1,30 +1,5 @@
 /* docs-to-html: Clean & Minimal Documentation Theme */
 
-/* Skip-to-content link (WCAG 2.2 AA SC 2.4.1) */
-.skip-link {
-  position: absolute;
-  left: -9999px;
-  top: auto;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  z-index: 9999;
-  padding: 0.75rem 1.5rem;
-  background: #0071dc;
-  color: #fff;
-  font-weight: 600;
-  text-decoration: none;
-  border-radius: 0 0 4px 0;
-}
-.skip-link:focus {
-  position: fixed;
-  left: 0;
-  top: 0;
-  width: auto;
-  height: auto;
-  overflow: visible;
-}
-
 :root {
   --sidebar-w: 260px;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;

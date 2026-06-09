@@ -16,6 +16,8 @@ sys.path.insert(0, str(SCRIPTS))
 from md_converter import (  # noqa: E402
     MarkdownConverter,
     find_unconverted_links,
+    slugify,
+    _normalize_fragment,
 )
 
 
@@ -204,6 +206,109 @@ def test_find_unconverted_links_ignores_code_blocks():
 def test_find_unconverted_links_clean_html():
     html = '<p>All good <a href="x.html">here</a>.</p>'
     assert find_unconverted_links(html) == []
+
+
+# -- Slugify and fragment normalization (bead_chain-2gm) ---------------------
+# The heading-id slugifier and link-href slugifier must agree.  Two historical
+# failure modes: (a) em-dash in heading becomes double-dash in href but
+# single-dash in id; (b) HTML-entity emoji kept hex codes in id but stripped
+# in href.
+
+
+class TestSlugify:
+    """Unit tests for the shared slugify() function."""
+
+    def test_plain_heading(self):
+        assert slugify("Hello World") == "hello-world"
+
+    def test_em_dash_collapses(self):
+        """An em-dash surrounded by spaces becomes a single dash."""
+        assert slugify("Tier 0 \u2014 Recovery") == "tier-0-recovery"
+
+    def test_html_entity_emoji_stripped(self):
+        """HTML-entity emoji is decoded then stripped, leaving no hex leak."""
+        assert (
+            slugify("Chain Lifecycle Messages (&#x1F517;)")
+            == "chain-lifecycle-messages"
+        )
+
+    def test_multiple_html_entity_emoji(self):
+        assert (
+            slugify("Recovery Messages (&#x1F516; / &#x26A0;&#xFE0F;)")
+            == "recovery-messages"
+        )
+
+    def test_trailing_special_chars_stripped(self):
+        assert slugify("Hello World!") == "hello-world"
+
+    def test_already_slug(self):
+        """Running a well-formed slug through slugify is idempotent."""
+        assert slugify("tier-0-recovery") == "tier-0-recovery"
+
+
+class TestNormalizeFragment:
+    def test_hash_prefix_preserved(self):
+        assert _normalize_fragment("#foo-bar") == "#foo-bar"
+
+    def test_bare_slug_gets_hash(self):
+        assert _normalize_fragment("foo-bar") == "#foo-bar"
+
+    def test_double_dash_collapsed(self):
+        assert _normalize_fragment("#tier-0--recovery") == "#tier-0-recovery"
+
+    def test_trailing_dash_stripped(self):
+        assert (
+            _normalize_fragment("#chain-lifecycle-messages-")
+            == "#chain-lifecycle-messages"
+        )
+
+    def test_empty_returns_empty(self):
+        assert _normalize_fragment("") == ""
+        assert _normalize_fragment("#") == ""
+
+
+class TestHeadingFragmentConsistency:
+    """End-to-end: heading id= must match normalised in-page #href."""
+
+    def test_em_dash_heading_matches_fragment(self):
+        md = (
+            "| [Recovery](#tier-0--recovery) |\n"
+            "|---|\n"
+            "| x |\n"
+            "\n"
+            "## Tier 0 \u2014 Recovery\n"
+            "\n"
+            "Content here.\n"
+        )
+        body = _convert(md, known_pages=set())
+        # The heading id and the link href must agree
+        assert 'id="tier-0-recovery"' in body
+        assert 'href="#tier-0-recovery"' in body
+
+    def test_emoji_entity_heading_matches_fragment(self):
+        md = (
+            "| [Chain Lifecycle](#chain-lifecycle-messages-) |\n"
+            "|---|\n"
+            "| x |\n"
+            "\n"
+            "## Chain Lifecycle Messages (&#x1F517;)\n"
+            "\n"
+            "Content here.\n"
+        )
+        body = _convert(md, known_pages=set())
+        assert 'id="chain-lifecycle-messages"' in body
+        assert 'href="#chain-lifecycle-messages"' in body
+
+    def test_cross_page_fragment_also_normalised(self):
+        """Fragments appended to page links are normalised too."""
+        md = "See [config](Configuration.md#excluded--container-types) here.\n"
+        body = _convert(
+            md,
+            known_pages={"Reference/Configuration.html"},
+            page_dir="Reference",
+            page_html_rel="Reference/Other.html",
+        )
+        assert "#excluded-container-types" in body
 
 
 if __name__ == "__main__":

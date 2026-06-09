@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from md_converter import MarkdownConverter, _escape  # noqa: E402
+from md_converter import MarkdownConverter, _escape, slugify  # noqa: E402
 from build_single_page import (  # noqa: E402
     discover_pages,
     build_anchor_map,
@@ -43,7 +43,7 @@ def _extract_headings(md_text: str) -> list[dict]:
         m = re.match(r"^(#{1,6})\s+(.+)$", line)
         if m:
             text = m.group(2).strip()
-            slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+            slug = slugify(text)
             headings.append(
                 {
                     "level": len(m.group(1)),

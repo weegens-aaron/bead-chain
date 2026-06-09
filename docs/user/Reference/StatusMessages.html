@@ -3,14 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Status Messages Reference — bead-chain User Docs</title>
+<title>Status Messages Reference — Bead Chain</title>
 <link rel="stylesheet" href="../style.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
-<div class="sidebar-title">bead-chain User Docs</div>
+<div class="sidebar-title">Bead Chain</div>
 <nav>
 <div class="nav-section">Overview</div>
 <a href="../index.html">Index</a>
@@ -42,7 +41,7 @@
 <a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
 </nav>
 </aside>
-<main id="main" class="content">
+<main class="content">
 <h1 id="status-messages-reference">Status Messages Reference</h1>
 <h2 id="overview">Overview</h2>
 <p>While bead-chain runs, it keeps you informed with short, emoji-prefixed messages in your terminal. Each emoji icon represents a category — chain lifecycle, queue status, recovery, safety, epic management, or gate checks — so you can tell at a glance what the chain is doing and whether anything needs your attention.</p>
@@ -55,57 +54,57 @@
 </tr></thead><tbody>
 <tr>
 <td>&amp;#x1F517;</td>
-<td><a href="#chain-lifecycle-messages-">Chain Lifecycle</a></td>
+<td><a href="#chain-lifecycle-messages">Chain Lifecycle</a></td>
 <td>The chain itself — starting, engaged, closing, halting, errors</td>
 </tr>
 <tr>
 <td>&amp;#x1F9B4;</td>
-<td><a href="#queue-status-messages-">Queue Status</a></td>
+<td><a href="#queue-status-messages">Queue Status</a></td>
 <td>The task queue is empty</td>
 </tr>
 <tr>
 <td>&amp;#x1F516;</td>
-<td><a href="#recovery-messages-">Recovery</a></td>
+<td><a href="#recovery-messages">Recovery</a></td>
 <td>A task was left in-progress for the next run to resume</td>
 </tr>
 <tr>
 <td>&amp;#x1F6D1;</td>
-<td><a href="#safety-control-messages-">Safety Controls</a></td>
+<td><a href="#safety-control-messages">Safety Controls</a></td>
 <td>The chain hit its cap or blocked a premature close</td>
 </tr>
 <tr>
 <td>&amp;#x1F6AB;</td>
-<td><a href="#safety-control-messages-">Safety Controls</a></td>
+<td><a href="#safety-control-messages">Safety Controls</a></td>
 <td>The chain refused to work an invalid task type</td>
 </tr>
 <tr>
 <td>&amp;#x26A0;&amp;#xFE0F;</td>
-<td><a href="#recovery-messages-">Recovery</a></td>
+<td><a href="#recovery-messages">Recovery</a></td>
 <td>Multiple stranded tasks found from a prior crash</td>
 </tr>
 <tr>
 <td>&amp;#x1F9EA;</td>
-<td><a href="#execution-hint-messages-">Execution Hints</a></td>
+<td><a href="#execution-hint-messages">Execution Hints</a></td>
 <td>Metadata-driven tuning applied to this task</td>
 </tr>
 <tr>
 <td>&amp;#x1F3AF;</td>
-<td><a href="#epic-management-messages-">Epic Management</a></td>
+<td><a href="#epic-management-messages">Epic Management</a></td>
 <td>Parent epic claimed, rolled up, or encountered an issue</td>
 </tr>
 <tr>
 <td>&amp;#x23F3;</td>
-<td><a href="#gate-check-messages-">Gate Checks</a></td>
+<td><a href="#gate-check-messages">Gate Checks</a></td>
 <td>A gate was probed, resolved, or escalated</td>
 </tr>
 <tr>
 <td>&amp;#x1F504;</td>
-<td><a href="#revert-messages-">Revert</a></td>
+<td><a href="#revert-messages">Revert</a></td>
 <td>A task was moved back to the open queue</td>
 </tr>
 </tbody></table>
 <hr>
-<h2 id="chain-lifecycle-messages-x1f517">Chain Lifecycle Messages (&amp;#x1F517;)</h2>
+<h2 id="chain-lifecycle-messages">Chain Lifecycle Messages (&amp;#x1F517;)</h2>
 <p>These messages track the chain's own lifecycle — from the moment you type <code>/bead-chain</code> through each task close to the final stop.</p>
 <h3 id="startup">Startup</h3>
 <table><thead><tr>
@@ -221,7 +220,7 @@
 </tr>
 </tbody></table>
 <hr>
-<h2 id="queue-status-messages-x1f9b4">Queue Status Messages (&amp;#x1F9B4;)</h2>
+<h2 id="queue-status-messages">Queue Status Messages (&amp;#x1F9B4;)</h2>
 <table><thead><tr>
 <th>Message</th>
 <th>Meaning</th>
@@ -234,7 +233,7 @@
 </tr>
 </tbody></table>
 <hr>
-<h2 id="recovery-messages-x1f516-x26a0-xfe0f">Recovery Messages (&amp;#x1F516; / &amp;#x26A0;&amp;#xFE0F;)</h2>
+<h2 id="recovery-messages">Recovery Messages (&amp;#x1F516; / &amp;#x26A0;&amp;#xFE0F;)</h2>
 <p>These messages appear when the chain detects unfinished work from a prior run. See <a href="../Concepts/RecoveryMode.html">Recovery Mode</a> for the full explanation.</p>
 <table><thead><tr>
 <th>Message</th>
@@ -258,7 +257,7 @@
 </tr>
 </tbody></table>
 <hr>
-<h2 id="safety-control-messages-x1f6d1-x1f6ab">Safety Control Messages (&amp;#x1F6D1; / &amp;#x1F6AB;)</h2>
+<h2 id="safety-control-messages">Safety Control Messages (&amp;#x1F6D1; / &amp;#x1F6AB;)</h2>
 <p>These messages indicate that a safety mechanism activated — either the iteration cap was reached or the Close Guard blocked a premature close attempt. See <a href="../Concepts/TheCloseGuard.html">The Close Guard</a> for how close-blocking works.</p>
 <h3 id="iteration-cap">Iteration Cap</h3>
 <table><thead><tr>
@@ -346,7 +345,7 @@
 </tr>
 </tbody></table>
 <hr>
-<h2 id="execution-hint-messages-x1f9ea">Execution Hint Messages (&amp;#x1F9EA;)</h2>
+<h2 id="execution-hint-messages">Execution Hint Messages (&amp;#x1F9EA;)</h2>
 <table><thead><tr>
 <th>Message</th>
 <th>Meaning</th>
@@ -359,7 +358,7 @@
 </tr>
 </tbody></table>
 <hr>
-<h2 id="epic-management-messages-x1f3af">Epic Management Messages (&amp;#x1F3AF;)</h2>
+<h2 id="epic-management-messages">Epic Management Messages (&amp;#x1F3AF;)</h2>
 <p>These messages track parent epic operations — claiming an epic when its child is picked up, and rolling up (auto-closing) epics when all their children are done.</p>
 <table><thead><tr>
 <th>Message</th>
@@ -393,7 +392,7 @@
 </tr>
 </tbody></table>
 <hr>
-<h2 id="gate-check-messages-x23f3">Gate Check Messages (&amp;#x23F3;)</h2>
+<h2 id="gate-check-messages">Gate Check Messages (&amp;#x23F3;)</h2>
 <p>Gate checks happen once at the end of a chain run, when the queue appears empty. The chain probes whether any waiting gates (timers, external checks, dependency gates) have been satisfied since the run started.</p>
 <table><thead><tr>
 <th>Message</th>
@@ -417,7 +416,7 @@
 </tr>
 </tbody></table>
 <hr>
-<h2 id="revert-messages-x1f504">Revert Messages (&amp;#x1F504;)</h2>
+<h2 id="revert-messages">Revert Messages (&amp;#x1F504;)</h2>
 <p>Revert messages appear when the chain moves a task back from in-progress to the open queue. This happens when a task turns out to be blocked or is an invalid type that shouldn't have been picked up.</p>
 <table><thead><tr>
 <th>Message</th>

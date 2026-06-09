@@ -3,14 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>How to Handle Bugs Discovered During Work — bead-chain User Docs</title>
+<title>How to Handle Bugs Discovered During Work — Bead Chain</title>
 <link rel="stylesheet" href="../style.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
-<div class="sidebar-title">bead-chain User Docs</div>
+<div class="sidebar-title">Bead Chain</div>
 <nav>
 <div class="nav-section">Overview</div>
 <a href="../index.html">Index</a>
@@ -42,7 +41,7 @@
 <a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
 </nav>
 </aside>
-<main id="main" class="content">
+<main class="content">
 <h1 id="how-to-handle-bugs-discovered-during-work">How to Handle Bugs Discovered During Work</h1>
 <h2 id="what-you-ll-learn">What You'll Learn</h2>
 <p>How bead-chain handles the situation where an AI agent discovers an unrelated bug while working on a completely different task. You'll understand the two paths — non-blocking and blocking — and what you'll see in your terminal for each one. You'll also learn how filed bugs get picked up and verified in later chain iterations.</p>
@@ -100,7 +99,7 @@ flowchart TD
 <li>The agent immediately returns to its original task and finishes it as if nothing happened.</li>
 </ol>
 <p><strong>What you'll see:</strong> A brief <code>bd create</code> command creating the bug bead, followed by the agent continuing its normal work. The chain doesn't pause, restart, or change course. The current task completes and is judged normally.</p>
-<p><strong>What happens to the bug later:</strong> The filed bug enters the ready queue like any other work item. If another task depends on it, it gets <a href="../Reference/BeadSelectionOrder.html#tier-1--blocking-bugs">tier 1 priority</a> and jumps to the front of the line in a future iteration. If nothing depends on it, it waits its turn in the <a href="../Reference/BeadSelectionOrder.html#tier-3--global-ready-queue">global queue</a>.</p>
+<p><strong>What happens to the bug later:</strong> The filed bug enters the ready queue like any other work item. If another task depends on it, it gets <a href="../Reference/BeadSelectionOrder.html#tier-1-blocking-bugs">tier 1 priority</a> and jumps to the front of the line in a future iteration. If nothing depends on it, it waits its turn in the <a href="../Reference/BeadSelectionOrder.html#tier-3-global-ready-queue">global queue</a>.</p>
 <div class="callout callout-tip"><div class="callout-title">TIP</div><p>You don't need to do anything when you see a non-blocking bug get filed. The chain handles everything — the bug is recorded, the current task finishes, and a future iteration picks it up automatically.</p></div>
 <h2 id="step-4-follow-the-blocking-path">Step 4: Follow the Blocking Path</h2>
 <p>When the bug prevents the current task from meeting its acceptance criteria:</p>
@@ -170,7 +169,7 @@ flowchart TD
 <h2 id="related-guides">Related Guides</h2>
 <ul>
 <li><a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> — the claim→drive→judge→close loop where bug discovery happens during the "drive" phase.</li>
-<li><a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a> — how filed bugs get prioritised in future iterations, especially the <a href="../Reference/BeadSelectionOrder.html#tier-1--blocking-bugs">tier 1 blocking-bug fast lane</a>.</li>
+<li><a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a> — how filed bugs get prioritised in future iterations, especially the <a href="../Reference/BeadSelectionOrder.html#tier-1-blocking-bugs">tier 1 blocking-bug fast lane</a>.</li>
 <li><a href="../Concepts/RecoveryMode.html">Recovery Mode</a> — what happens when a triaged bug is also stranded in-progress (recovery wins).</li>
 <li><a href="../Concepts/TheCloseGuard.html">The Close Guard</a> — why the agent can't close the bug bead itself; only the judges can.</li>
 <li><a href="../Tutorials/AutomateASprintBacklog.html">Tutorial: Automate a Sprint Backlog</a> — a full walkthrough of a chain run that shows how tasks flow from start to finish.</li>
