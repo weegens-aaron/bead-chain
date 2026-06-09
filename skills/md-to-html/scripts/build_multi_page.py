@@ -99,11 +99,12 @@ def render_page(
 <link rel="stylesheet" href="{HLJS_CSS_CDN}">
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <aside class="sidebar">
 <div class="sidebar-title">{_escape(site_title)}</div>
 {sidebar_html}
 </aside>
-<main class="content">
+<main id="main" class="content">
 {body_html}
 </main>
 <script src="{HLJS_JS_CDN}"></script>

@@ -68,5 +68,20 @@ def test_multi_page_build_omits_underscore_html(docs_dir: Path, tmp_path: Path):
     assert not any(name.startswith("_") for name in html_files)
 
 
+def test_multi_page_emits_skip_link_and_main_id(docs_dir: Path, tmp_path: Path):
+    """WCAG 2.4.1: skip-to-content link + id=main on <main> (bead_chain-8us)."""
+    out = tmp_path / "out"
+    build_multi_page.build_site(docs_dir, out, "Test Site")
+    html = (out / "index.html").read_text(encoding="utf-8")
+    # skip-link must be the first child of <body>
+    assert '<a class="skip-link" href="#main">Skip to content</a>' in html
+    body_idx = html.index("<body>")
+    skip_idx = html.index('<a class="skip-link"')
+    aside_idx = html.index("<aside")
+    assert body_idx < skip_idx < aside_idx, "skip-link must precede sidebar"
+    # <main> must carry id="main"
+    assert '<main id="main"' in html
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

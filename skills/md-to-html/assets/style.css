@@ -28,6 +28,32 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* ── Skip-to-content (WCAG 2.4.1) ── */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  z-index: 100;
+  padding: 0.5rem 1rem;
+  background: var(--c-accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+  border-radius: 0 0 4px 0;
+}
+.skip-link:focus {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: auto;
+  height: auto;
+  overflow: visible;
+}
+
 html { font-size: 16px; -webkit-text-size-adjust: 100%; }
 
 body {
