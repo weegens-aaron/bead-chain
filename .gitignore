@@ -9,3 +9,11 @@ __pycache__/
 *.pyc
 .ruff_cache/
 .pytest_cache/
+
+# Release build outputs (scripts/build-release.sh) — see notes/decisions/0002-release-allowlist.md
+# These are generated artifacts; the build must be reproducible from source only.
+# NOTE: .gitignore has no inline (trailing) comments — patterns must stand alone.
+# dist/    -> zip artifacts: bead-chain.zip / bead-chain-v<version>.zip
+# staging/ -> allowlist copy staging dir (staging/bead_chain/)
+dist/
+staging/
