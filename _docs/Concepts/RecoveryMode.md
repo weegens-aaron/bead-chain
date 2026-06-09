@@ -165,6 +165,8 @@ won't override a deliberate pin.
 
 - [How Bead Chaining Works](HowBeadChainingWorks.md) — the core
   claim→drive→judge→close loop that recovery protects.
+- [Commands](../Reference/Commands.md) — the `/bead-chain` command and Ctrl+C
+  behavior that trigger and interact with Recovery Mode.
 - [Tutorial: Automate a Sprint Backlog](../Tutorials/AutomateASprintBacklog.md)
   — a hands-on walkthrough of interrupting a chain with Ctrl+C and watching
   Recovery Mode resume the work.

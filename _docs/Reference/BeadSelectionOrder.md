@@ -257,6 +257,8 @@ respects a deliberate pin.
 
 ## See Also
 
+- [Commands](Commands.md) — the `/bead-chain` command and `--max` flag that
+  start the chain whose task selection this document describes.
 - [How Bead Chaining Works](../Concepts/HowBeadChainingWorks.md) — the
   claim→drive→judge→close loop that this selection order feeds into.
 - [Tutorial: Automate a Sprint Backlog](../Tutorials/AutomateASprintBacklog.md)

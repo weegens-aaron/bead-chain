@@ -173,6 +173,8 @@ If bead-chain refuses a bead because of its type, you'll see a refusal message i
 
 ## See Also
 
+- [Commands](Commands.md) — every command and option at a glance, including the
+  `/bead-chain` command that uses these configuration values.
 - [Status Messages](StatusMessages.md) — what every chain message means,
   including timeout errors and excluded-type refusals.
 - [Bead Selection Order](BeadSelectionOrder.md) — how the four-tier waterfall

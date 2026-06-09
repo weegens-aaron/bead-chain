@@ -218,8 +218,10 @@ bead-chain is aware of this hierarchy:
 
 ## Related
 
-- [Overview](../Overview.md) — what bead-chain is, who it’s for, and its key
+- [Overview](../Overview.md) — what bead-chain is, who it's for, and its key
   features.
+- [Commands](../Reference/Commands.md) — every command, option, and control at
+  a glance, including `/bead-chain`, `--max`, and Ctrl+C.
 - [Tutorial: Automate a Sprint Backlog](../Tutorials/AutomateASprintBacklog.md)
   — an end-to-end walkthrough of the chaining loop in action, including
   interruption, recovery, and epic rollup.

@@ -130,7 +130,9 @@ guard. This means:
 ## Related
 
 - [Overview](../Overview.md) — introduces the Close Guard as one of
-  bead-chain’s safety guardrails.
+  bead-chain's safety guardrails.
+- [Commands](../Reference/Commands.md) — the `/bead-chain` command and Ctrl+C
+  behavior; the Close Guard is active during a running chain.
 - [Tutorial: Automate a Sprint Backlog](../Tutorials/AutomateASprintBacklog.md)
   — see the Close Guard in context during a full end-to-end chain run.
 - [How Bead Chaining Works](HowBeadChainingWorks.md) — the core

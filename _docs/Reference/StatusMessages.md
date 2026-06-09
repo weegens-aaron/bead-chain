@@ -243,6 +243,8 @@ flowchart TD
 
 ## See Also
 
+- [Commands](Commands.md) — every command, option, and control at a glance;
+  the messages documented here are the output you see when using those commands.
 - [How Bead Chaining Works](../Concepts/HowBeadChainingWorks.md) — the
   claim→drive→judge→close loop that generates these messages.
 - [Recovery Mode](../Concepts/RecoveryMode.md) — deep dive into the &#x1F516;

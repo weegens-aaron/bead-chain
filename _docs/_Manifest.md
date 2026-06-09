@@ -12,8 +12,8 @@ doc bead ticks its box `[x]` and bumps the counters below when complete.
 ## Progress
 
 - **Total:** 14
-- **Done:** 9
-- **Remaining:** 5
+- **Done:** 10
+- **Remaining:** 4
 
 ---
 
@@ -35,7 +35,7 @@ doc bead ticks its box `[x]` and bumps the counters below when complete.
 
 ## Reference (060+)
 
-- [ ] 060 | Reference: Commands -> [Commands](Reference/Commands.md)
+- [x] 060 | Reference: Commands -> [Commands](Reference/Commands.md)
 - [x] 061 | Reference: Bead Selection Order -> [BeadSelectionOrder](Reference/BeadSelectionOrder.md)
 - [x] 062 | Reference: Configuration -> [Configuration](Reference/Configuration.md)
 - [x] 063 | Reference: Status Messages -> [StatusMessages](Reference/StatusMessages.md)
