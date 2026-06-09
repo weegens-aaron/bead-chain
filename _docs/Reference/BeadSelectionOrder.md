@@ -270,6 +270,9 @@ respects a deliberate pin.
   behavior, and the excluded container types list.
 - [Status Messages](StatusMessages.md) — what every emoji-prefixed message
   means, including the selection-related info and warning messages.
+- [How to Handle Bugs Discovered During Work](../Guides/HandleBugsDuringWork.md)
+  — what happens when an agent finds an unrelated bug mid-task, including how
+  filed bugs feed into tier 1 priority routing.
 - [Overview](../Overview.md) — bead-chain at a glance, including the "smart
   task ordering" feature that this document details.
 

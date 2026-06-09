@@ -229,6 +229,9 @@ bead-chain is aware of this hierarchy:
   detected, recovered, and resumed.
 - [Bead Selection Order](../Reference/BeadSelectionOrder.md) — the four-tier
   priority waterfall that decides which task is picked next.
+- [How to Handle Bugs Discovered During Work](../Guides/HandleBugsDuringWork.md)
+  — what happens when the agent spots an unrelated bug during the "drive" phase
+  and how filed bugs feed back into the chain.
 - [Status Messages](../Reference/StatusMessages.md) — what every emoji-prefixed
   message means and what to do when you see it.
 - [Configuration](../Reference/Configuration.md) — environment variables,

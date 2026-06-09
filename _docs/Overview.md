@@ -61,6 +61,8 @@ Once you're up and running:
   tasks process in one run.
 - [How to Resume After an Interruption](Guides/ResumeAfterInterruption.md) —
   what happens when things get cut short.
+- [How to Handle Bugs Discovered During Work](Guides/HandleBugsDuringWork.md)
+  — what happens when the agent finds an unrelated bug mid-task.
 - [Commands Reference](Reference/Commands.md) — every command and option at a
   glance.
 - [Status Messages](Reference/StatusMessages.md) — what every emoji-prefixed

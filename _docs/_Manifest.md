@@ -12,8 +12,8 @@ doc bead ticks its box `[x]` and bumps the counters below when complete.
 ## Progress
 
 - **Total:** 14
-- **Done:** 7
-- **Remaining:** 7
+- **Done:** 8
+- **Remaining:** 6
 
 ---
 
@@ -26,7 +26,7 @@ doc bead ticks its box `[x]` and bumps the counters below when complete.
 
 - [ ] 010 | Guide: Run a Capped Session -> [RunACappedSession](Guides/RunACappedSession.md)
 - [ ] 011 | Guide: Resume After an Interruption -> [ResumeAfterInterruption](Guides/ResumeAfterInterruption.md)
-- [ ] 012 | Guide: Handle Bugs Discovered During Work -> [HandleBugsDuringWork](Guides/HandleBugsDuringWork.md)
+- [x] 012 | Guide: Handle Bugs Discovered During Work -> [HandleBugsDuringWork](Guides/HandleBugsDuringWork.md)
 - [ ] 013 | Guide: Upgrade or Uninstall bead-chain -> [UpgradeOrUninstall](Guides/UpgradeOrUninstall.md)
 
 ## Tutorials (040+)
