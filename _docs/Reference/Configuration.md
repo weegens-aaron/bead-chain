@@ -183,6 +183,9 @@ If bead-chain refuses a bead because of its type, you'll see a refusal message i
   automatically.
 - [The Close Guard](../Concepts/TheCloseGuard.md) — the safety mechanism that
   prevents AI agents from closing tasks directly.
+- [How to Upgrade or Uninstall bead-chain](../Guides/UpgradeOrUninstall.md) —
+  upgrading preserves your `BEADS_BIN` setting since it lives in your shell,
+  not in the plugin directory.
 - [Overview](../Overview.md) — bead-chain at a glance.
 
 ---

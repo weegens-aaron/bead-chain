@@ -63,6 +63,8 @@ Once you're up and running:
   what happens when things get cut short.
 - [How to Handle Bugs Discovered During Work](Guides/HandleBugsDuringWork.md)
   — what happens when the agent finds an unrelated bug mid-task.
+- [How to Upgrade or Uninstall bead-chain](Guides/UpgradeOrUninstall.md) —
+  keep the plugin current or remove it cleanly.
 - [Commands Reference](Reference/Commands.md) — every command and option at a
   glance.
 - [Status Messages](Reference/StatusMessages.md) — what every emoji-prefixed
