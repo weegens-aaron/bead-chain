@@ -12,8 +12,8 @@ doc bead ticks its box `[x]` and bumps the counters below when complete.
 ## Progress
 
 - **Total:** 14
-- **Done:** 2
-- **Remaining:** 12
+- **Done:** 3
+- **Remaining:** 11
 
 ---
 
@@ -43,5 +43,5 @@ doc bead ticks its box `[x]` and bumps the counters below when complete.
 ## Concepts (090+)
 
 - [x] 090 | Concept: How Bead Chaining Works -> [HowBeadChainingWorks](Concepts/HowBeadChainingWorks.md)
-- [ ] 091 | Concept: Recovery Mode -> [RecoveryMode](Concepts/RecoveryMode.md)
+- [x] 091 | Concept: Recovery Mode -> [RecoveryMode](Concepts/RecoveryMode.md)
 - [x] 092 | Concept: The Close Guard -> [TheCloseGuard](Concepts/TheCloseGuard.md)

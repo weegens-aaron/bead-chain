@@ -21,7 +21,8 @@ keeps the assembly line moving without manual intervention.
 - **Automated chaining** — claim, work, judge, close, repeat until the queue is
   empty or you say stop.
 - **Crash recovery** — if a run is interrupted (power loss, Ctrl+C, network
-  blip), the next run picks up exactly where you left off.
+  blip), the next run picks up exactly where you left off. See
+  [Recovery Mode](Concepts/RecoveryMode.md).
 - **Smart task ordering** — related tasks under the same epic stay together;
   blocking bugs jump to the front of the line.
 - **Safety guardrails** — AI agents cannot close tasks themselves; only the
