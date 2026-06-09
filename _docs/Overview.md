@@ -59,5 +59,7 @@ Once you're up and running:
   what happens when things get cut short.
 - [Commands Reference](Reference/Commands.md) — every command and option at a
   glance.
+- [Status Messages](Reference/StatusMessages.md) — what every emoji-prefixed
+  message means and what to do when you see it.
 - [How Bead Chaining Works](Concepts/HowBeadChainingWorks.md) — understand the
   engine under the hood.

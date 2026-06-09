@@ -167,7 +167,10 @@ won't override a deliberate pin.
   claim→drive→judge→close loop that recovery protects.
 - [The Close Guard](TheCloseGuard.md) — the safety rail that keeps agents from
   closing tasks themselves; the Close Guard still applies during recovery.
-- [Overview](../Overview.md) — bead-chain's crash recovery feature at a glance.
+- [Overview](../Overview.md) — bead-chain’s crash recovery feature at a glance.
+- [Status Messages](../Reference/StatusMessages.md) — what the recovery-related
+  messages (&#x1F516; bookmark, &#x26A0;&#xFE0F; multi-strand warning) mean and
+  what to do.
 - [How to Resume After an Interruption](../Guides/ResumeAfterInterruption.md)
   — step-by-step instructions for what to do when a run is cut short.
 

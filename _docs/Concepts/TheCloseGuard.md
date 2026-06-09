@@ -130,11 +130,13 @@ guard. This means:
 ## Related
 
 - [Overview](../Overview.md) — introduces the Close Guard as one of
-  bead-chain's safety guardrails.
+  bead-chain’s safety guardrails.
 - [How Bead Chaining Works](HowBeadChainingWorks.md) — the core
   claim→drive→judge→close loop that the Close Guard protects.
 - [Recovery Mode](RecoveryMode.md) — what happens when a chain is interrupted;
   the Close Guard still applies when the recovered task resumes.
+- [Status Messages](../Reference/StatusMessages.md) — what the &#x1F6D1;
+  close-block messages look like and what the agent sees when the guard fires.
 
 ---
 

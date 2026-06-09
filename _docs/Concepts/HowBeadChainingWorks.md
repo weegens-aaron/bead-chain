@@ -215,12 +215,14 @@ bead-chain is aware of this hierarchy:
 
 ## Related
 
-- [Overview](../Overview.md) — what bead-chain is, who it's for, and its key
+- [Overview](../Overview.md) — what bead-chain is, who it’s for, and its key
   features.
-- [The Close Guard](TheCloseGuard.md) — how the separation of "doer" and
-  "evaluator" is enforced during a chain.
+- [The Close Guard](TheCloseGuard.md) — how the separation of “doer” and
+  “evaluator” is enforced during a chain.
 - [Recovery Mode](RecoveryMode.md) — a deeper look at how interrupted work is
   detected, recovered, and resumed.
+- [Status Messages](../Reference/StatusMessages.md) — what every emoji-prefixed
+  message means and what to do when you see it.
 
 ---
 

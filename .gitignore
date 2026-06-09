@@ -10,6 +10,9 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 
+# IDE
+.idea/
+
 # Release build outputs (scripts/build-release.sh) — see notes/decisions/0002-release-allowlist.md
 # These are generated artifacts; the build must be reproducible from source only.
 # NOTE: .gitignore has no inline (trailing) comments — patterns must stand alone.
