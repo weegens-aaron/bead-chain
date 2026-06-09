@@ -24,5 +24,6 @@ queue.
 ## Resources
 
 - [Overview](Overview.md) — product summary, key features, requirements.
+- [FAQ](FAQ.md) — frequently asked questions, grouped by theme.
 - [_Manifest.md](_Manifest.md) — documentation progress tracker.
 - [_FlowDocGuide.md](_FlowDocGuide.md) — authoring contract for contributors.
