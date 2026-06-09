@@ -67,6 +67,62 @@ def _blank_quoted(command: str) -> str:
     return _QUOTED_SEGMENT_RE.sub(lambda m: " " * len(m.group(0)), command)
 
 
+# ---------------------------------------------------------------------------
+# Flag-argument blanking (bead_chain-4hy)
+# ---------------------------------------------------------------------------
+#
+# When the ``on_run_shell_command`` hook receives a command, shell-level
+# quote processing may already have occurred — the runtime parses the
+# agent's JSON tool-call, extracts the ``command`` string, and hands it
+# to the hook *without* surrounding quotes. So a command like:
+#
+#     bd update foo --append-notes "text about bd close"
+#
+# arrives as:
+#
+#     bd update foo --append-notes text about bd close
+#
+# ``_blank_quoted`` finds nothing to blank, and the regex then matches
+# ``bd close`` inside what was originally argument text.
+#
+# Fix: after blanking quoted strings, blank the *values* of known text-
+# consuming flags (``--append-notes``, ``--description``, ``-m``, etc.)
+# up to the next shell separator (``&&``, ``||``, ``;``, ``|``,
+# newline). This makes the detector immune to argument text regardless
+# of whether quotes survived transit.
+
+# Flags whose value is free-form text that may contain bd-like tokens.
+# Long flags use ``--`` prefix (unambiguous). Short ``-m`` needs a
+# lookbehind to avoid matching inside longer flags like ``--some-m``.
+_TEXT_FLAG_RE = re.compile(
+    r"(?:"
+    r"--(?:append-notes|notes|description|title|message)\b"
+    r"|(?<!\S)-m\b"
+    r")(?:=|\s+)",
+)
+
+# Shell separators that end a flag's argument value.
+_SHELL_SEP_RE = re.compile(r"(?:&&|\|\||[;\n|])")
+
+
+def _blank_flag_args(command: str) -> str:
+    """Blank values of text-consuming flags up to the next shell separator.
+
+    Like :func:`_blank_quoted`, replaces with equal-length whitespace to
+    keep offsets stable. Designed to run *after* ``_blank_quoted`` so it
+    catches the case where quotes were stripped before the hook received
+    the command (``bead_chain-4hy``).
+    """
+    result = list(command)
+    for match in _TEXT_FLAG_RE.finditer(command):
+        value_start = match.end()
+        sep_match = _SHELL_SEP_RE.search(command, value_start)
+        value_end = sep_match.start() if sep_match else len(command)
+        for i in range(value_start, value_end):
+            result[i] = " "
+    return "".join(result)
+
+
 # Optional path prefix (``/usr/local/bin/``, ``./``, ``$BEADS_BIN/``...).
 # Anything non-whitespace ending in a slash is fine; the basename has to
 # be exactly ``bd``.
@@ -109,7 +165,11 @@ def detect_premature_close(command: str) -> CloseGuardMatch | None:
     # with "bd close") can never be mistaken for a real command at a
     # boundary. Real, unquoted invocations are unaffected. See
     # ``bead_chain-21d`` for the re.MULTILINE false-positive this guards.
-    scannable = _blank_quoted(command)
+    #
+    # Then blank text-consuming flag arguments (--append-notes, -m, etc.)
+    # to handle the case where quotes were stripped before the hook
+    # received the command (``bead_chain-4hy``).
+    scannable = _blank_flag_args(_blank_quoted(command))
 
     if _BD_CLOSE_RE.search(scannable):
         return CloseGuardMatch(

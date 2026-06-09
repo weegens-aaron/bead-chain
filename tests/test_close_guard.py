@@ -163,6 +163,101 @@ def test_blank_quoted_removes_inner_content():
     assert blanked.startswith("echo ")
 
 
+# ---------------------------------------------------------------------------
+# _blank_flag_args helper unit checks (bead_chain-4hy).
+# ---------------------------------------------------------------------------
+
+
+def test_blank_flag_args_preserves_length():
+    cmd = "bd update x --append-notes some text here"
+    assert len(close_guard._blank_flag_args(cmd)) == len(cmd)
+
+
+def test_blank_flag_args_blanks_after_append_notes():
+    cmd = "bd update x --append-notes bd close foo"
+    blanked = close_guard._blank_flag_args(cmd)
+    assert "bd close" not in blanked
+    assert blanked.startswith("bd update x --append-notes ")
+
+
+def test_blank_flag_args_stops_at_shell_separator():
+    """Text after && is a real command — blanking must stop there."""
+    cmd = "bd update x --append-notes some text && bd close y"
+    blanked = close_guard._blank_flag_args(cmd)
+    assert "bd close y" in blanked
+    assert blanked.endswith("&& bd close y")
+
+
+def test_blank_flag_args_handles_equals_separator():
+    cmd = "bd update x --append-notes=bd close foo"
+    blanked = close_guard._blank_flag_args(cmd)
+    assert "bd close" not in blanked
+
+
+def test_blank_flag_args_handles_description_flag():
+    cmd = "bd create --description bd update bar --status=closed"
+    blanked = close_guard._blank_flag_args(cmd)
+    assert "--status=closed" not in blanked
+
+
+def test_blank_flag_args_handles_m_flag():
+    cmd = "git commit -m bd close mentioned here"
+    blanked = close_guard._blank_flag_args(cmd)
+    assert "bd close" not in blanked
+
+
+def test_blank_flag_args_m_flag_not_matched_inside_long_flag():
+    """A -m embedded in a long flag like --some-m should NOT trigger blanking."""
+    cmd = "tool --some-m bd close x"
+    blanked = close_guard._blank_flag_args(cmd)
+    # --some-m is NOT a text-consuming flag — nothing should be blanked.
+    assert "bd close" in blanked
+
+
+# ---------------------------------------------------------------------------
+# bead_chain-4hy regression: quote-stripped --append-notes false positive.
+# ---------------------------------------------------------------------------
+
+
+def test_append_notes_mentioning_bd_close_ignored():
+    """The exact repro from bead_chain-4hy: notes text mentioning bd close."""
+    cmd = "bd update foo --append-notes text mentioning bd close bar"
+    assert close_guard.detect_premature_close(cmd) is None
+
+
+def test_append_notes_mentioning_status_closed_ignored():
+    """The other repro: notes text mentioning --status=closed."""
+    cmd = "bd update foo --append-notes text about bd update some-id --status=closed"
+    assert close_guard.detect_premature_close(cmd) is None
+
+
+def test_description_mentioning_bd_close_ignored():
+    cmd = "bd create --description the bd close command is used to finish"
+    assert close_guard.detect_premature_close(cmd) is None
+
+
+def test_git_commit_m_mentioning_bd_close_ignored():
+    """Quote-stripped -m argument mentioning bd close."""
+    cmd = "git commit -m fixed the bd close false positive"
+    assert close_guard.detect_premature_close(cmd) is None
+
+
+def test_real_close_chained_after_append_notes_still_detected():
+    """A real bd close after && must still be caught even with --append-notes."""
+    cmd = "bd update foo --append-notes some notes && bd close bar"
+    match = close_guard.detect_premature_close(cmd)
+    assert match is not None
+    assert match.pattern_name == "bd close"
+
+
+def test_real_status_closed_chained_after_notes_still_detected():
+    """A real --status=closed after ; must still be caught."""
+    cmd = "bd update foo --append-notes some notes; bd update bar --status=closed"
+    match = close_guard.detect_premature_close(cmd)
+    assert match is not None
+    assert match.pattern_name == "bd update --status=closed"
+
+
 # ===========================================================================
 # on_run_shell_command hook — the active/idle gate + block payload.
 # ===========================================================================
