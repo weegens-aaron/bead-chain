@@ -242,6 +242,8 @@ bead-chain is aware of this hierarchy:
   timeout/retry behavior, and excluded container types.
 - [Installation](../GettingStarted/Installation.md) — download and set up
   the plugin, including prerequisites and platform-specific steps.
+- [Run Your First Chain](../GettingStarted/RunYourFirstChain.md) — go from
+  zero to watching tasks close themselves.
 
 ---
 
