@@ -24,7 +24,8 @@ keeps the assembly line moving without manual intervention.
   blip), the next run picks up exactly where you left off. See
   [Recovery Mode](Concepts/RecoveryMode.md).
 - **Smart task ordering** — related tasks under the same epic stay together;
-  blocking bugs jump to the front of the line.
+  blocking bugs jump to the front of the line. See
+  [Bead Selection Order](Reference/BeadSelectionOrder.md).
 - **Safety guardrails** — AI agents cannot close tasks themselves; only the
   independent LLM judges can sign off on completed work. See
   [The Close Guard](Concepts/TheCloseGuard.md).

@@ -86,6 +86,9 @@ hierarchy.
 > 3. **Same-epic siblings** — if the just-completed task had siblings under the
 >    same epic, the chain finishes that family before moving on.
 > 4. **Global queue** — whatever's next in the general ready list.
+>
+> For the full breakdown of each tier, see
+> [Bead Selection Order](../Reference/BeadSelectionOrder.md).
 
 **2. Drive**
 
@@ -215,12 +218,14 @@ bead-chain is aware of this hierarchy:
 
 ## Related
 
-- [Overview](../Overview.md) — what bead-chain is, who it’s for, and its key
+- [Overview](../Overview.md) — what bead-chain is, who it's for, and its key
   features.
-- [The Close Guard](TheCloseGuard.md) — how the separation of “doer” and
-  “evaluator” is enforced during a chain.
+- [The Close Guard](TheCloseGuard.md) — how the separation of "doer" and
+  "evaluator" is enforced during a chain.
 - [Recovery Mode](RecoveryMode.md) — a deeper look at how interrupted work is
   detected, recovered, and resumed.
+- [Bead Selection Order](../Reference/BeadSelectionOrder.md) — the four-tier
+  priority waterfall that decides which task is picked next.
 - [Status Messages](../Reference/StatusMessages.md) — what every emoji-prefixed
   message means and what to do when you see it.
 - [Configuration](../Reference/Configuration.md) — environment variables,

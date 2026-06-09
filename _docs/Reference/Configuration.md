@@ -175,6 +175,8 @@ If bead-chain refuses a bead because of its type, you'll see a refusal message i
 
 - [Status Messages](StatusMessages.md) — what every chain message means,
   including timeout errors and excluded-type refusals.
+- [Bead Selection Order](BeadSelectionOrder.md) — how the four-tier waterfall
+  decides which task to pick; excluded types are filtered at every tier.
 - [How Bead Chaining Works](../Concepts/HowBeadChainingWorks.md) — the
   claim→drive→judge→close loop and how epic rollup works.
 - [Recovery Mode](../Concepts/RecoveryMode.md) — how interrupted runs resume

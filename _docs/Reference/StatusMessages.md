@@ -247,6 +247,8 @@ flowchart TD
   claim→drive→judge→close loop that generates these messages.
 - [Recovery Mode](../Concepts/RecoveryMode.md) — deep dive into the &#x1F516;
   bookmark and &#x26A0;&#xFE0F; multi-strand recovery messages.
+- [Bead Selection Order](BeadSelectionOrder.md) — the four-tier priority
+  waterfall that determines which task is picked and which messages you see.
 - [The Close Guard](../Concepts/TheCloseGuard.md) — how the &#x1F6D1;
   close-block messages are triggered and why.
 - [Overview](../Overview.md) — bead-chain at a glance.
