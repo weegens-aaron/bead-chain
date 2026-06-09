@@ -193,6 +193,9 @@ If bead-chain refuses a bead because of its type, you'll see a refusal message i
 - [Overview](../Overview.md) — bead-chain at a glance.
 - [How to Run a Capped Session](../Guides/RunACappedSession.md) — using the
   `--max` flag to limit how many tasks process in a single run.
+- [How to Resume After an Interruption](../Guides/ResumeAfterInterruption.md)
+  — what to do when a run is cut short; configuration defaults (timeouts,
+  retries) affect how the chain communicates with `bd` during recovery.
 
 ---
 

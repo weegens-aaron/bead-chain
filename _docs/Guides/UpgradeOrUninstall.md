@@ -156,6 +156,9 @@ in the plugin directory. You can still use `bd` directly.
 
 - [Recovery Mode](../Concepts/RecoveryMode.md) — how interrupted tasks are
   detected and resumed after an upgrade or restart.
+- [How to Resume After an Interruption](ResumeAfterInterruption.md) —
+  step-by-step instructions for resuming after an interruption; relevant when
+  upgrading mid-chain since Recovery Mode picks up the stranded task.
 - [How Bead Chaining Works](../Concepts/HowBeadChainingWorks.md) — the
   claim→drive→judge→close loop that `/bead-chain` automates.
 - [Configuration](../Reference/Configuration.md) — the `BEADS_BIN` environment

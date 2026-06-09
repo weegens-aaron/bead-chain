@@ -179,6 +179,9 @@ to do.
   — what happens when the agent finds an unrelated bug mid-task.
 - [How to Run a Capped Session](../Guides/RunACappedSession.md) — step-by-step
   guide to using `--max=N` for bounded, predictable runs.
+- [How to Resume After an Interruption](../Guides/ResumeAfterInterruption.md)
+  — what to do when Ctrl+C or a crash stops a run mid-task; recovery handles
+  the rest.
 - [Installation](../GettingStarted/Installation.md) — download and set up
   the plugin.
 - [Overview](../Overview.md) — bead-chain at a glance.

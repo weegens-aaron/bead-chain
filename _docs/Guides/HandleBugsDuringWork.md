@@ -195,6 +195,9 @@ blocking/non-blocking decision independently.
   message means, including messages related to bug filing and triage.
 - [Configuration](../Reference/Configuration.md) — environment variables and
   defaults that affect chain behavior.
+- [How to Resume After an Interruption](ResumeAfterInterruption.md) — what
+  to do when a run is cut short; recovery works identically whether a task
+  is fresh or has a triaged bug attached.
 
 ---
 

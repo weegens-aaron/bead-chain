@@ -259,6 +259,9 @@ flowchart TD
 - [How to Run a Capped Session](../Guides/RunACappedSession.md) — the
   step-by-step guide for using `--max=N`, which produces the cap-reached
   message documented above.
+- [How to Resume After an Interruption](../Guides/ResumeAfterInterruption.md)
+  — step-by-step instructions for what to do when a run is cut short;
+  pairs with the bookmark and multi-strand recovery messages above.
 
 ---
 

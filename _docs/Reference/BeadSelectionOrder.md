@@ -280,6 +280,9 @@ respects a deliberate pin.
 - [How to Run a Capped Session](../Guides/RunACappedSession.md) — using
   `--max=N` to cap the number of tasks the selection waterfall processes in one
   run.
+- [How to Resume After an Interruption](../Guides/ResumeAfterInterruption.md)
+  — what to do when a run is cut short; recovery (tier 0) picks up the
+  stranded task first.
 
 ---
 

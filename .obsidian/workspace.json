@@ -185,6 +185,8 @@
   },
   "active": "7c253d31690a3c83",
   "lastOpenFiles": [
+    "_docs/Guides/ResumeAfterInterruption.md",
+    "_docs/GettingStarted/RunYourFirstChain.md",
     "_docs/Guides/RunACappedSession.md",
     "_docs/GettingStarted/Installation.md",
     "_docs/Reference/Commands.md",
@@ -218,8 +220,6 @@
     "plan.json",
     "dist/bead-chain-v0.1.0.zip",
     "staging/bead_chain/README.md",
-    "notes/decisions/0002-release-allowlist.md",
-    "docs/README.md",
-    "skills/md-to-html/SKILL.md"
+    "notes/decisions/0002-release-allowlist.md"
   ]
 }

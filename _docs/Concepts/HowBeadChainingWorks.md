@@ -236,6 +236,9 @@ bead-chain is aware of this hierarchy:
   and how filed bugs feed back into the chain.
 - [How to Run a Capped Session](../Guides/RunACappedSession.md) — limit how
   many tasks process in one run using `--max=N`.
+- [How to Resume After an Interruption](../Guides/ResumeAfterInterruption.md)
+  — step-by-step instructions for what to do when a run is cut short and how
+  recovery resumes the loop.
 - [Status Messages](../Reference/StatusMessages.md) — what every emoji-prefixed
   message means and what to do when you see it.
 - [Configuration](../Reference/Configuration.md) — environment variables,
