@@ -131,6 +131,8 @@ guard. This means:
 
 - [Overview](../Overview.md) — introduces the Close Guard as one of
   bead-chain’s safety guardrails.
+- [Tutorial: Automate a Sprint Backlog](../Tutorials/AutomateASprintBacklog.md)
+  — see the Close Guard in context during a full end-to-end chain run.
 - [How Bead Chaining Works](HowBeadChainingWorks.md) — the core
   claim→drive→judge→close loop that the Close Guard protects.
 - [Recovery Mode](RecoveryMode.md) — what happens when a chain is interrupted;

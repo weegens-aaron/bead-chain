@@ -259,6 +259,9 @@ respects a deliberate pin.
 
 - [How Bead Chaining Works](../Concepts/HowBeadChainingWorks.md) — the
   claim→drive→judge→close loop that this selection order feeds into.
+- [Tutorial: Automate a Sprint Backlog](../Tutorials/AutomateASprintBacklog.md)
+  — see all four tiers in action during a real scenario, including recovery
+  after a Ctrl+C interruption and epic-affinity picks.
 - [Recovery Mode](../Concepts/RecoveryMode.md) — a deeper look at tier 0:
   how interrupted work is detected, assessed, and resumed.
 - [The Close Guard](../Concepts/TheCloseGuard.md) — the safety mechanism

@@ -54,6 +54,9 @@ New to bead-chain? Start here:
 
 Once you're up and running:
 
+- [Tutorial: Automate a Sprint Backlog](Tutorials/AutomateASprintBacklog.md) —
+  walk through a full end-to-end scenario: set up a batch of tasks, run the
+  chain, interrupt and recover, and watch the parent epic close itself.
 - [How to Run a Capped Session](Guides/RunACappedSession.md) — control how many
   tasks process in one run.
 - [How to Resume After an Interruption](Guides/ResumeAfterInterruption.md) —

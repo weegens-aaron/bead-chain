@@ -165,11 +165,14 @@ won't override a deliberate pin.
 
 - [How Bead Chaining Works](HowBeadChainingWorks.md) — the core
   claim→drive→judge→close loop that recovery protects.
+- [Tutorial: Automate a Sprint Backlog](../Tutorials/AutomateASprintBacklog.md)
+  — a hands-on walkthrough of interrupting a chain with Ctrl+C and watching
+  Recovery Mode resume the work.
 - [The Close Guard](TheCloseGuard.md) — the safety rail that keeps agents from
   closing tasks themselves; the Close Guard still applies during recovery.
 - [Bead Selection Order](../Reference/BeadSelectionOrder.md) — the full
   four-tier priority waterfall; recovery is tier 0 and always goes first.
-- [Overview](../Overview.md) — bead-chain's crash recovery feature at a glance.
+- [Overview](../Overview.md) — bead-chain’s crash recovery feature at a glance.
 - [Status Messages](../Reference/StatusMessages.md) — what the recovery-related
   messages (&#x1F516; bookmark, &#x26A0;&#xFE0F; multi-strand warning) mean and
   what to do.

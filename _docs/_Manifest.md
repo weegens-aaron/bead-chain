@@ -12,8 +12,8 @@ doc bead ticks its box `[x]` and bumps the counters below when complete.
 ## Progress
 
 - **Total:** 14
-- **Done:** 6
-- **Remaining:** 8
+- **Done:** 7
+- **Remaining:** 7
 
 ---
 
@@ -31,7 +31,7 @@ doc bead ticks its box `[x]` and bumps the counters below when complete.
 
 ## Tutorials (040+)
 
-- [ ] 040 | Tutorial: Automate a Sprint Backlog -> [AutomateASprintBacklog](Tutorials/AutomateASprintBacklog.md)
+- [x] 040 | Tutorial: Automate a Sprint Backlog -> [AutomateASprintBacklog](Tutorials/AutomateASprintBacklog.md)
 
 ## Reference (060+)
 

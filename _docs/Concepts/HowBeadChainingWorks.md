@@ -218,8 +218,11 @@ bead-chain is aware of this hierarchy:
 
 ## Related
 
-- [Overview](../Overview.md) — what bead-chain is, who it's for, and its key
+- [Overview](../Overview.md) — what bead-chain is, who it’s for, and its key
   features.
+- [Tutorial: Automate a Sprint Backlog](../Tutorials/AutomateASprintBacklog.md)
+  — an end-to-end walkthrough of the chaining loop in action, including
+  interruption, recovery, and epic rollup.
 - [The Close Guard](TheCloseGuard.md) — how the separation of "doer" and
   "evaluator" is enforced during a chain.
 - [Recovery Mode](RecoveryMode.md) — a deeper look at how interrupted work is
