@@ -12,14 +12,14 @@ doc bead ticks its box `[x]` and bumps the counters below when complete.
 ## Progress
 
 - **Total:** 14
-- **Done:** 10
-- **Remaining:** 4
+- **Done:** 11
+- **Remaining:** 3
 
 ---
 
 ## Getting-Started (001+)
 
-- [ ] 001 | Getting-Started: Installation -> [Installation](GettingStarted/Installation.md)
+- [x] 001 | Getting-Started: Installation -> [Installation](GettingStarted/Installation.md)
 - [ ] 002 | Getting-Started: Run Your First Chain -> [RunYourFirstChain](GettingStarted/RunYourFirstChain.md)
 
 ## Guides (010+)

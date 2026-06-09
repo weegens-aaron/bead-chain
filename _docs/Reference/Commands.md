@@ -177,6 +177,8 @@ to do.
   when using these commands.
 - [How to Handle Bugs Discovered During Work](../Guides/HandleBugsDuringWork.md)
   — what happens when the agent finds an unrelated bug mid-task.
+- [Installation](../GettingStarted/Installation.md) — download and set up
+  the plugin.
 - [Overview](../Overview.md) — bead-chain at a glance.
 
 ---

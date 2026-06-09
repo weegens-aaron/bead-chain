@@ -238,6 +238,8 @@ bead-chain is aware of this hierarchy:
   message means and what to do when you see it.
 - [Configuration](../Reference/Configuration.md) — environment variables,
   timeout/retry behavior, and excluded container types.
+- [Installation](../GettingStarted/Installation.md) — download and set up
+  the plugin, including prerequisites and platform-specific steps.
 
 ---
 
