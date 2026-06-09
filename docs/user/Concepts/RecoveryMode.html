@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recovery Mode — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="index.html">Index</a>
+<a href="HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="RecoveryMode.html" class="active">Recovery Mode</a>
+<a href="TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="../GettingStarted/index.html">Index</a>
+<a href="../GettingStarted/Installation.html">Installation</a>
+<a href="../GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="../Guides/index.html">Index</a>
+<a href="../Guides/HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="../Guides/ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="../Guides/RunACappedSession.html">Run ACapped Session</a>
+<a href="../Guides/UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="../Reference/index.html">Index</a>
+<a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="../Reference/Commands.html">Commands</a>
+<a href="../Reference/Configuration.html">Configuration</a>
+<a href="../Reference/StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="recovery-mode">Recovery Mode</h1>
+<h2 id="what-is-it">What Is It</h2>
+<p>Recovery Mode is bead-chain's mechanism for resuming interrupted work. If a chain run is cut short — you press Ctrl+C, your machine loses power, the network drops, or anything else stops the run mid-task — the work in progress isn't lost. The next time you start a chain, bead-chain detects the unfinished task, loads a special recovery prompt, and the agent assesses what's already been done before deciding what to do next.</p>
+<p>No manual cleanup. No lost progress. No duplicated effort. The chain picks up exactly where it left off.</p>
+<h2 id="why-it-matters">Why It Matters</h2>
+<p>Automated chains can run for hours — processing dozens or hundreds of tasks while you're away. In a run that long, interruptions aren't just possible, they're inevitable:</p>
+<ul>
+<li><strong>You press Ctrl+C</strong> to stop a run that's gone long enough.</li>
+<li><strong>Your laptop sleeps</strong> or reboots for an update.</li>
+<li><strong>A network blip</strong> disconnects the AI agent mid-task.</li>
+<li><strong>A power outage</strong> kills everything without warning.</li>
+</ul>
+<p>Without recovery, any of these would leave orphaned, half-done work: a task marked as in-progress with no one driving it, partial changes sitting in the repo, and no way for the next run to know what already happened. You'd have to manually inspect the state, figure out what was done, and either finish it by hand or reset the task and start over.</p>
+<p>Recovery Mode eliminates that overhead entirely. It guarantees a simple invariant: <strong>every task that was being worked on will be resumed, not restarted.</strong> The agent reads the current state before touching anything, so completed work is recognized and reported — not blindly redone.</p>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>Recovery Mode is fully automatic. You don't need to turn it on, configure it, or trigger it manually. It activates whenever the chain detects unfinished work from a prior run.</p></div>
+<h2 id="how-it-works">How It Works</h2>
+<h3 id="what-happens-when-a-chain-is-interrupted">What Happens When a Chain Is Interrupted</h3>
+<p>When a chain is running, the current task is marked as in-progress. If the chain stops unexpectedly — for any reason — that task stays in-progress. This is intentional: the in-progress status is the chain's breadcrumb. It tells the next run "this task was being worked on, and the work wasn't finished cleanly."</p>
+<p>Any changes the agent already made (code written, files modified, tests added) remain in the repository exactly as they were. Nothing is rolled back, nothing is cleaned up. The partial work is preserved in place.</p>
+<h3 id="how-the-next-run-detects-it">How the Next Run Detects It</h3>
+<p>When you start a new chain with <code>/bead-chain</code>, the very first thing the chain does — before looking at the ready queue — is check whether any tasks are already in-progress. If it finds one, that task becomes the chain's first priority. Recovery beats everything else: blocking bugs, epic siblings, the global queue. The unfinished task always goes first.</p>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>Think of it like coming back to your desk after lunch and finding a half-done task on top of the pile. You don't shove it aside and start something new — you pick it up, see where you left off, and finish it. That's exactly what bead-chain does.</p></div>
+<h3 id="how-the-agent-resumes">How the Agent Resumes</h3>
+<p>When a recovery task is detected, the agent receives a special prompt that tells it: "This task was started by a previous run that didn't finish. Assess the current state before doing anything new."</p>
+<p>The agent then follows a structured assessment:</p>
+<ol>
+<li><strong>Check what's already done.</strong> The agent looks at the repository — files changed, tests written, build output — to understand how far the previous run got.</li>
+<li><strong>Decide if the task is already complete.</strong> If all acceptance criteria are met by the existing state, the agent reports what's in place and lets the judges evaluate it. No new work needed.</li>
+<li><strong>Continue from where it left off.</strong> If the task is partially done, the agent picks up from the current state and finishes the remaining work. It doesn't start over.</li>
+</ol>
+<p>The key insight is that the agent <strong>never blindly redoes work</strong>. Whether the previous run got 10% done or 99% done, the agent starts with an honest assessment of where things stand. If everything is already in place, it simply reports that fact and lets the independent judges verify it.</p>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>The agent never re-claims a recovered task. It's already marked as in-progress, so claiming it again would be redundant. The chain skips straight to the assessment phase.</p></div>
+<h3 id="the-interrupt-resume-flow">The Interrupt–Resume Flow</h3>
+<pre class="mermaid">
+flowchart TD
+    RUN(["Chain is running"]) --&gt; WORK["Agent works a task\n(task is in-progress)"]
+    WORK --&gt; INT{{"Interruption\n(Ctrl+C, crash, power loss)"}}
+    INT --&gt; ORPHAN["Task stays in-progress\nPartial work preserved in repo"]
+
+    ORPHAN -.-&gt;|"Time passes…"| NEXT(["You start /bead-chain again"])
+    NEXT --&gt; DETECT{"Any tasks\nalready in-progress?"}
+    DETECT -- No --&gt; READY["Pick from the ready queue\n(normal operation)"]
+    DETECT -- Yes --&gt; RECOVER["Recovery Mode activates"]
+    RECOVER --&gt; ASSESS["Agent assesses current state:\nWhat's already done?"]
+    ASSESS --&gt; DONE{"Task already\nsatisfied?"}
+    DONE -- Yes --&gt; REPORT["Agent reports what's in place\nJudges evaluate"]
+    DONE -- No --&gt; CONTINUE["Agent continues from\nwhere the previous run stopped"]
+    CONTINUE --&gt; JUDGE["Judges evaluate\nthe completed work"]
+    REPORT --&gt; CLOSE["Task closes normally\nChain moves on"]
+    JUDGE --&gt; CLOSE
+
+    style RUN fill:#0071dc,color:#fff
+    style INT fill:#e03131,color:#fff
+    style ORPHAN fill:#ffc220,color:#000
+    style NEXT fill:#0071dc,color:#fff
+    style RECOVER fill:#ffc220,color:#000
+    style CLOSE fill:#2e7d32,color:#fff
+</pre>
+<h3 id="what-about-blocked-tasks">What About Blocked Tasks?</h3>
+<p>Sometimes a task that was in-progress when the chain was interrupted has since become blocked — another task now needs to finish first. Recovery Mode handles this gracefully: before resuming any stranded task, the chain checks whether it has open blockers. If it does, the task is moved back to the open queue (behind its blockers) rather than being recovered. You'll see a warning explaining what happened.</p>
+<p>This ensures the chain never drives work that can't be completed — even in recovery.</p>
+<h3 id="what-if-multiple-tasks-are-stranded">What If Multiple Tasks Are Stranded?</h3>
+<p>Under normal operation, the chain works one task at a time, so at most one task should be in-progress at any moment. But hard crashes (the kind that bypass every cleanup handler) or unusual circumstances can leave more than one.</p>
+<p>When the chain finds multiple in-progress tasks, it recovers them <strong>one at a time</strong>, in order. The first one is recovered immediately. The rest stay in-progress and are picked up on subsequent iterations within the same run — each one gets its own recovery prompt and full assessment before any new work begins.</p>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>Don't manually reset a stranded task's status to open after an interruption. Doing so erases the recovery signal — the chain will treat it as brand-new work, and the agent won't know to check what's already been done. Let recovery handle it naturally.</p></div>
+<h3 id="pinned-tasks">Pinned Tasks</h3>
+<p>If a task is pinned (locked by a human or another tool) while the agent is working on it, the chain drops that task without closing it and moves on. The pinned task stays pinned until someone explicitly unpins it — recovery won't override a deliberate pin.</p>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="HowBeadChainingWorks.html">How Bead Chaining Works</a> — the core claim→drive→judge→close loop that recovery protects.</li>
+<li><a href="../Reference/Commands.html">Commands</a> — the <code>/bead-chain</code> command and Ctrl+C behavior that trigger and interact with Recovery Mode.</li>
+<li><a href="../Tutorials/AutomateASprintBacklog.html">Tutorial: Automate a Sprint Backlog</a> — a hands-on walkthrough of interrupting a chain with Ctrl+C and watching Recovery Mode resume the work.</li>
+<li><a href="TheCloseGuard.html">The Close Guard</a> — the safety rail that keeps agents from closing tasks themselves; the Close Guard still applies during recovery.</li>
+<li><a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a> — the full four-tier priority waterfall; recovery is tier 0 and always goes first.</li>
+<li><a href="../Overview.html">Overview</a> — bead-chain’s crash recovery feature at a glance.</li>
+<li><a href="../Reference/StatusMessages.html">Status Messages</a> — what the recovery-related messages (&amp;#x1F516; bookmark, &amp;#x26A0;&amp;#xFE0F; multi-strand warning) mean and what to do.</li>
+<li><a href="../Guides/ResumeAfterInterruption.html">How to Resume After an Interruption</a> — step-by-step instructions for what to do when a run is cut short.</li>
+<li><a href="../Guides/RunACappedSession.html">How to Run a Capped Session</a> — using <code>--max=N</code> to stop the chain at a planned point instead of pressing Ctrl+C.</li>
+<li><a href="../Guides/UpgradeOrUninstall.html">How to Upgrade or Uninstall bead-chain</a> — upgrading after an interrupted run; Recovery Mode picks up the stranded task automatically after the restart.</li>
+<li><a href="../Reference/Configuration.html">Configuration</a> — timeout/retry defaults that affect how bead-chain communicates with <code>bd</code> during recovery.</li>
+<li><a href="../Guides/HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a> — how the agent handles unrelated bugs found mid-task; a triaged bug that is also stranded in-progress triggers recovery over triage verification.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Concepts</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

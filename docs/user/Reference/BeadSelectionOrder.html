@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bead Selection Order Reference — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="../Concepts/RecoveryMode.html">Recovery Mode</a>
+<a href="../Concepts/TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="../GettingStarted/index.html">Index</a>
+<a href="../GettingStarted/Installation.html">Installation</a>
+<a href="../GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="../Guides/index.html">Index</a>
+<a href="../Guides/HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="../Guides/ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="../Guides/RunACappedSession.html">Run ACapped Session</a>
+<a href="../Guides/UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="index.html">Index</a>
+<a href="BeadSelectionOrder.html" class="active">Bead Selection Order</a>
+<a href="Commands.html">Commands</a>
+<a href="Configuration.html">Configuration</a>
+<a href="StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="bead-selection-order-reference">Bead Selection Order Reference</h1>
+<h2 id="overview">Overview</h2>
+<p>When bead-chain finishes one task and moves to the next, it doesn't just grab whatever happens to be at the top of the queue. Instead, it follows a strict four-tier priority waterfall — checking each tier in order and taking the first match it finds. This ordering ensures that interrupted work is never forgotten, urgent blockers are resolved before they snowball, related tasks stay together for coherent output, and the general queue drains steadily when nothing else takes priority.</p>
+<p>Understanding this order helps you predict which task the chain will pick next, and explains why a task you expected to see might not be the one that runs.</p>
+<hr>
+<h2 id="the-priority-waterfall">The Priority Waterfall</h2>
+<p>Every time bead-chain needs a new task — at startup and after each successful close — it walks the same four tiers, top to bottom, and takes the first task it finds:</p>
+<table><thead><tr>
+<th>Tier</th>
+<th>Name</th>
+<th>What it looks for</th>
+<th>Why it goes first</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>0</strong></td>
+<td><a href="#tier-0--recovery">Recovery</a></td>
+<td>Any task left in-progress from a previous interrupted run</td>
+<td>Unfinished work must be assessed before anything new begins — one task at a time, always</td>
+</tr>
+<tr>
+<td><strong>1</strong></td>
+<td><a href="#tier-1--blocking-bugs">Blocking Bug</a></td>
+<td>A ready bug that other tasks depend on</td>
+<td>Fixing it unblocks downstream work, so it always cuts the line</td>
+</tr>
+<tr>
+<td><strong>2</strong></td>
+<td><a href="#tier-2--epic-affinity">Epic Affinity</a></td>
+<td>A ready sibling under the same parent epic as the just-completed task</td>
+<td>Finishing related work together produces coherent commits and focused output</td>
+</tr>
+<tr>
+<td><strong>3</strong></td>
+<td><a href="#tier-3--global-ready-queue">Global Queue</a></td>
+<td>Whatever <code>bd ready</code> returns next</td>
+<td>The general-purpose fallback when nothing higher-priority applies</td>
+</tr>
+</tbody></table>
+<p>The waterfall is <strong>strict</strong> — tier 0 always beats tier 1, tier 1 always beats tier 2, and so on. There are no exceptions and no overrides.</p>
+<h3 id="waterfall-flow">Waterfall Flow</h3>
+<pre class="mermaid">
+flowchart TD
+    START([\"Task completed or\\nchain just started\"]) --&gt; T0{\"Tier 0\\nAny stranded\\nin-progress tasks?\"}
+    T0 -- Yes --&gt; RECOVER[\"Recover that task\\n(resume with assessment)\"]
+    T0 -- No --&gt; T1{\"Tier 1\\nAny blocking\\nbugs ready?\"}
+    T1 -- Yes --&gt; BUG[\"Claim the blocking bug\"]
+    T1 -- No --&gt; T2{\"Tier 2\\nAny ready siblings\\nunder the same epic?\"}
+    T2 -- Yes --&gt; SIBLING[\"Claim the sibling task\"]
+    T2 -- No --&gt; T3{\"Tier 3\\nAnything in the\\nglobal ready queue?\"}
+    T3 -- Yes --&gt; NEXT[\"Claim the next ready task\"]
+    T3 -- No --&gt; GATES{\"Any gates\\njust resolved?\"}
+    GATES -- Yes --&gt; T0
+    GATES -- No --&gt; DONE([\"Queue empty —\\nchain stops\"])
+
+    style START fill:#0071dc,color:#fff
+    style RECOVER fill:#ffc220,color:#000
+    style BUG fill:#e03131,color:#fff
+    style SIBLING fill:#e6f2ff
+    style NEXT fill:#e6f2ff
+    style DONE fill:#2e7d32,color:#fff
+</pre>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>When the queue appears empty, bead-chain probes for any gates that may have resolved (timers expired, external checks passed, dependency conditions satisfied). If any gate resolves, its gated tasks re-enter the ready queue and the waterfall runs again from the top.</p></div>
+<hr>
+<h2 id="tier-0-recovery">Tier 0 — Recovery</h2>
+<p><strong>What it looks for:</strong> Any non-container task that is already marked as in-progress (or hooked) when the chain needs its next task.</p>
+<p><strong>When it fires:</strong> At the very start of a chain run (when you type <code>/bead-chain</code>) and between iterations if additional stranded tasks remain.</p>
+<p><strong>What happens:</strong></p>
+<ol>
+<li>The chain scans for tasks left in a recoverable state — in-progress or hooked — from a prior run that ended without finishing them (Ctrl+C, a crash, power loss, etc.).</li>
+<li>Any stranded task that has open blockers is moved back to the open queue rather than being recovered. The chain never drives work that can't be completed.</li>
+<li>The first unblocked stranded task is selected. It is <strong>not</strong> re-claimed (it's already in-progress), but the agent receives a special recovery prompt telling it to assess what's already been done before continuing.</li>
+</ol>
+<p>If multiple tasks are stranded (which only happens after a hard crash that bypassed all cleanup), they are recovered <strong>one at a time</strong>, each getting its own full assessment.</p>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>Recovery always wins. No blocking bug, no epic sibling, and no queue position can override recovery. Unfinished work is addressed before anything new begins — this is the chain's one-task-at-a-time discipline.</p></div>
+<p><strong>You'll see:</strong> A recovery message in your terminal identifying the stranded task and noting that the agent will assess the current state.</p>
+<p>For a deeper look at the recovery mechanism, see <a href="../Concepts/RecoveryMode.html">Recovery Mode</a>.</p>
+<hr>
+<h2 id="tier-1-blocking-bugs">Tier 1 — Blocking Bugs</h2>
+<p><strong>What it looks for:</strong> A ready bug that has at least one other task depending on it (a dependent count greater than zero).</p>
+<p><strong>When it fires:</strong> After recovery is clear (no stranded tasks), before considering epic siblings or the general queue.</p>
+<p><strong>What happens:</strong></p>
+<ol>
+<li>The chain checks the ready queue for bugs that other tasks are blocked by.</li>
+<li>A bug must meet <strong>both</strong> criteria to qualify: - It is a bug-type issue (not a task, not an epic, not another container type). - At least one other task depends on it — meaning fixing it will unblock downstream work.</li>
+<li>If a qualifying bug is found, it jumps to the front of the line and is claimed immediately.</li>
+</ol>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>A bug with no dependents is <strong>not</strong> a blocking bug in this context. It's treated as ordinary work and will be picked up when its turn comes in the global queue at tier 3. "Blocking" means it's actively holding something else up.</p></div>
+<p><strong>Why it matters:</strong> A single unfixed blocking bug can stall an entire branch of your task tree. By prioritising it above all regular work, the chain ensures that downstream tasks are unblocked as quickly as possible — maximising the amount of work available for subsequent iterations.</p>
+<p><strong>You'll see:</strong> An info message noting that a blocking bug was detected and prioritised.</p>
+<hr>
+<h2 id="tier-2-epic-affinity">Tier 2 — Epic Affinity</h2>
+<p><strong>What it looks for:</strong> A ready task under the <strong>same parent epic</strong> as the task the chain just completed.</p>
+<p><strong>When it fires:</strong> After confirming no recovery work and no blocking bugs, and only if the just-closed task belonged to a parent epic.</p>
+<p><strong>What happens:</strong></p>
+<ol>
+<li>The chain looks at the task it just completed and checks whether it had a parent epic.</li>
+<li>If it did, the chain asks for the next ready task under that same epic.</li>
+<li>If a sibling is available, it is claimed next — even if the global queue has higher-priority unrelated tasks waiting.</li>
+</ol>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>Epic affinity only applies when the chain just completed a task with a parent epic. If the just-completed task was a top-level item (no parent), this tier is skipped entirely and the chain falls through to tier 3.</p></div>
+<p><strong>Why it matters:</strong> Finishing all children of an epic together produces coherent, focused output. Commits stay related, context stays warm, and the parent epic can roll up (auto-close) sooner. Jumping between unrelated epics mid-stream creates scattered, context-switching work — epic affinity prevents that by following the "finish what you start" principle.</p>
+<p><strong>You'll see:</strong> An info message noting that the chain is staying inside the current epic.</p>
+<hr>
+<h2 id="tier-3-global-ready-queue">Tier 3 — Global Ready Queue</h2>
+<p><strong>What it looks for:</strong> Whatever <code>bd ready</code> returns as the next available task.</p>
+<p><strong>When it fires:</strong> When all higher tiers come up empty — no stranded work, no blocking bugs, and no epic siblings.</p>
+<p><strong>What happens:</strong></p>
+<ol>
+<li>The chain asks <code>bd</code> for the next ready task from the general queue.</li>
+<li><code>bd</code> applies its own priority and blocker resolution — the chain inherits that ordering without trying to second-guess it.</li>
+<li>The first eligible task is claimed and driven.</li>
+</ol>
+<p>This is the steady-state tier: most task picks during a chain run come from here once recovery is clear, blocking bugs are resolved, and epic families are finished.</p>
+<p><strong>You'll see:</strong> A standard "claimed" message identifying the task.</p>
+<hr>
+<h2 id="what-gets-filtered-out">What Gets Filtered Out</h2>
+<p>Regardless of tier, certain beads are <strong>never</strong> selected by the chain:</p>
+<h3 id="container-and-handle-types">Container and Handle Types</h3>
+<table><thead><tr>
+<th>Type</th>
+<th>Why it's excluded</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Epic</strong></td>
+<td>A container that groups children — it's not doable work. The chain drives its children individually and rolls up the epic when they're all done.</td>
+</tr>
+<tr>
+<td><strong>Milestone</strong></td>
+<td>A scheduling or checkpoint container, not a unit of work.</td>
+</tr>
+<tr>
+<td><strong>Gate</strong></td>
+<td>A handle that blocks downstream work until a condition is met (a timer, an external check, etc.). Gates resolve themselves — they aren't worked by an agent.</td>
+</tr>
+<tr>
+<td><strong>Molecule</strong></td>
+<td>A swarm orchestrator that manages spawned sub-tasks. The sub-tasks are the actual work.</td>
+</tr>
+</tbody></table>
+<p>These types are filtered out both when the chain queries for ready tasks <strong>and</strong> when it double-checks any task it's about to claim — a two-layer safety net that ensures containers never reach the work loop.</p>
+<p>For more on excluded types, see the <a href="Configuration.html#excluded-container-types">Configuration Reference</a>.</p>
+<h3 id="blocked-tasks">Blocked Tasks</h3>
+<p>A task with open blockers — dependencies on other tasks that haven't been completed yet — is never selected. This applies at every tier:</p>
+<ul>
+<li><strong>Tier 0 (recovery):</strong> Stranded tasks with open blockers are moved back to the open queue rather than recovered.</li>
+<li><strong>Tiers 1–3:</strong> Tasks sourced from the ready queue are rechecked for blockers before being claimed, as an extra safety layer.</li>
+</ul>
+<h3 id="pinned-tasks">Pinned Tasks</h3>
+<p>Tasks that have been pinned (parked by a human or another tool to stay open indefinitely) are excluded from the ready queue and from recovery. The chain respects a deliberate pin.</p>
+<hr>
+<h2 id="tips">Tips</h2>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Predict the next pick.</strong> If you want to know what the chain will grab next, check in this order: any in-progress tasks (<code>bd list --status=in_progress</code>), then bugs with dependents, then siblings of the just-closed task's epic, then <code>bd ready</code>. The first non-empty result is your answer.</p></div>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Use epic affinity to your advantage.</strong> If you want a set of related tasks completed together without interruption, group them under the same parent epic. Once the chain starts on one, it will finish the family before moving on — as long as no tier 0 or tier 1 work cuts in.</p></div>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Blocking bugs are your fast lane.</strong> If a task is stuck waiting on a bug, the chain will prioritise that bug automatically. You don't need to manually reorder your queue — just make sure the dependency relationship is recorded and the chain takes care of the rest.</p></div>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Recovery is automatic.</strong> You never need to manually trigger recovery or tell the chain about interrupted work. If a task is in-progress when the chain starts, it knows what to do. Don't manually reset the task's status — let the chain handle it. See <a href="../Concepts/RecoveryMode.html">Recovery Mode</a>.</p></div>
+<hr>
+<h2 id="see-also">See Also</h2>
+<ul>
+<li><a href="Commands.html">Commands</a> — the <code>/bead-chain</code> command and <code>--max</code> flag that start the chain whose task selection this document describes.</li>
+<li><a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> — the claim→drive→judge→close loop that this selection order feeds into.</li>
+<li><a href="../Tutorials/AutomateASprintBacklog.html">Tutorial: Automate a Sprint Backlog</a> — see all four tiers in action during a real scenario, including recovery after a Ctrl+C interruption and epic-affinity picks.</li>
+<li><a href="../Concepts/RecoveryMode.html">Recovery Mode</a> — a deeper look at tier 0: how interrupted work is detected, assessed, and resumed.</li>
+<li><a href="../Concepts/TheCloseGuard.html">The Close Guard</a> — the safety mechanism that prevents AI agents from closing tasks themselves during the chain.</li>
+<li><a href="Configuration.html">Configuration</a> — environment variables, timeout/retry behavior, and the excluded container types list.</li>
+<li><a href="StatusMessages.html">Status Messages</a> — what every emoji-prefixed message means, including the selection-related info and warning messages.</li>
+<li><a href="../Guides/HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a> — what happens when an agent finds an unrelated bug mid-task, including how filed bugs feed into tier 1 priority routing.</li>
+<li><a href="../Overview.html">Overview</a> — bead-chain at a glance, including the "smart task ordering" feature that this document details.</li>
+<li><a href="../Guides/RunACappedSession.html">How to Run a Capped Session</a> — using <code>--max=N</code> to cap the number of tasks the selection waterfall processes in one run.</li>
+<li><a href="../Guides/ResumeAfterInterruption.html">How to Resume After an Interruption</a> — what to do when a run is cut short; recovery (tier 0) picks up the stranded task first.</li>
+<li><a href="../GettingStarted/RunYourFirstChain.html">Quick Start: Run Your First Chain</a> — go from zero to watching tasks close themselves; shows the selection order in action during a first run.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Reference</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

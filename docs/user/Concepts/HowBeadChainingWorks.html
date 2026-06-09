@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Bead Chaining Works — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="index.html">Index</a>
+<a href="HowBeadChainingWorks.html" class="active">How Bead Chaining Works</a>
+<a href="RecoveryMode.html">Recovery Mode</a>
+<a href="TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="../GettingStarted/index.html">Index</a>
+<a href="../GettingStarted/Installation.html">Installation</a>
+<a href="../GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="../Guides/index.html">Index</a>
+<a href="../Guides/HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="../Guides/ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="../Guides/RunACappedSession.html">Run ACapped Session</a>
+<a href="../Guides/UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="../Reference/index.html">Index</a>
+<a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="../Reference/Commands.html">Commands</a>
+<a href="../Reference/Configuration.html">Configuration</a>
+<a href="../Reference/StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="how-bead-chaining-works">How Bead Chaining Works</h1>
+<h2 id="what-is-it">What Is It</h2>
+<p>Bead chaining is the core automation loop that powers bead-chain. When you run <code>/bead-chain</code>, the plugin takes over your task queue and drives it end-to-end: it claims a task, hands it to an AI agent under independent judge supervision, waits for the judges to approve the work, closes the task, and grabs the next one. This cycle — <strong>claim → drive → judge → close</strong> — repeats until the queue is empty or you tell it to stop.</p>
+<p>You don't pick tasks, assign them, or close them. bead-chain does all of that for you, one task at a time, in a steady, predictable loop.</p>
+<h2 id="why-it-matters">Why It Matters</h2>
+<p>Without bead chaining, every task in your queue requires manual intervention. You'd need to find a ready task, claim it, kick off the AI work loop, wait for the result, check it yourself, close it, and then go hunting for the next one. Multiply that by dozens — or hundreds — of tasks and you've got a full-time job just babysitting the queue.</p>
+<p>Bead chaining eliminates that overhead:</p>
+<ul>
+<li><strong>Hands-off throughput.</strong> Start the chain and walk away. Come back to find a pile of completed, judge-verified work.</li>
+<li><strong>Consistent quality.</strong> Every single task goes through the same independent judge panel before it's marked done. No shortcuts, no rubber-stamping, no "looks good to me" closures.</li>
+<li><strong>Smart ordering.</strong> The chain doesn't just blindly follow queue position — it prioritises blocking bugs that hold up other work and keeps related tasks under the same epic together for coherent output.</li>
+<li><strong>Safe interruption.</strong> If the chain is interrupted — power loss, network blip, or you press Ctrl+C — nothing is lost. The next run picks up exactly where you left off and assesses the current state before doing anything new.</li>
+</ul>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>Think of bead chaining as a reliable assistant who works through your to-do list while you sleep. You set the list, walk away, and come back to find items crossed off — each one verified by someone other than the assistant who did the work.</p></div>
+<h2 id="how-it-works">How It Works</h2>
+<h3 id="the-assembly-line">The Assembly Line</h3>
+<p>The easiest way to understand bead chaining is to picture an assembly line in a factory:</p>
+<table><thead><tr>
+<th>Assembly line</th>
+<th>bead-chain</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Conveyor belt</strong></td>
+<td>Your task queue (<code>bd ready</code>)</td>
+</tr>
+<tr>
+<td><strong>The next item on the belt</strong></td>
+<td>The next ready task (bead)</td>
+</tr>
+<tr>
+<td><strong>Factory worker</strong></td>
+<td>The AI agent that does the actual work</td>
+</tr>
+<tr>
+<td><strong>Quality inspector</strong></td>
+<td>The panel of independent LLM judges</td>
+</tr>
+<tr>
+<td><strong>Foreman</strong></td>
+<td>bead-chain itself — keeps the line moving</td>
+</tr>
+<tr>
+<td><strong>Emergency stop button</strong></td>
+<td>Ctrl+C or the <code>--max</code> safety cap</td>
+</tr>
+</tbody></table>
+<p>The foreman (bead-chain) pulls the next item off the conveyor belt (your task queue), hands it to the factory worker (the AI agent), and waits. When the worker says "done," the quality inspector (the LLM judges) checks the result against the task's acceptance criteria. If it passes, the foreman marks the item complete and pulls the next one. If it fails, the worker goes back and tries again. The line keeps moving until the belt is empty or someone hits the emergency stop.</p>
+<h3 id="the-four-step-cycle">The Four-Step Cycle</h3>
+<p>Every task goes through the same four steps, every time, no exceptions:</p>
+<p><strong>1. Claim</strong></p>
+<p>bead-chain looks at the queue and picks the next task to work on. It marks that task as in-progress so nothing else grabs it at the same time. If the task belongs to a parent epic that isn't already active, the epic gets marked in-progress too — this keeps your status views accurate at every level of the hierarchy.</p>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>The chain doesn't just grab the first thing it sees. It follows a strict priority order: 1. <strong>Stranded work</strong> — if a previous run was interrupted, that unfinished    task is recovered first. 2. <strong>Blocking bugs</strong> — any bug that holds up other tasks jumps to the front. 3. <strong>Same-epic siblings</strong> — if the just-completed task had siblings under the    same epic, the chain finishes that family before moving on. 4. <strong>Global queue</strong> — whatever's next in the general ready list. For the full breakdown of each tier, see <a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a>.</p></div>
+<p><strong>2. Drive</strong></p>
+<p>bead-chain hands the claimed task to the AI work loop. The agent receives a detailed prompt built from the task's title, description, acceptance criteria, and any relevant context. From this point, the agent works the task as if you'd assigned it directly — reading files, writing code, running tests, whatever the task requires.</p>
+<p>During this phase, bead-chain steps back and lets the agent cook. It only intervenes if the agent tries to do something it shouldn't — like closing the task itself (see <a href="TheCloseGuard.html">The Close Guard</a>).</p>
+<p><strong>3. Judge</strong></p>
+<p>When the agent believes the work is done, it summarises what it did. A panel of independent LLM judges then evaluates the result against the task's acceptance criteria. These judges are separate from the agent that did the work — they provide an unbiased second opinion.</p>
+<ul>
+<li><strong>Pass</strong> → the judges agree the work meets the criteria. Move to step 4.</li>
+<li><strong>Fail</strong> → the judges identify gaps. The agent goes back to step 2 and keeps working, informed by the judges' feedback.</li>
+</ul>
+<p>This judge loop can repeat multiple times until the work genuinely satisfies the acceptance criteria. There's no way to skip it.</p>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>The agent doing the work <strong>never</strong> decides whether the work is done. Only the independent judges can make that call. This separation of "doer" and "evaluator" is bead-chain's core quality guarantee. See <a href="TheCloseGuard.html">The Close Guard</a> for how this is enforced.</p></div>
+<p><strong>4. Close</strong></p>
+<p>Once the judges pass the work, bead-chain closes the task with a record of what was accomplished. The completed count for the current run ticks up by one, and the chain immediately loops back to step 1 to claim the next task.</p>
+<p>If the queue is now empty, bead-chain performs one final sweep: it checks whether any parent epics have had all their children completed, and if so, rolls them up (closes them automatically). Then the chain stops and reports how many tasks it completed.</p>
+<h3 id="the-full-cycle-visualised">The Full Cycle — Visualised</h3>
+<pre class="mermaid">
+flowchart TD
+    START(["You run /bead-chain"]) --&gt; CHECK{"Any tasks\nready?"}
+    CHECK -- No --&gt; EMPTY["Nothing to do — chain stops"]
+    CHECK -- Yes --&gt; CLAIM["① CLAIM\nPick the next task\nand mark it in-progress"]
+    CLAIM --&gt; DRIVE["② DRIVE\nAI agent works the task"]
+    DRIVE --&gt; JUDGE{"③ JUDGE\nIndependent LLM panel\nevaluates the result"}
+    JUDGE -- Fail --&gt; DRIVE
+    JUDGE -- Pass --&gt; CLOSE["④ CLOSE\nbead-chain marks\nthe task done"]
+    CLOSE --&gt; CAP{"Hit the\n--max cap?"}
+    CAP -- Yes --&gt; STOP["Cap reached — chain stops"]
+    CAP -- No --&gt; CHECK
+
+    style START fill:#0071dc,color:#fff
+    style CLAIM fill:#e6f2ff
+    style DRIVE fill:#e6f2ff
+    style JUDGE fill:#ffc220,color:#000
+    style CLOSE fill:#2e7d32,color:#fff
+    style STOP fill:#76c043,color:#000
+    style EMPTY fill:#76c043,color:#000
+</pre>
+<h3 id="what-happens-when-things-go-wrong">What Happens When Things Go Wrong</h3>
+<p>The chain is designed to handle interruptions gracefully:</p>
+<ul>
+<li><strong>You press Ctrl+C.</strong> The chain stops immediately, but the current task stays marked as in-progress on purpose. The next time you run <code>/bead-chain</code>, it finds that stranded task, loads a recovery prompt, and the agent assesses what's already been done before picking up where it left off.</li>
+<li><strong>A task fails to close.</strong> If something goes wrong with the close step (a database issue, a permission problem), the chain halts and tells you what happened. The task stays in-progress so the next run can recover it — no work is orphaned or lost.</li>
+<li><strong>The queue has blocked tasks.</strong> If a task can't be worked because it's waiting on another task to finish first, the chain skips it and moves on. Blocked tasks are never driven — they re-enter the queue once their blockers are resolved.</li>
+<li><strong>A task gets pinned mid-flight.</strong> If someone (a human or another tool) pins a task while the agent is working on it, bead-chain respects the pin. It drops the task without closing it and moves on to the next one. The pinned task stays pinned until someone explicitly unpins it.</li>
+</ul>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>Recovery works because interrupted tasks stay in-progress. If you manually revert a task's status to open after an interruption, you'll lose the recovery prompt that tells the agent to check what's already done. Let the chain recover naturally.</p></div>
+<h3 id="controlling-the-run">Controlling the Run</h3>
+<p>You have two levers to control a chain run:</p>
+<ul>
+<li>**<code>/bead-chain</code>** starts the chain with no limit — it runs until the queue is empty.</li>
+<li>**<code>/bead-chain --max=N</code>** starts the chain but stops after closing N tasks. This is useful for bounded sessions where you want predictable, controlled progress without committing to draining the entire queue.</li>
+</ul>
+<p>When the cap is reached, the chain stops cleanly — the just-completed task is closed, the count is reported, and you're back in control.</p>
+<h3 id="epic-rollup">Epic Rollup</h3>
+<p>Tasks often belong to a parent epic — a container that groups related work. bead-chain is aware of this hierarchy:</p>
+<ul>
+<li>When a task is claimed, its parent epic is marked in-progress (if it isn't already).</li>
+<li>When the chain finishes (the queue is empty or the cap is hit), bead-chain checks whether any epics now have all their children completed. If so, it closes those epics automatically — you don't have to do it by hand.</li>
+</ul>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>Epic rollup happens once at the end of a session, not after every individual task close. This is a deliberate design choice to avoid accidentally closing unrelated epics through cascading side effects.</p></div>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Overview.html">Overview</a> — what bead-chain is, who it's for, and its key features.</li>
+<li><a href="../Reference/Commands.html">Commands</a> — every command, option, and control at a glance, including <code>/bead-chain</code>, <code>--max</code>, and Ctrl+C.</li>
+<li><a href="../Tutorials/AutomateASprintBacklog.html">Tutorial: Automate a Sprint Backlog</a> — an end-to-end walkthrough of the chaining loop in action, including interruption, recovery, and epic rollup.</li>
+<li><a href="TheCloseGuard.html">The Close Guard</a> — how the separation of "doer" and "evaluator" is enforced during a chain.</li>
+<li><a href="RecoveryMode.html">Recovery Mode</a> — a deeper look at how interrupted work is detected, recovered, and resumed.</li>
+<li><a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a> — the four-tier priority waterfall that decides which task is picked next.</li>
+<li><a href="../Guides/HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a> — what happens when the agent spots an unrelated bug during the "drive" phase and how filed bugs feed back into the chain.</li>
+<li><a href="../Guides/RunACappedSession.html">How to Run a Capped Session</a> — limit how many tasks process in one run using <code>--max=N</code>.</li>
+<li><a href="../Guides/ResumeAfterInterruption.html">How to Resume After an Interruption</a> — step-by-step instructions for what to do when a run is cut short and how recovery resumes the loop.</li>
+<li><a href="../Reference/StatusMessages.html">Status Messages</a> — what every emoji-prefixed message means and what to do when you see it.</li>
+<li><a href="../Reference/Configuration.html">Configuration</a> — environment variables, timeout/retry behavior, and excluded container types.</li>
+<li><a href="../GettingStarted/Installation.html">Installation</a> — download and set up the plugin, including prerequisites and platform-specific steps.</li>
+<li><a href="../GettingStarted/RunYourFirstChain.html">Run Your First Chain</a> — go from zero to watching tasks close themselves.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Concepts</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

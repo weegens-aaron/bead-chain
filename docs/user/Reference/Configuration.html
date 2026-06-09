@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configuration Reference — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="../Concepts/RecoveryMode.html">Recovery Mode</a>
+<a href="../Concepts/TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="../GettingStarted/index.html">Index</a>
+<a href="../GettingStarted/Installation.html">Installation</a>
+<a href="../GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="../Guides/index.html">Index</a>
+<a href="../Guides/HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="../Guides/ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="../Guides/RunACappedSession.html">Run ACapped Session</a>
+<a href="../Guides/UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="index.html">Index</a>
+<a href="BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="Commands.html">Commands</a>
+<a href="Configuration.html" class="active">Configuration</a>
+<a href="StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="configuration-reference">Configuration Reference</h1>
+<h2 id="overview">Overview</h2>
+<p>bead-chain ships with sensible defaults and requires zero configuration for most setups. If <code>bd</code> is on your PATH and you have ready work in your queue, <code>/bead-chain</code> works out of the box.</p>
+<p>There are three areas where bead-chain's behavior is shaped by configuration or built-in defaults: where to find the <code>bd</code> binary, how long to wait when talking to <code>bd</code> (and what to do when it's slow), and which bead types the chain skips over rather than trying to drive as work.</p>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>bead-chain has exactly <strong>one</strong> configurable setting — the <code>BEADS_BIN</code> environment variable. Everything else described here (timeouts, retries, excluded types) is built-in behavior you should be aware of, but it isn't something you change.</p></div>
+<hr>
+<h2 id="environment-variables">Environment Variables</h2>
+<table><thead><tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr></thead><tbody>
+<tr>
+<td><code>BEADS_BIN</code></td>
+<td><code>bd</code></td>
+<td>Path to the <code>bd</code> executable. Set this if your <code>bd</code> binary isn't on your PATH or is installed under a different name.</td>
+</tr>
+</tbody></table>
+<h3 id="when-to-set-beads-bin">When to Set <code>BEADS_BIN</code></h3>
+<p>Most users never need to touch this. Set it when:</p>
+<ul>
+<li>**<code>bd</code> is installed in a non-standard location** — for example, a local build in a project directory rather than a system-wide install.</li>
+<li>**You have multiple <code>bd</code> versions** and want bead-chain to use a specific one.</li>
+<li>**Your PATH doesn't include <code>bd</code>** in the environment where Code Puppy runs (some shell configurations strip PATH entries for non-interactive sessions).</li>
+</ul>
+<h3 id="how-to-set-it">How to Set It</h3>
+<p>Set the variable in whatever way your shell and environment support before starting Code Puppy:</p>
+<pre><code class="language-bash">export BEADS_BIN=/usr/local/bin/bd</code></pre>
+<p>Or for a one-off run:</p>
+<pre><code class="language-bash">BEADS_BIN=./my-local-bd /bead-chain</code></pre>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>If you see the error message **"bead-chain can't reach <code>bd</code>"** when starting a chain, the most common fix is either installing <code>bd</code> or setting <code>BEADS_BIN</code> to the correct path.</p></div>
+<hr>
+<h2 id="timeout-retry-behavior">Timeout &amp; Retry Behavior</h2>
+<p>Every time bead-chain talks to <code>bd</code> (to check the queue, claim a task, close a task, etc.), it applies a timeout-and-retry policy to handle transient slowness gracefully.</p>
+<h3 id="defaults">Defaults</h3>
+<table><thead><tr>
+<th>Setting</th>
+<th>Value</th>
+<th>Meaning</th>
+</tr></thead><tbody>
+<tr>
+<td>Timeout</td>
+<td>30 seconds</td>
+<td>How long bead-chain waits for a single <code>bd</code> command to finish before considering it timed out.</td>
+</tr>
+<tr>
+<td>Maximum attempts</td>
+<td>3</td>
+<td>Total number of tries — one initial attempt plus up to two retries.</td>
+</tr>
+<tr>
+<td>Backoff delays</td>
+<td>0.5 s, then 1.0 s</td>
+<td>How long bead-chain pauses before the first and second retry.</td>
+</tr>
+</tbody></table>
+<h3 id="what-gets-retried">What Gets Retried</h3>
+<p>Only <strong>timeouts</strong> are retried. If <code>bd</code> is simply slow (database lock contention, cold-cache startup, etc.), bead-chain waits a moment and tries again.</p>
+<p>These are <strong>not</strong> retried — they fail immediately:</p>
+<ul>
+<li>**<code>bd</code> not found** — the binary doesn't exist at the expected path. This is a permanent problem that retrying won't fix.</li>
+<li>**<code>bd</code> errors** — the command ran but returned an error (e.g. "bead not found", "already closed"). These are real responses, not transient glitches.</li>
+</ul>
+<h3 id="the-retry-sequence">The Retry Sequence</h3>
+<pre class="mermaid">
+flowchart TD
+    A(["bead-chain calls bd"]) --&gt; B{"Did bd respond\nin time?"}
+    B -- Yes --&gt; C(["Use the response"])
+    B -- "Timed out" --&gt; D{"Attempt\n&lt; 3?"}
+    D -- Yes --&gt; E["Wait 0.5 s / 1.0 s"]
+    E --&gt; A
+    D -- No --&gt; F(["Report timeout error\nand stop the chain"])
+
+    style A fill:#0071dc,color:#fff
+    style C fill:#2e7d32,color:#fff
+    style F fill:#cc0000,color:#fff
+</pre>
+<p>After three consecutive timeouts on the same command, bead-chain gives up and reports the failure. You'll see this as a chain-stopping error message — see <a href="StatusMessages.html">Status Messages</a> for the full list of error messages and what to do about them.</p>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>Three consecutive timeouts usually mean <code>bd</code> itself is stuck — not just slow. Check that <code>bd</code> is running correctly by trying <code>bd ready</code> in your terminal before restarting the chain.</p></div>
+<hr>
+<h2 id="excluded-container-types">Excluded Container Types</h2>
+<p>bead-chain only drives <strong>leaf work items</strong> — tasks, bugs, and other beads that represent actual doable work. It automatically skips over container and handle types, which exist to organise or gate other work rather than to be worked themselves.</p>
+<h3 id="excluded-types">Excluded Types</h3>
+<table><thead><tr>
+<th>Type</th>
+<th>What it is</th>
+<th>Why it's excluded</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>epic</strong></td>
+<td>A container that groups related child tasks.</td>
+<td>Driving an epic as if it were a task produces work that can never be completed — the epic's job is to hold children, not to be worked directly.</td>
+</tr>
+<tr>
+<td><strong>milestone</strong></td>
+<td>A container or handle that marks a project checkpoint.</td>
+<td>Like an epic, a milestone is a grouping or scheduling construct, not a unit of work.</td>
+</tr>
+<tr>
+<td><strong>gate</strong></td>
+<td>A handle that blocks downstream work until a condition is met (a timer, an external check, etc.).</td>
+<td>Gates are resolved by their conditions being satisfied, not by an AI agent doing work on them.</td>
+</tr>
+<tr>
+<td><strong>molecule</strong></td>
+<td>A swarm container that orchestrates a group of spawned sub-tasks.</td>
+<td>The molecule is the orchestrator — the sub-tasks are the actual work. Driving the molecule itself would bypass the orchestration.</td>
+</tr>
+</tbody></table>
+<h3 id="how-filtering-works">How Filtering Works</h3>
+<p>bead-chain applies a <strong>two-layer filter</strong> to make sure container types never reach the work loop:</p>
+<ol>
+<li><strong>Queue filter</strong> — when bead-chain asks <code>bd</code> for ready work, it tells <code>bd</code> to leave out the excluded types. Most containers never even appear in the results.</li>
+<li><strong>Safety re-check</strong> — bead-chain double-checks every bead it's about to work, just in case one slipped through the queue filter (which has been observed to happen during version transitions). If a container is caught at this stage, it's refused and the chain moves on.</li>
+</ol>
+<p>If bead-chain refuses a bead because of its type, you'll see a refusal message in the output — see <a href="StatusMessages.html">Status Messages</a> for details.</p>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>You don't need to worry about accidentally queuing an epic or gate in your backlog. bead-chain will simply skip it and move on to the next leaf task. Your containers are safe.</p></div>
+<hr>
+<h2 id="tips">Tips</h2>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Zero-config is the happy path.</strong> If <code>bd</code> is on your PATH and your queue has ready leaf tasks, you don't need to configure anything. Just run <code>/bead-chain</code>.</p></div>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Timeouts are self-healing.</strong> A single slow <code>bd</code> response won't kill your chain — the retry policy absorbs brief database lock contention or cold starts automatically. You only need to investigate if you see the "timed out on each of 3 attempts" error.</p></div>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Container types are filtered, not deleted.</strong> Excluded types like epics and milestones stay in your issue database exactly as they are. bead-chain just skips over them when looking for work. Epics still get auto-closed at the end of a session when all their children are done — see <a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>.</p></div>
+<hr>
+<h2 id="see-also">See Also</h2>
+<ul>
+<li><a href="Commands.html">Commands</a> — every command and option at a glance, including the <code>/bead-chain</code> command that uses these configuration values.</li>
+<li><a href="StatusMessages.html">Status Messages</a> — what every chain message means, including timeout errors and excluded-type refusals.</li>
+<li><a href="BeadSelectionOrder.html">Bead Selection Order</a> — how the four-tier waterfall decides which task to pick; excluded types are filtered at every tier.</li>
+<li><a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> — the claim→drive→judge→close loop and how epic rollup works.</li>
+<li><a href="../Concepts/RecoveryMode.html">Recovery Mode</a> — how interrupted runs resume automatically.</li>
+<li><a href="../Concepts/TheCloseGuard.html">The Close Guard</a> — the safety mechanism that prevents AI agents from closing tasks directly.</li>
+<li><a href="../Guides/UpgradeOrUninstall.html">How to Upgrade or Uninstall bead-chain</a> — upgrading preserves your <code>BEADS_BIN</code> setting since it lives in your shell, not in the plugin directory.</li>
+<li><a href="../GettingStarted/Installation.html">Installation</a> — download and set up the plugin; covers setting <code>BEADS_BIN</code> as a prerequisite.</li>
+<li><a href="../Overview.html">Overview</a> — bead-chain at a glance.</li>
+<li><a href="../Guides/RunACappedSession.html">How to Run a Capped Session</a> — using the <code>--max</code> flag to limit how many tasks process in a single run.</li>
+<li><a href="../Guides/ResumeAfterInterruption.html">How to Resume After an Interruption</a> — what to do when a run is cut short; configuration defaults (timeouts, retries) affect how the chain communicates with <code>bd</code> during recovery.</li>
+<li><a href="../Guides/HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a> — how the agent handles unrelated bugs found mid-task; the bug discovery protocol operates within the timeout and retry framework described here.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Reference</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

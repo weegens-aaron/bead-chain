@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Upgrade or Uninstall bead-chain — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="../Concepts/RecoveryMode.html">Recovery Mode</a>
+<a href="../Concepts/TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="../GettingStarted/index.html">Index</a>
+<a href="../GettingStarted/Installation.html">Installation</a>
+<a href="../GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="index.html">Index</a>
+<a href="HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="RunACappedSession.html">Run ACapped Session</a>
+<a href="UpgradeOrUninstall.html" class="active">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="../Reference/index.html">Index</a>
+<a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="../Reference/Commands.html">Commands</a>
+<a href="../Reference/Configuration.html">Configuration</a>
+<a href="../Reference/StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="how-to-upgrade-or-uninstall-bead-chain">How to Upgrade or Uninstall bead-chain</h1>
+<h2 id="what-you-ll-learn">What You'll Learn</h2>
+<p>How to keep bead-chain up to date by upgrading to the latest release, and how to remove it completely if you no longer need it. Both operations are quick — upgrading means re-running the same install command, and uninstalling means deleting a single directory. You'll also learn what to watch out for on each platform and what to do if a chain run was in progress when you made the change.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>bead-chain already installed and working (see the <a href="../GettingStarted/Installation.html">Installation</a> guide or the install steps in the project README).</li>
+<li>Access to your terminal (macOS / Linux) or PowerShell (Windows).</li>
+</ul>
+<h2 id="overview">Overview</h2>
+<p>bead-chain lives in a single directory inside your Code Puppy plugins folder. There's no package manager, no registry, no background service — just files in a folder. That makes both upgrading and uninstalling straightforward: overwrite the folder to upgrade, or delete it to uninstall.</p>
+<pre class="mermaid">
+flowchart TD
+    START(["You want to change\nyour bead-chain installation"]) --&gt; DECIDE{"Upgrade or\nuninstall?"}
+    DECIDE -- Upgrade --&gt; STOP_U{"Chain running?"}
+    STOP_U -- Yes --&gt; CTRL_U["Press Ctrl+C\nto stop the chain"]
+    STOP_U -- No --&gt; INSTALL["Re-run the install\ncommand for your platform"]
+    CTRL_U --&gt; INSTALL
+    INSTALL --&gt; RESTART_U["Restart Code Puppy"]
+    RESTART_U --&gt; DONE_U(["Done — latest\nversion loaded"])
+
+    DECIDE -- Uninstall --&gt; STOP_R{"Chain running?"}
+    STOP_R -- Yes --&gt; CTRL_R["Press Ctrl+C\nto stop the chain"]
+    STOP_R -- No --&gt; DELETE["Delete the\nplugin directory"]
+    CTRL_R --&gt; DELETE
+    DELETE --&gt; RESTART_R["Restart Code Puppy"]
+    RESTART_R --&gt; DONE_R(["Done — plugin\nremoved"])
+</pre>
+<h2 id="step-1-stop-any-active-chain">Step 1: Stop Any Active Chain</h2>
+<p>Before upgrading or uninstalling, make sure no chain run is in progress.</p>
+<p>If <code>/bead-chain</code> is running, press <strong>Ctrl+C</strong> to stop it. The current task stays in progress — it won't be lost. The next time you start a chain (after the upgrade), <a href="../Concepts/RecoveryMode.html">Recovery Mode</a> will detect the unfinished task and resume it automatically.</p>
+<p><strong>What you should see:</strong> The chain stops and the current task remains listed as in-progress when you check with <code>bd list --status=in_progress</code>.</p>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>Don't upgrade or uninstall while a chain run is active. Modifying the plugin files mid-run can lead to unpredictable behavior because Code Puppy has already loaded the plugin into memory. Always stop the chain first.</p></div>
+<h2 id="step-2-upgrade-re-run-the-install-command">Step 2: Upgrade (Re-Run the Install Command)</h2>
+<p>Upgrading is just installing again. The install command always pulls the latest release and overwrites the existing files in place. You don't need to uninstall first.</p>
+<h3 id="macos-linux">macOS / Linux</h3>
+<pre><code class="language-bash">curl -fsSL https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip -o /tmp/bead-chain.zip &amp;&amp; unzip -o /tmp/bead-chain.zip -d ~/.code_puppy/plugins/</code></pre>
+<h3 id="windows-powershell">Windows (PowerShell)</h3>
+<pre><code class="language-powershell">Invoke-WebRequest -Uri https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip -OutFile $env:TEMP\bead-chain.zip; Expand-Archive -Force $env:TEMP\bead-chain.zip -DestinationPath ~\.code_puppy\plugins\</code></pre>
+<h3 id="manual-download-any-platform">Manual Download (Any Platform)</h3>
+<ol>
+<li>Go to the <a href="https://github.com/weegens-aaron/bead-chain/releases/latest">Releases page</a>.</li>
+<li>Download <strong>bead-chain.zip</strong> from the latest release's assets.</li>
+<li>Extract it so the <code>bead_chain/</code> folder replaces the existing one inside your plugins directory.</li>
+</ol>
+<p><strong>What you should see:</strong> The zip downloads and extracts without errors. The plugin directory now contains the latest version's files.</p>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>The install URL always points to <code>/releases/latest/download/bead-chain.zip</code> — a stable asset name on the latest release. You never need to edit the URL for new versions. Bookmark it and re-run whenever you want to update.</p></div>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>The <code>-o</code> flag (macOS / Linux) and <code>-Force</code> flag (Windows) tell the extractor to overwrite existing files without asking. New files are added, existing files are replaced, but files that were in the old version and removed in the new version are <strong>not</strong> automatically deleted. This is harmless in practice — if you want a perfectly clean upgrade, delete the plugin directory first (see Step 3) and then install fresh.</p></div>
+<h2 id="step-3-uninstall-delete-the-plugin-directory">Step 3: Uninstall (Delete the Plugin Directory)</h2>
+<p>Uninstalling bead-chain means deleting a single directory. There are no background services to stop, no registry entries to clean up, no configuration files scattered elsewhere. Everything lives in one place.</p>
+<h3 id="macos-linux">macOS / Linux</h3>
+<pre><code class="language-bash">rm -rf ~/.code_puppy/plugins/bead_chain</code></pre>
+<h3 id="windows-powershell">Windows (PowerShell)</h3>
+<pre><code class="language-powershell">Remove-Item -Recurse -Force ~\.code_puppy\plugins\bead_chain</code></pre>
+<p><strong>What you should see:</strong> The directory is gone. No errors, no leftover files.</p>
+<div class="callout callout-caution"><div class="callout-title">CAUTION</div><p>This permanently deletes the plugin. If you change your mind later, you'll need to reinstall from scratch using the install command — no undo.</p></div>
+<h2 id="step-4-restart-code-puppy">Step 4: Restart Code Puppy</h2>
+<p>After upgrading or uninstalling, <strong>restart Code Puppy</strong> for the change to take effect. Code Puppy loads plugins at startup, so it won't pick up the new version (or notice the removal) until you restart.</p>
+<p><strong>After an upgrade:</strong> The <code>/bead-chain</code> command works as before, now running the latest version.</p>
+<p><strong>After an uninstall:</strong> The <code>/bead-chain</code> command is no longer recognized. Your beads database and task history are unaffected — they live in the repository, not in the plugin directory. You can still use <code>bd</code> directly.</p>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>If you interrupted a chain run before upgrading (Step 1), the next <code>/bead-chain</code> run after restarting will automatically enter <a href="../Concepts/RecoveryMode.html">Recovery Mode</a> and pick up where you left off. Your in-progress task isn't lost.</p></div>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<table><thead><tr>
+<th>Problem</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/bead-chain</code> still shows old behavior after upgrading</td>
+<td>Restart Code Puppy. It loads plugins at startup — a running session won't see the new files until restarted.</td>
+</tr>
+<tr>
+<td><code>/bead-chain</code> still works after uninstalling</td>
+<td>Same fix — restart Code Puppy. The old plugin is still loaded in the current session's memory.</td>
+</tr>
+<tr>
+<td>The download fails with a network error</td>
+<td>The download URL points to GitHub Releases. If your network blocks GitHub, download the zip manually from a machine with access and transfer it to your plugins directory.</td>
+</tr>
+<tr>
+<td>Old files remain after upgrading</td>
+<td>The install command overwrites matching files but doesn't delete files removed between versions. This is harmless. For a clean slate, delete the plugin directory first, then install fresh.</td>
+</tr>
+<tr>
+<td>A task was in progress when you upgraded</td>
+<td><a href="../Concepts/RecoveryMode.html">Recovery Mode</a> handles this automatically. Start <code>/bead-chain</code> after restarting Code Puppy — it will detect the stranded task and resume it.</td>
+</tr>
+<tr>
+<td>You uninstalled but want to reinstall later</td>
+<td>Run the install command again. No prior cleanup is needed — the plugin directory was fully removed.</td>
+</tr>
+</tbody></table>
+<h2 id="related-guides">Related Guides</h2>
+<ul>
+<li><a href="../Concepts/RecoveryMode.html">Recovery Mode</a> — how interrupted tasks are detected and resumed after an upgrade or restart.</li>
+<li><a href="ResumeAfterInterruption.html">How to Resume After an Interruption</a> — step-by-step instructions for resuming after an interruption; relevant when upgrading mid-chain since Recovery Mode picks up the stranded task.</li>
+<li><a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> — the claim→drive→judge→close loop that <code>/bead-chain</code> automates.</li>
+<li><a href="../Reference/Configuration.html">Configuration</a> — the <code>BEADS_BIN</code> environment variable and built-in defaults; these survive upgrades since they're set in your shell, not in the plugin directory.</li>
+<li><a href="../Overview.html">Overview</a> — what bead-chain is, its requirements, and key features.</li>
+<li><a href="../Tutorials/AutomateASprintBacklog.html">Tutorial: Automate a Sprint Backlog</a> — a full walkthrough of a chain run from start to finish.</li>
+<li><a href="../Reference/StatusMessages.html">Status Messages</a> — what every emoji-prefixed chain message means and what to do when you see it.</li>
+<li><a href="HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a> — how filed bugs feed back into the chain across iterations.</li>
+<li><a href="RunACappedSession.html">How to Run a Capped Session</a> — using <code>--max=N</code> for bounded, predictable runs; useful after an upgrade to verify the new version on a small batch before draining the queue.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Guides</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

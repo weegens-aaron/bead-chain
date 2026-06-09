@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bead-chain — bead-chain User Docs</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="index.html">Index</a>
+<a href="FAQ.html">FAQ</a>
+<a href="Overview.html" class="active">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="Concepts/index.html">Index</a>
+<a href="Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="Concepts/RecoveryMode.html">Recovery Mode</a>
+<a href="Concepts/TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="GettingStarted/index.html">Index</a>
+<a href="GettingStarted/Installation.html">Installation</a>
+<a href="GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="Guides/index.html">Index</a>
+<a href="Guides/HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="Guides/ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="Guides/RunACappedSession.html">Run ACapped Session</a>
+<a href="Guides/UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="Reference/index.html">Index</a>
+<a href="Reference/BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="Reference/Commands.html">Commands</a>
+<a href="Reference/Configuration.html">Configuration</a>
+<a href="Reference/StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="Tutorials/index.html">Index</a>
+<a href="Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="bead-chain">bead-chain</h1>
+<h2 id="what-is-it">What Is It</h2>
+<p>bead-chain is a Code Puppy plugin that automates your issue queue. Instead of manually picking up tasks, working them, and closing them one by one, bead-chain drives the entire cycle for you — claiming a task, handing it to an AI-judged work loop, waiting for the judges to sign off, closing it, and grabbing the next one. You start it with a single command and walk away.</p>
+<h2 id="who-is-it-for">Who Is It For</h2>
+<p>bead-chain is for any developer or team using Code Puppy with the beads (<code>bd</code>) issue tracker who wants to automate steady, hands-off progress through their task queue. Whether you're burning down a backlog, processing a batch of generated tasks, or letting an AI agent chip away at work overnight, bead-chain keeps the assembly line moving without manual intervention.</p>
+<h2 id="key-features">Key Features</h2>
+<ul>
+<li><strong>Automated chaining</strong> — claim, work, judge, close, repeat until the queue is empty or you say stop.</li>
+<li><strong>Crash recovery</strong> — if a run is interrupted (power loss, Ctrl+C, network blip), the next run picks up exactly where you left off. See <a href="Concepts/RecoveryMode.html">Recovery Mode</a>.</li>
+<li><strong>Smart task ordering</strong> — related tasks under the same epic stay together; blocking bugs jump to the front of the line. See <a href="Reference/BeadSelectionOrder.html">Bead Selection Order</a>.</li>
+<li><strong>Safety guardrails</strong> — AI agents cannot close tasks themselves; only the independent LLM judges can sign off on completed work. See <a href="Concepts/TheCloseGuard.html">The Close Guard</a>.</li>
+<li><strong>Automatic cleanup</strong> — when all children of a parent epic finish, the epic closes itself at the end of the session.</li>
+<li><strong>Iteration cap</strong> — limit how many tasks get processed in a single run for predictable, bounded sessions.</li>
+</ul>
+<h2 id="requirements">Requirements</h2>
+<ul>
+<li><strong>Code Puppy</strong> (or wiggum) with <code>/goal</code> mode available.</li>
+<li>**beads (<code>bd</code>)** installed and on your PATH — the issue tracker that bead-chain drives.</li>
+<li>A repository with an active beads issue database containing ready work items.</li>
+</ul>
+<h2 id="getting-started">Getting Started</h2>
+<p>New to bead-chain? Start here:</p>
+<ul>
+<li><a href="GettingStarted/Installation.html">Installation</a> — download and set up the plugin.</li>
+<li><a href="GettingStarted/RunYourFirstChain.html">Quick Start: Run Your First Chain</a> — go from zero to watching tasks close themselves.</li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p>Once you're up and running:</p>
+<ul>
+<li><a href="Tutorials/AutomateASprintBacklog.html">Tutorial: Automate a Sprint Backlog</a> — walk through a full end-to-end scenario: set up a batch of tasks, run the chain, interrupt and recover, and watch the parent epic close itself.</li>
+<li><a href="Guides/RunACappedSession.html">How to Run a Capped Session</a> — control how many tasks process in one run.</li>
+<li><a href="Guides/ResumeAfterInterruption.html">How to Resume After an Interruption</a> — what happens when things get cut short.</li>
+<li><a href="Guides/HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a> — what happens when the agent finds an unrelated bug mid-task.</li>
+<li><a href="Guides/UpgradeOrUninstall.html">How to Upgrade or Uninstall bead-chain</a> — keep the plugin current or remove it cleanly.</li>
+<li><a href="Reference/Commands.html">Commands Reference</a> — every command and option at a glance.</li>
+<li><a href="Reference/StatusMessages.html">Status Messages</a> — what every emoji-prefixed message means and what to do when you see it.</li>
+<li><a href="Reference/Configuration.html">Configuration</a> — environment variables and built-in defaults.</li>
+<li><a href="Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> — understand the engine under the hood.</li>
+</ul>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

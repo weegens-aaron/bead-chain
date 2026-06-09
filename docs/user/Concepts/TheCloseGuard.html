@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Close Guard — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="index.html">Index</a>
+<a href="HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="RecoveryMode.html">Recovery Mode</a>
+<a href="TheCloseGuard.html" class="active">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="../GettingStarted/index.html">Index</a>
+<a href="../GettingStarted/Installation.html">Installation</a>
+<a href="../GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="../Guides/index.html">Index</a>
+<a href="../Guides/HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="../Guides/ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="../Guides/RunACappedSession.html">Run ACapped Session</a>
+<a href="../Guides/UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="../Reference/index.html">Index</a>
+<a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="../Reference/Commands.html">Commands</a>
+<a href="../Reference/Configuration.html">Configuration</a>
+<a href="../Reference/StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="the-close-guard">The Close Guard</h1>
+<h2 id="what-is-it">What Is It</h2>
+<p>The Close Guard is bead-chain's built-in safety rail that prevents the AI agent doing the work from also being the one who marks that work as done. While a chain is running, any attempt by the agent to close a task — whether by running <code>bd close</code> or by setting a task's status to closed — is silently blocked. The agent sees a reminder that it should keep working and let the independent judges make the call.</p>
+<p>Think of it like a classroom rule: <strong>the student doesn't grade their own homework — the teacher does.</strong> The AI agent is the student. The LLM judges are the teacher. The Close Guard is the rule that keeps it that way.</p>
+<h2 id="why-it-matters">Why It Matters</h2>
+<p>Without the Close Guard, an agent could short-circuit the entire quality process in a single command. It could decide "yep, looks done to me" and close the task before anyone else weighs in. That would mean:</p>
+<ul>
+<li><strong>No independent review.</strong> The same intelligence that wrote the code would also approve it — the fox guarding the henhouse.</li>
+<li><strong>No completion verdict.</strong> bead-chain relies on wiggum's <code>/goal</code> judges — a panel of independent LLMs — to verify that every task actually meets its acceptance criteria. A self-close bypasses that verdict entirely.</li>
+<li><strong>Silent quality erosion.</strong> The chain would happily advance to the next task as if the previous one were done, when it may not be. Over a long automated run, unchecked closures compound into real gaps.</li>
+</ul>
+<p>The Close Guard exists because <strong>trust, but verify</strong> is the whole point of automated chaining. The agent does the work; the judges decide whether the work is good enough. Separating those two roles is the foundation bead-chain is built on.</p>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>The Close Guard only activates while a chain is running. Outside of a <code>/bead-chain</code> session — when you're working manually — <code>bd close</code> works normally. The guard protects the in-flight contract, not general usage.</p></div>
+<h2 id="how-it-works">How It Works</h2>
+<p>Every time the agent tries to run a shell command during a chain, bead-chain checks two things:</p>
+<ol>
+<li><strong>Is a chain currently active?</strong> If not, the command runs normally — no guard needed.</li>
+<li><strong>Does the command try to close a task?</strong> bead-chain looks for close attempts like <code>bd close</code> or setting a task's status to closed.</li>
+</ol>
+<p>If both conditions are true, the command is blocked before it ever executes. The agent sees a stop message explaining exactly what happened and why:</p>
+<blockquote><p>[STOP] bead-chain blocked <code>bd close</code>.
+
+Direct <code>bd close</code> bypasses the LLM judges. bead-chain is currently driving
+the active task through wiggum's /goal mode. The task will be closed
+automatically once the LLM judges sign off — do NOT close it yourself.
+
+Keep working on the task. If you believe it is complete, summarize what you
+did and let the judges decide.</p></blockquote>
+<p>The agent can then continue working. When it genuinely finishes, it summarizes its work, and the independent LLM judges evaluate whether the acceptance criteria are met. If the judges agree the task is done, bead-chain itself closes the task through its own internal path — one that is never subject to the guard — and moves on to the next item in the queue.</p>
+<pre class="mermaid">
+flowchart TD
+    A["Agent runs a shell command"] --&gt; B{"Is a chain active?"}
+    B -- No --&gt; C["Command runs normally"]
+    B -- Yes --&gt; D{"Does it try to close a task?"}
+    D -- No --&gt; C
+    D -- Yes --&gt; E["BLOCKED"]
+    E --&gt; F["Agent sees reminder:\nlet the judges decide"]
+    F --&gt; G["Agent keeps working"]
+    G --&gt; H["Agent finishes and summarizes work"]
+    H --&gt; I["Independent LLM judges\nevaluate the result"]
+    I -- Pass --&gt; J["bead-chain closes the task\nand picks up the next one"]
+    I -- Fail --&gt; G
+</pre>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>You don't need to do anything special to trigger or configure the Close Guard. It activates automatically whenever you start a <code>/bead-chain</code> run and deactivates when the chain stops. It's invisible until something tries to break the rules.</p></div>
+<h3 id="the-analogy-in-full">The Analogy in Full</h3>
+<p>Imagine a classroom where students submit homework and a teacher grades it:</p>
+<table><thead><tr>
+<th>Role</th>
+<th>In bead-chain</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Student</strong></td>
+<td>The AI agent doing the work</td>
+</tr>
+<tr>
+<td><strong>Homework</strong></td>
+<td>The task (bead) being worked on</td>
+</tr>
+<tr>
+<td><strong>Teacher</strong></td>
+<td>The panel of independent LLM judges</td>
+</tr>
+<tr>
+<td><strong>Classroom rule</strong></td>
+<td>The Close Guard</td>
+</tr>
+<tr>
+<td><strong>Submitting homework</strong></td>
+<td>The agent summarizing its work for the judges</td>
+</tr>
+<tr>
+<td><strong>Grading</strong></td>
+<td>The judges evaluating against acceptance criteria</td>
+</tr>
+</tbody></table>
+<p>A student who grades their own homework isn't being checked. A student who hands it to the teacher and waits for a grade <em>is</em>. The Close Guard is the rule that says: "Hand it in. Don't write your own grade on it."</p>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>The guard catches both direct closes (<code>bd close</code>) and indirect ones (updating a task's status to closed). It doesn't matter how the agent tries — if the intent is to close a task during a chain, it's blocked.</p></div>
+<h3 id="what-happens-to-legitimate-closes">What Happens to Legitimate Closes?</h3>
+<p>bead-chain's own mechanism for closing tasks — the one that fires after the judges sign off — uses a separate internal path that is never intercepted by the guard. This means:</p>
+<ul>
+<li><strong>Agent closes → blocked.</strong> The guard catches it and reminds the agent.</li>
+<li><strong>Judge-approved closes → allowed.</strong> bead-chain's own close path bypasses the guard entirely.</li>
+<li><strong>Manual closes outside a chain → allowed.</strong> When no chain is running, the guard is dormant.</li>
+</ul>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>The Close Guard protects the quality contract during automated runs. It doesn't prevent you from closing tasks manually when you're not running a chain. If you need to close something by hand, just make sure no chain is active.</p></div>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../Overview.html">Overview</a> — introduces the Close Guard as one of bead-chain's safety guardrails.</li>
+<li><a href="../Reference/Commands.html">Commands</a> — the <code>/bead-chain</code> command and Ctrl+C behavior; the Close Guard is active during a running chain.</li>
+<li><a href="../Tutorials/AutomateASprintBacklog.html">Tutorial: Automate a Sprint Backlog</a> — see the Close Guard in context during a full end-to-end chain run.</li>
+<li><a href="HowBeadChainingWorks.html">How Bead Chaining Works</a> — the core claim→drive→judge→close loop that the Close Guard protects.</li>
+<li><a href="RecoveryMode.html">Recovery Mode</a> — what happens when a chain is interrupted; the Close Guard still applies when the recovered task resumes.</li>
+<li><a href="../Guides/ResumeAfterInterruption.html">How to Resume After an Interruption</a> — step-by-step instructions for resuming after Ctrl+C or a crash; the Close Guard stays active during recovery.</li>
+<li><a href="../Reference/StatusMessages.html">Status Messages</a> — what the &amp;#x1F6D1; close-block messages look like and what the agent sees when the guard fires.</li>
+<li><a href="../Reference/Configuration.html">Configuration</a> — environment variables, timeout/retry behavior, and excluded container types.</li>
+<li><a href="../Guides/HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a> — the bug discovery protocol in context; the Close Guard applies to bug beads just as it does to any other task during a chain.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Concepts</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

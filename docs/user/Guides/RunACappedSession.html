@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Run a Capped Session — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="../Concepts/RecoveryMode.html">Recovery Mode</a>
+<a href="../Concepts/TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="../GettingStarted/index.html">Index</a>
+<a href="../GettingStarted/Installation.html">Installation</a>
+<a href="../GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="index.html">Index</a>
+<a href="HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="RunACappedSession.html" class="active">Run ACapped Session</a>
+<a href="UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="../Reference/index.html">Index</a>
+<a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="../Reference/Commands.html">Commands</a>
+<a href="../Reference/Configuration.html">Configuration</a>
+<a href="../Reference/StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="how-to-run-a-capped-session">How to Run a Capped Session</h1>
+<h2 id="what-you-ll-learn">What You'll Learn</h2>
+<p>How to use the <code>--max</code> flag to limit how many tasks bead-chain processes in a single run. You'll understand when and why bounded sessions are useful, what happens when the cap is reached, and how to chain several capped runs together for incremental progress through a large queue.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>bead-chain installed and working (<a href="../GettingStarted/Installation.html">Installation</a>).</li>
+<li>At least one ready task in your queue — run <code>bd ready</code> to confirm.</li>
+<li>Familiarity with the basic chaining loop (<a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>).</li>
+</ul>
+<h2 id="overview">Overview</h2>
+<p>By default, <code>/bead-chain</code> runs until the task queue is empty. That's great for overnight burn-downs, but sometimes you want a shorter, more controlled session — process a handful of tasks, review the output, then decide whether to keep going. The <code>--max</code> flag gives you exactly that: a clean, automatic stopping point after a set number of tasks have been closed.</p>
+<pre class="mermaid">
+flowchart TD
+    START(["/bead-chain --max=3"]) --&gt; CLAIM["Claim task #1"]
+    CLAIM --&gt; DRIVE["AI agent works the task"]
+    DRIVE --&gt; JUDGE["Judges evaluate"]
+    JUDGE --&gt; CLOSE["Task closed"]
+    CLOSE --&gt; CHECK{"Completed count\n&lt; max?"}
+    CHECK -- "Yes (1 &lt; 3)" --&gt; CLAIM2["Claim task #2"]
+    CLAIM2 --&gt; DRIVE2["AI agent works the task"]
+    DRIVE2 --&gt; JUDGE2["Judges evaluate"]
+    JUDGE2 --&gt; CLOSE2["Task closed"]
+    CLOSE2 --&gt; CHECK2{"Completed count\n&lt; max?"}
+    CHECK2 -- "Yes (2 &lt; 3)" --&gt; CLAIM3["Claim task #3"]
+    CLAIM3 --&gt; DRIVE3["AI agent works the task"]
+    DRIVE3 --&gt; JUDGE3["Judges evaluate"]
+    JUDGE3 --&gt; CLOSE3["Task closed"]
+    CLOSE3 --&gt; CHECK3{"Completed count\n&lt; max?"}
+    CHECK3 -- "No (3 = 3)" --&gt; CAP(["Cap reached — chain stops"])
+
+    style START fill:#0071dc,color:#fff
+    style CAP fill:#ffc220,color:#000
+    style CLOSE fill:#2e7d32,color:#fff
+    style CLOSE2 fill:#2e7d32,color:#fff
+    style CLOSE3 fill:#2e7d32,color:#fff
+</pre>
+<h2 id="step-1-decide-how-many-tasks-to-process">Step 1: Decide How Many Tasks to Process</h2>
+<p>Before starting a capped run, think about how many tasks make sense for this sitting:</p>
+<ul>
+<li><strong>Exploring a new backlog?</strong> Start with <code>--max=1</code>. You'll see the full claim→drive→judge→close cycle once and can inspect the output before committing to more.</li>
+<li><strong>Reviewing incrementally?</strong> Try <code>--max=3</code> or <code>--max=5</code>. Process a small batch, check what changed, then start another run.</li>
+<li><strong>Time-boxing?</strong> Estimate how long your tasks take on average and pick a number that fits your available time. Five quick documentation tasks might take the same wall-clock time as one complex refactoring task.</li>
+</ul>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>You can always press Ctrl+C to stop early if you change your mind mid-run. The cap is a maximum, not a commitment — see <a href="ResumeAfterInterruption.html">How to Resume After an Interruption</a> for what happens when you cancel.</p></div>
+<h2 id="step-2-start-the-chain-with-max">Step 2: Start the Chain with <code>--max</code></h2>
+<p>Run the command with your chosen cap. The flag accepts two forms:</p>
+<table><thead><tr>
+<th>What you type</th>
+<th>Example</th>
+</tr></thead><tbody>
+<tr>
+<td><code>--max=N</code> (equals sign)</td>
+<td><code>/bead-chain --max=5</code></td>
+</tr>
+<tr>
+<td><code>--max N</code> (space)</td>
+<td><code>/bead-chain --max 5</code></td>
+</tr>
+</tbody></table>
+<p>Both forms do the same thing. Pick whichever reads better to you.</p>
+<p><strong>What you'll see:</strong> The startup messages appear just like a normal chain run, plus one extra line confirming the cap. After the usual "BEAD-CHAIN ENGAGED!" banner and the first-task identification, you'll see:</p>
+<blockquote><p>Safety cap: stopping after 5 bead(s).</p></blockquote>
+<p>That confirmation line tells you the chain will stop after five tasks, regardless of how many remain in the queue.</p>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>The cap must be a positive integer. If you pass zero, a negative number, or something that isn't a number, the chain refuses to start and tells you why. Nothing is claimed — you can fix the value and try again immediately.</p></div>
+<h2 id="step-3-watch-the-chain-work">Step 3: Watch the Chain Work</h2>
+<p>Once started, the capped chain works identically to an uncapped one. For each task:</p>
+<ol>
+<li>The chain picks a task from the queue following the <a href="../Reference/BeadSelectionOrder.html">priority waterfall</a>.</li>
+<li>The AI agent works the task.</li>
+<li>The independent judges evaluate the result.</li>
+<li>If the judges approve, the task closes and you see a progress message that includes a running counter — for example, "#1 completed this run" or "#2 completed this run." That counter tells you where you are relative to your cap.</li>
+</ol>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>Only successfully closed tasks (judge-approved) count toward the cap. Tasks that are skipped because they're blocked or are container types don't consume any of your budget. Your cap measures actual completed work.</p></div>
+<h2 id="step-4-see-the-cap-stop-the-chain">Step 4: See the Cap Stop the Chain</h2>
+<p>When the completed count reaches your <code>--max</code> value, the chain stops cleanly with a message confirming how many tasks were closed — something like "--max=5 cap reached (closed 5 bead(s) this run). Stopping." At this point:</p>
+<ul>
+<li><strong>No task is left half-done.</strong> The cap only fires between tasks — after one closes and before the next one is claimed. You'll never have a task abandoned mid-work because the counter ticked over.</li>
+<li><strong>Your queue is unchanged.</strong> Any remaining ready tasks stay in the queue exactly as they were, ready for the next run.</li>
+<li><strong>You're back in control.</strong> The terminal returns to normal Code Puppy input.</li>
+</ul>
+<h2 id="step-5-review-and-continue">Step 5: Review and Continue</h2>
+<p>After the chain stops, decide what to do next:</p>
+<ol>
+<li><strong>Check what was done.</strong> Review the files changed, tests added, or issues closed during the run.</li>
+<li><strong>Check what's left.</strong> Run <code>bd ready</code> to see the remaining queue.</li>
+<li><strong>Run another batch.</strong> Start a new <code>/bead-chain --max=N</code> to process the next set of tasks.</li>
+<li><strong>Switch to uncapped.</strong> If you're happy with what you've seen, run <code>/bead-chain</code> without <code>--max</code> to drain the rest of the queue.</li>
+</ol>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>Each <code>/bead-chain</code> run starts its completed counter from zero. If you run <code>--max=3</code> twice in a row, you'll process up to six tasks total — three per run. The cap is per-run, not cumulative.</p></div>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<table><thead><tr>
+<th>Problem</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>"--max requires a positive integer"</strong> — the chain refused to start.</td>
+<td>You passed a non-numeric, zero, or negative value. Use a positive whole number: <code>/bead-chain --max=5</code>.</td>
+</tr>
+<tr>
+<td><strong>The chain stopped before reaching the cap.</strong></td>
+<td>The queue ran out of ready tasks, or the chain encountered an error. Check <code>bd ready</code> — if the queue is empty, the chain simply finished early. If it's not empty, check the last status message for the reason (see <a href="../Reference/StatusMessages.html">Status Messages</a>).</td>
+</tr>
+<tr>
+<td><strong>The chain processed more tasks than I expected.</strong></td>
+<td>Verify you used <code>--max</code> and not a different flag. Without <code>--max</code>, the chain runs until the queue is empty. Check the startup messages for the "Safety cap" confirmation line.</td>
+</tr>
+<tr>
+<td><strong>I want to change the cap mid-run.</strong></td>
+<td>You can't change the cap while the chain is running. Press Ctrl+C to stop, then start a new run with a different <code>--max</code> value.</td>
+</tr>
+<tr>
+<td><strong>I pressed Ctrl+C instead of waiting for the cap.</strong></td>
+<td>That's fine — Ctrl+C is always safe. The current task stays in-progress for recovery. See <a href="../Concepts/RecoveryMode.html">Recovery Mode</a>.</td>
+</tr>
+</tbody></table>
+<h2 id="related-guides">Related Guides</h2>
+<ul>
+<li><a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> — the claim→drive→judge→close cycle that <code>--max</code> caps by count.</li>
+<li><a href="../Reference/Commands.html">Commands Reference</a> — full syntax for <code>/bead-chain --max=N</code> and all other commands.</li>
+<li><a href="../Reference/StatusMessages.html">Status Messages</a> — what the cap-reached message and every other chain message means.</li>
+<li><a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a> — how the chain picks which task to work next within a capped (or uncapped) run.</li>
+<li><a href="../Concepts/RecoveryMode.html">Recovery Mode</a> — what happens if you press Ctrl+C before the cap is reached.</li>
+<li><a href="../Reference/Configuration.html">Configuration</a> — environment variables, timeout behavior, and excluded container types.</li>
+<li><a href="../Tutorials/AutomateASprintBacklog.html">Tutorial: Automate a Sprint Backlog</a> — a full walkthrough that demonstrates <code>--max</code> in the context of a real sprint.</li>
+<li><a href="HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a> — what happens when the agent finds an unrelated bug during a capped run (the bug protocol works identically whether or not a cap is set).</li>
+<li><a href="UpgradeOrUninstall.html">How to Upgrade or Uninstall bead-chain</a> — keeping the plugin current.</li>
+<li><a href="../Overview.html">Overview</a> — bead-chain at a glance.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Guides</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

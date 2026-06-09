@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frequently Asked Questions — bead-chain User Docs</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="index.html">Index</a>
+<a href="FAQ.html" class="active">FAQ</a>
+<a href="Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="Concepts/index.html">Index</a>
+<a href="Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="Concepts/RecoveryMode.html">Recovery Mode</a>
+<a href="Concepts/TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="GettingStarted/index.html">Index</a>
+<a href="GettingStarted/Installation.html">Installation</a>
+<a href="GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="Guides/index.html">Index</a>
+<a href="Guides/HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="Guides/ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="Guides/RunACappedSession.html">Run ACapped Session</a>
+<a href="Guides/UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="Reference/index.html">Index</a>
+<a href="Reference/BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="Reference/Commands.html">Commands</a>
+<a href="Reference/Configuration.html">Configuration</a>
+<a href="Reference/StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="Tutorials/index.html">Index</a>
+<a href="Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="frequently-asked-questions">Frequently Asked Questions</h1>
+<p>Common questions about using bead-chain, grouped by theme. Each answer is short and links to the relevant guide or reference for the full story.</p>
+<hr>
+<h2 id="getting-started">Getting Started</h2>
+<h3 id="what-does-bead-chain-do">What does bead-chain do?</h3>
+<p>bead-chain automates your task queue. Instead of manually picking up tasks, working them, and closing them one by one, bead-chain drives the entire cycle for you: claim a task, hand it to an AI-judged work loop, wait for independent judges to sign off, close it, and grab the next one. You start it with a single command and walk away.</p>
+<p>See <a href="Overview.html">Overview</a> for the full picture.</p>
+<h3 id="what-do-i-need-before-i-can-use-bead-chain">What do I need before I can use bead-chain?</h3>
+<p>Two things:</p>
+<ol>
+<li><strong>Code Puppy</strong> (or wiggum) with <code>/goal</code> mode available.</li>
+<li>**beads (<code>bd</code>)** installed and on your PATH.</li>
+</ol>
+<p>Run <code>bd ready</code> in your terminal to confirm both are working. If the command isn't found, install beads first. See <a href="GettingStarted/Installation.html">Installation</a> for detailed setup steps.</p>
+<h3 id="how-do-i-know-bead-chain-is-installed-correctly">How do I know bead-chain is installed correctly?</h3>
+<p>Type <code>/bead-chain</code> in Code Puppy. If the plugin is loaded, it either starts processing tasks or reports that the queue is empty. Either way, the command is recognised and running. If it isn't recognised, double-check that the <code>bead_chain/</code> folder is directly inside your plugins directory and that you restarted Code Puppy after extracting.</p>
+<p>See <a href="GettingStarted/Installation.html">Installation</a> for troubleshooting specifics.</p>
+<h3 id="does-bead-chain-need-internet-access-to-work">Does bead-chain need internet access to work?</h3>
+<p>bead-chain itself runs locally. However, the AI agent and the LLM judges require network connectivity to function. If you lose connectivity mid-task, the chain stops and the current task stays in-progress for recovery on the next run. See <a href="Concepts/RecoveryMode.html">Recovery Mode</a>.</p>
+<hr>
+<h2 id="common-tasks">Common Tasks</h2>
+<h3 id="how-do-i-start-a-chain">How do I start a chain?</h3>
+<p>Type <code>/bead-chain</code> in Code Puppy. The chain begins immediately and runs until the queue is empty. See <a href="GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>.</p>
+<h3 id="how-do-i-stop-a-chain">How do I stop a chain?</h3>
+<p>Three ways:</p>
+<ul>
+<li><strong>Ctrl+C</strong> -- stops immediately. The current task stays in-progress for recovery.</li>
+<li>**<code>--max=N</code>** -- add the flag when starting (e.g. <code>/bead-chain --max=5</code>) and the chain stops automatically after closing N tasks.</li>
+<li><strong>Let it drain</strong> -- do nothing, and the chain stops on its own when the queue is empty.</li>
+</ul>
+<p>See <a href="Reference/Commands.html">Commands</a> for the full reference.</p>
+<h3 id="how-do-i-limit-how-many-tasks-get-processed">How do I limit how many tasks get processed?</h3>
+<p>Use the <code>--max</code> flag: <code>/bead-chain --max=3</code> processes at most three tasks, then stops cleanly. Only successfully closed tasks (judge-approved) count toward the cap. See <a href="Guides/RunACappedSession.html">How to Run a Capped Session</a>.</p>
+<h3 id="can-i-preview-what-the-chain-will-do-before-starting-it">Can I preview what the chain will do before starting it?</h3>
+<p>Yes. Run <code>bd ready</code> to see the task queue. That list is roughly what the chain will draw from -- though bead-chain applies its own <a href="Reference/BeadSelectionOrder.html">priority logic</a> (recovery first, then blocking bugs, then epic siblings, then the general queue).</p>
+<p>For a more precise prediction, also check <code>bd list --status=in_progress</code> -- any stranded tasks from a previous run will be handled before anything from the ready queue.</p>
+<h3 id="how-do-i-upgrade-bead-chain">How do I upgrade bead-chain?</h3>
+<p>Re-run the same install command you used originally -- it always pulls the latest release and overwrites the existing files. Then restart Code Puppy. See <a href="Guides/UpgradeOrUninstall.html">How to Upgrade or Uninstall bead-chain</a>.</p>
+<h3 id="how-do-i-uninstall-bead-chain">How do I uninstall bead-chain?</h3>
+<p>Delete the plugin directory (<code>~/.code_puppy/plugins/bead_chain</code> on macOS/Linux or <code>~\.code_puppy\plugins\bead_chain</code> on Windows) and restart Code Puppy. Your task history and beads database are unaffected -- they live in the repository, not in the plugin directory. See <a href="Guides/UpgradeOrUninstall.html">How to Upgrade or Uninstall bead-chain</a>.</p>
+<hr>
+<h2 id="the-chain-loop">The Chain Loop</h2>
+<h3 id="who-decides-when-a-task-is-done">Who decides when a task is done?</h3>
+<p>Independent LLM judges -- never the agent that did the work. The agent submits its work, and the judges evaluate the result against the task's acceptance criteria. This separation of "doer" and "evaluator" is enforced by <a href="Concepts/TheCloseGuard.html">The Close Guard</a>.</p>
+<h3 id="what-is-the-close-guard">What is the Close Guard?</h3>
+<p>A safety rail that blocks the AI agent from closing tasks itself during a chain run. If the agent tries to run <code>bd close</code> while a chain is active, the command is blocked and the agent receives a reminder to let the judges decide. See <a href="Concepts/TheCloseGuard.html">The Close Guard</a> for the full explanation.</p>
+<h3 id="what-types-of-beads-does-the-chain-skip">What types of beads does the chain skip?</h3>
+<p>bead-chain only drives leaf work items (tasks, bugs). It automatically skips container and handle types:</p>
+<ul>
+<li><strong>Epics</strong> -- groups of related child tasks.</li>
+<li><strong>Milestones</strong> -- scheduling or checkpoint containers.</li>
+<li><strong>Gates</strong> -- handles that block downstream work until a condition is met.</li>
+<li><strong>Molecules</strong> -- swarm containers that orchestrate spawned sub-tasks.</li>
+</ul>
+<p>These are filtered out before the chain even considers them. See <a href="Reference/Configuration.html">Configuration</a> for details.</p>
+<h3 id="does-the-chain-close-parent-epics">Does the chain close parent epics?</h3>
+<p>Yes -- automatically. At the end of a session, bead-chain checks whether any parent epics now have all their children closed. If so, the epic is rolled up (closed) without you having to do anything. See <a href="Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>.</p>
+<hr>
+<h2 id="recovery-and-interruptions">Recovery and Interruptions</h2>
+<h3 id="i-pressed-ctrl-c-is-my-work-lost">I pressed Ctrl+C -- is my work lost?</h3>
+<p>No. Pressing Ctrl+C is the designed way to stop a chain early. The current task stays in-progress on purpose, and any changes the agent already made remain in the repository exactly as they were. The next <code>/bead-chain</code> run detects the stranded task and resumes it automatically. See <a href="Guides/ResumeAfterInterruption.html">How to Resume After an Interruption</a>.</p>
+<h3 id="what-happens-if-my-machine-crashes-or-loses-power">What happens if my machine crashes or loses power?</h3>
+<p>Same as Ctrl+C, but without the goodbye message. The in-progress task's status was already saved when it was claimed, so it survives the crash. The next <code>/bead-chain</code> run finds it and enters Recovery Mode. See <a href="Concepts/RecoveryMode.html">Recovery Mode</a>.</p>
+<h3 id="i-manually-reset-a-stranded-task-to-open-now-what">I manually reset a stranded task to open -- now what?</h3>
+<p>The recovery signal was erased. The chain will treat the task as brand-new work and the agent won't know to check what was already done -- risking duplicated or conflicting changes. In the future, leave stranded tasks in-progress and let Recovery Mode handle them.</p>
+<h3 id="can-i-upgrade-bead-chain-while-a-task-is-in-progress">Can I upgrade bead-chain while a task is in-progress?</h3>
+<p>Yes, but stop the chain first (Ctrl+C). After upgrading and restarting Code Puppy, the next <code>/bead-chain</code> run enters Recovery Mode and resumes the stranded task using the new version. See <a href="Guides/UpgradeOrUninstall.html">How to Upgrade or Uninstall bead-chain</a>.</p>
+<hr>
+<h2 id="bugs-and-unexpected-issues">Bugs and Unexpected Issues</h2>
+<h3 id="what-happens-when-the-agent-finds-an-unrelated-bug-mid-task">What happens when the agent finds an unrelated bug mid-task?</h3>
+<p>The agent follows a built-in protocol: file the bug as a new bead, then decide whether it blocks the current task's acceptance criteria.</p>
+<ul>
+<li><strong>Non-blocking:</strong> the bug is filed at priority 2 and the agent continues the original task without interruption. The bug waits its turn in the queue.</li>
+<li><strong>Blocking:</strong> the bug is filed at priority 1 with a triage marker, fixed inline as scope expansion, and both pieces of work are presented to the judges.</li>
+</ul>
+<p>See <a href="Guides/HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a>.</p>
+<h3 id="a-bug-was-filed-and-inline-fixed-but-the-bug-bead-is-still-open-is-that-right">A bug was filed and inline-fixed, but the bug bead is still open -- is that right?</h3>
+<p>Yes, intentionally. The inline fix was done under time pressure as scope expansion. The open bug bead ensures a future chain iteration will claim it and verify the fix properly with a dedicated triage-verification prompt. See <a href="Guides/HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a>.</p>
+<hr>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<h3 id="bead-chain-isn-t-recognised"><code>/bead-chain</code> isn't recognised</h3>
+<p>Restart Code Puppy. It loads plugins at startup, so it won't see new files until restarted. If the problem persists, make sure the <code>bead_chain/</code> folder is directly inside <code>~/.code_puppy/plugins/</code> (not nested in a subfolder). See <a href="GettingStarted/Installation.html">Installation</a>.</p>
+<h3 id="no-ready-beads-when-i-expected-tasks">"No ready beads" when I expected tasks</h3>
+<p>Run <code>bd ready</code> to check your queue. If it's empty, create tasks with <code>bd create</code>. If tasks exist but don't appear, they may be blocked by unresolved dependencies. Resolve the blockers and the tasks will re-enter the ready queue.</p>
+<h3 id="the-chain-keeps-rejecting-my-work">The chain keeps rejecting my work</h3>
+<p>The judges found gaps against the task's acceptance criteria and the agent keeps iterating. If you think the criteria are unreasonable, press Ctrl+C, revise the task's description or acceptance criteria with <code>bd update</code>, and re-run.</p>
+<h3 id="the-chain-seems-stuck-on-a-task">The chain seems stuck on a task</h3>
+<p>Give it time -- complex tasks can take several minutes. If it genuinely stalls, press Ctrl+C and re-run <code>/bead-chain</code> to trigger recovery. The agent will assess what's already done and continue.</p>
+<h3 id="bd-ready-returns-command-not-found"><code>bd ready</code> returns "command not found"</h3>
+<p>beads (<code>bd</code>) isn't installed or isn't on your PATH. Install beads first, then return to use bead-chain. If <code>bd</code> is installed but in a non-standard location, set <code>BEADS_BIN</code> to point to it. See <a href="Reference/Configuration.html">Configuration</a>.</p>
+<h3 id="bead-chain-can-t-reach-bd">"bead-chain can't reach <code>bd</code>"</h3>
+<p>The <code>bd</code> command failed or isn't available. Check that <code>bd</code> is installed and on your PATH, or that <code>BEADS_BIN</code> points to the correct location. Try running <code>bd ready</code> manually to diagnose.</p>
+<h3 id="the-agent-tried-to-close-a-task-and-was-blocked">The agent tried to close a task and was blocked</h3>
+<p>This is the <a href="Concepts/TheCloseGuard.html">Close Guard</a> doing its job. The agent was reminded to let the judges decide. No action needed -- the agent will continue working and the judges will close the task when it meets the acceptance criteria.</p>
+<h3 id="i-see-found-n-in-progress-beads-at-startup">I see "found N in_progress beads" at startup</h3>
+<p>Multiple tasks were left stranded, likely from a hard crash. bead-chain handles this automatically, recovering each task one at a time. No action needed unless you see it repeatedly, which could indicate an underlying stability issue.</p>
+<hr>
+<h2 id="further-reading">Further Reading</h2>
+<ul>
+<li><a href="Overview.html">Overview</a> -- what bead-chain is and who it's for.</li>
+<li><a href="Reference/Commands.html">Commands</a> -- every command and option at a glance.</li>
+<li><a href="Reference/StatusMessages.html">Status Messages</a> -- what every message means.</li>
+<li><a href="Reference/Configuration.html">Configuration</a> -- environment variables and built-in defaults.</li>
+<li><a href="Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> -- the engine under the hood.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

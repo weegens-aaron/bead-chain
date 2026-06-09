@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Status Messages Reference — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="../Concepts/RecoveryMode.html">Recovery Mode</a>
+<a href="../Concepts/TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="../GettingStarted/index.html">Index</a>
+<a href="../GettingStarted/Installation.html">Installation</a>
+<a href="../GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="../Guides/index.html">Index</a>
+<a href="../Guides/HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="../Guides/ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="../Guides/RunACappedSession.html">Run ACapped Session</a>
+<a href="../Guides/UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="index.html">Index</a>
+<a href="BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="Commands.html">Commands</a>
+<a href="Configuration.html">Configuration</a>
+<a href="StatusMessages.html" class="active">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="status-messages-reference">Status Messages Reference</h1>
+<h2 id="overview">Overview</h2>
+<p>While bead-chain runs, it keeps you informed with short, emoji-prefixed messages in your terminal. Each emoji icon represents a category — chain lifecycle, queue status, recovery, safety, epic management, or gate checks — so you can tell at a glance what the chain is doing and whether anything needs your attention.</p>
+<p>Most messages are purely informational: the chain is trotting along and telling you what it's up to. A few signal situations where the chain stopped or needs a human look. The tables below cover every message you might see, what it means, and what (if anything) you should do about it.</p>
+<h3 id="emoji-quick-reference">Emoji Quick Reference</h3>
+<table><thead><tr>
+<th>Emoji</th>
+<th>Category</th>
+<th>At a glance</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F517;</td>
+<td><a href="#chain-lifecycle-messages-">Chain Lifecycle</a></td>
+<td>The chain itself — starting, engaged, closing, halting, errors</td>
+</tr>
+<tr>
+<td>&amp;#x1F9B4;</td>
+<td><a href="#queue-status-messages-">Queue Status</a></td>
+<td>The task queue is empty</td>
+</tr>
+<tr>
+<td>&amp;#x1F516;</td>
+<td><a href="#recovery-messages-">Recovery</a></td>
+<td>A task was left in-progress for the next run to resume</td>
+</tr>
+<tr>
+<td>&amp;#x1F6D1;</td>
+<td><a href="#safety-control-messages-">Safety Controls</a></td>
+<td>The chain hit its cap or blocked a premature close</td>
+</tr>
+<tr>
+<td>&amp;#x1F6AB;</td>
+<td><a href="#safety-control-messages-">Safety Controls</a></td>
+<td>The chain refused to work an invalid task type</td>
+</tr>
+<tr>
+<td>&amp;#x26A0;&amp;#xFE0F;</td>
+<td><a href="#recovery-messages-">Recovery</a></td>
+<td>Multiple stranded tasks found from a prior crash</td>
+</tr>
+<tr>
+<td>&amp;#x1F9EA;</td>
+<td><a href="#execution-hint-messages-">Execution Hints</a></td>
+<td>Metadata-driven tuning applied to this task</td>
+</tr>
+<tr>
+<td>&amp;#x1F3AF;</td>
+<td><a href="#epic-management-messages-">Epic Management</a></td>
+<td>Parent epic claimed, rolled up, or encountered an issue</td>
+</tr>
+<tr>
+<td>&amp;#x23F3;</td>
+<td><a href="#gate-check-messages-">Gate Checks</a></td>
+<td>A gate was probed, resolved, or escalated</td>
+</tr>
+<tr>
+<td>&amp;#x1F504;</td>
+<td><a href="#revert-messages-">Revert</a></td>
+<td>A task was moved back to the open queue</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="chain-lifecycle-messages-x1f517">Chain Lifecycle Messages (&amp;#x1F517;)</h2>
+<p>These messages track the chain's own lifecycle — from the moment you type <code>/bead-chain</code> through each task close to the final stop.</p>
+<h3 id="startup">Startup</h3>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F517; bead-chain starting…</td>
+<td>The chain received your command and is probing the queue.</td>
+<td>Nothing — this is the immediate acknowledgement so you know the command registered.</td>
+</tr>
+<tr>
+<td>&amp;#x1F517; bead-chain is already running.</td>
+<td>You tried to start a second chain while one is already active.</td>
+<td>Wait for the current chain to finish, or press Ctrl+C to stop it first.</td>
+</tr>
+<tr>
+<td>&amp;#x1F517; BEAD-CHAIN ENGAGED!</td>
+<td>The chain found work, claimed a task, and handed it to the AI work loop. The assembly line is moving.</td>
+<td>Sit back and watch — or walk away. The chain is running.</td>
+</tr>
+<tr>
+<td>First bead: <em>\<id\></em> — <em>\<title\></em></td>
+<td>Identifies the first task the chain picked up.</td>
+<td>Informational. Confirm it's the task you expected.</td>
+</tr>
+<tr>
+<td>Safety cap: stopping after <em>N</em> bead(s).</td>
+<td>You passed <code>--max=N</code>, and the chain will stop after closing that many tasks.</td>
+<td>Informational. The cap is set.</td>
+</tr>
+<tr>
+<td>Will claim → /goal → close → repeat until <code>bd ready</code> is empty.</td>
+<td>Confirms the chain's cycle.</td>
+<td>Informational.</td>
+</tr>
+<tr>
+<td>Press Ctrl+C to halt.</td>
+<td>Reminds you how to stop the chain early.</td>
+<td>Informational.</td>
+</tr>
+</tbody></table>
+<h3 id="during-the-run">During the Run</h3>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F517; bead-chain claimed <em>\<id\></em> — <em>\<title\></em></td>
+<td>The chain picked up a new task and marked it in-progress. Normal chaining.</td>
+<td>Informational — the chain is trotting to the next task.</td>
+</tr>
+<tr>
+<td>&amp;#x1F517; bead-chain recovered <em>\<id\></em> — <em>\<title\></em></td>
+<td>The chain found a task left over from a prior interrupted run and is resuming it with a recovery prompt.</td>
+<td>Informational — the agent will assess what's already done before doing new work. See <a href="../Concepts/RecoveryMode.html">Recovery Mode</a>.</td>
+</tr>
+<tr>
+<td>&amp;#x1F517; bead-chain closed <em>\<id\></em> (#<em>N</em> completed this run)</td>
+<td>The judges approved the work and the task was closed. The running total is shown.</td>
+<td>Informational — the chain is making progress.</td>
+</tr>
+</tbody></table>
+<h3 id="stopping">Stopping</h3>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>bead-chain: no more ready beads. Closed <em>N</em> this run. Good boy!</td>
+<td>The queue is empty. The chain finished all available work and stopped.</td>
+<td>Nothing — this is the happy ending.</td>
+</tr>
+<tr>
+<td>&amp;#x1F517; bead-chain halted due to <em>\<reason\></em>.</td>
+<td>You pressed Ctrl+C (or another cancellation happened). The chain stopped, but the current task stays in-progress for recovery.</td>
+<td>See the &amp;#x1F516; bookmark message that follows. The next <code>/bead-chain</code> run will resume the task. See <a href="../Concepts/RecoveryMode.html">Recovery Mode</a>.</td>
+</tr>
+</tbody></table>
+<h3 id="errors">Errors</h3>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F517; bead-chain can't reach \<code>bd\</code></td>
+<td>The <code>bd</code> command failed or isn't available. The chain can't operate without it.</td>
+<td>Check that <code>bd</code> is installed and on your PATH. Try running <code>bd ready</code> manually to diagnose.</td>
+</tr>
+<tr>
+<td>&amp;#x1F517; bead-chain: --max requires a positive integer</td>
+<td>You passed <code>--max</code> with an invalid value (not a number, zero, or negative).</td>
+<td>Re-run with a valid positive integer, e.g. <code>/bead-chain --max=5</code>.</td>
+</tr>
+<tr>
+<td>&amp;#x1F517; bead-chain couldn't claim <em>\<id\></em></td>
+<td>The chain tried to mark a task as in-progress but the <code>bd</code> command failed.</td>
+<td>Check <code>bd</code> connectivity. The chain stops to avoid working unclaimed tasks.</td>
+</tr>
+<tr>
+<td>&amp;#x1F517; bead-chain couldn't close <em>\<id\></em></td>
+<td>The task was worked and the judges approved, but the close command failed (database issue, permission problem, etc.).</td>
+<td>The task stays in-progress — the next run will recover it. Investigate the error message before re-running. See <a href="../Concepts/RecoveryMode.html">Recovery Mode</a>.</td>
+</tr>
+<tr>
+<td>&amp;#x1F517; bead-chain stopping — \<code>bd ready\</code> failed</td>
+<td>A mid-chain queue probe failed. Something is wrong with <code>bd</code>.</td>
+<td>Check <code>bd</code> health. Any already-closed tasks are safe; the in-flight task stays in-progress for recovery.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="queue-status-messages-x1f9b4">Queue Status Messages (&amp;#x1F9B4;)</h2>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F9B4; No ready beads — bead-chain has nothing to fetch.</td>
+<td>You started <code>/bead-chain</code> but there are no tasks in the ready queue.</td>
+<td>Add tasks to your queue (<code>bd create</code>) or check whether existing tasks are blocked by dependencies.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="recovery-messages-x1f516-x26a0-xfe0f">Recovery Messages (&amp;#x1F516; / &amp;#x26A0;&amp;#xFE0F;)</h2>
+<p>These messages appear when the chain detects unfinished work from a prior run. See <a href="../Concepts/RecoveryMode.html">Recovery Mode</a> for the full explanation.</p>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F516; Bead <em>\<id\></em> left in\_progress — the next /bead-chain run will resume it with a recovery preamble…</td>
+<td>A chain was interrupted (Ctrl+C, crash, etc.) and the current task was intentionally left in-progress.</td>
+<td>Run <code>/bead-chain</code> again. The chain will find this task, load a recovery prompt, and the agent will assess what's already done before continuing. Don't manually reset the task's status.</td>
+</tr>
+<tr>
+<td>Recovering stranded in\_progress bead <em>\<id\></em> — agent will assess current state before doing new work.</td>
+<td>The chain found a task from a prior interrupted run and is about to resume it.</td>
+<td>Informational — recovery is happening automatically.</td>
+</tr>
+<tr>
+<td>&amp;#x26A0;&amp;#xFE0F; bead-chain: found <em>N</em> in\_progress beads (residue from a hard crash…). Recovering <em>\<id\></em> first…</td>
+<td>Multiple tasks were left in-progress, likely from a hard crash that bypassed cleanup. The chain will recover them one at a time.</td>
+<td>Informational — the chain handles this automatically. Each stranded task gets its own recovery pass before any new work begins.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="safety-control-messages-x1f6d1-x1f6ab">Safety Control Messages (&amp;#x1F6D1; / &amp;#x1F6AB;)</h2>
+<p>These messages indicate that a safety mechanism activated — either the iteration cap was reached or the Close Guard blocked a premature close attempt. See <a href="../Concepts/TheCloseGuard.html">The Close Guard</a> for how close-blocking works.</p>
+<h3 id="iteration-cap">Iteration Cap</h3>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F6D1; bead-chain: --max=<em>N</em> cap reached (closed <em>N</em> bead(s) this run). Stopping. Good boy!</td>
+<td>The chain closed the number of tasks you specified with <code>--max</code> and stopped cleanly.</td>
+<td>Nothing — this is the expected outcome of a capped run. Start another chain to keep going.</td>
+</tr>
+</tbody></table>
+<h3 id="close-guard">Close Guard</h3>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F6D1; bead-chain blocked \<code>bd close\</code>.</td>
+<td>The AI agent tried to close a task directly. The command was blocked — the task is still open and the agent was reminded to let the judges decide.</td>
+<td>Nothing — the guard handled it. The agent will continue working and the independent judges will close the task when it's ready.</td>
+</tr>
+<tr>
+<td>&amp;#x1F6D1; bead-chain blocked \<code>bd update --status=closed\</code>.</td>
+<td>Same as above, but the agent tried to close a task by setting its status field rather than using the close command. Also blocked.</td>
+<td>Nothing — same as above. The guard catches both forms.</td>
+</tr>
+</tbody></table>
+<h3 id="excluded-type-guard">Excluded Type Guard</h3>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F6AB; bead-chain refused to start with <em>\<id\></em>: it's an excluded container type</td>
+<td>The chain tried to work a container (like an epic), which is a grouping item — not a doable task. This shouldn't normally happen.</td>
+<td>This indicates an internal filtering issue. The task was not started. Re-run the chain; if it recurs, report it.</td>
+</tr>
+<tr>
+<td>&amp;#x1F6AB; bead-chain refused to close <em>\<id\></em>: it's an excluded container type</td>
+<td>The chain was about to close a container that should never have been driven. The container was reverted to open.</td>
+<td>Same as above — the chain stopped to prevent damage. Investigate before re-running.</td>
+</tr>
+<tr>
+<td>&amp;#x1F6AB; bead-chain refused to activate <em>\<id\></em>: it's an excluded container type</td>
+<td>Mid-chain, the next-task picker returned a container. The chain stopped.</td>
+<td>Same as above.</td>
+</tr>
+</tbody></table>
+<h3 id="blocker-guard">Blocker Guard</h3>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>bead-chain refused to start with <em>\<id\></em>: it has open blocker(s)</td>
+<td>The task can't be worked because it depends on other tasks that haven't been completed yet.</td>
+<td>Resolve the blocking tasks first. The chain respects dependencies — it won't drive work that can't be finished.</td>
+</tr>
+<tr>
+<td>bead-chain refused to activate <em>\<id\></em>: it has open blocker(s)</td>
+<td>Same as above, but detected mid-chain rather than at startup.</td>
+<td>Same — resolve the blockers and re-run.</td>
+</tr>
+<tr>
+<td>bead-chain refused to activate <em>\<id\></em>: it has an unsatisfied fan-out gate</td>
+<td>The task is waiting for a group of spawned sub-tasks to complete before it can proceed.</td>
+<td>Wait for the sub-tasks to close. The gate will satisfy itself once they're done.</td>
+</tr>
+</tbody></table>
+<h3 id="pinned-task">Pinned Task</h3>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>bead <em>\<id\></em> was pinned mid-flight — respecting the pin…</td>
+<td>Someone (a human or another tool) pinned this task while the agent was working on it. The chain respects the pin: it drops the task without closing it and moves on.</td>
+<td>Intentional. The pinned task stays pinned until you explicitly unpin it. The chain keeps trotting with the next task.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="execution-hint-messages-x1f9ea">Execution Hint Messages (&amp;#x1F9EA;)</h2>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F9EA; execution hints: <em>\<hint list\></em></td>
+<td>The task carries metadata that tuned how the AI agent works on it (e.g. effort level, model preference). The hints were applied before the agent started.</td>
+<td>Informational — the chain adapts its approach based on task metadata. No action needed.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="epic-management-messages-x1f3af">Epic Management Messages (&amp;#x1F3AF;)</h2>
+<p>These messages track parent epic operations — claiming an epic when its child is picked up, and rolling up (auto-closing) epics when all their children are done.</p>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F3AF; bead-chain started epic <em>\<id\></em> — <em>\<title\></em></td>
+<td>The chain marked a parent epic as in-progress because one of its children was just claimed. This keeps your status views accurate at every level.</td>
+<td>Informational — the epic status now reflects that work is happening under it.</td>
+</tr>
+<tr>
+<td>&amp;#x1F3AF; epic <em>\<id\></em> rolled up (all children complete) — <em>\<title\></em></td>
+<td>All children under this epic are now closed, so the epic was automatically closed too.</td>
+<td>Informational — automatic cleanup. No manual close needed.</td>
+</tr>
+<tr>
+<td>&amp;#x1F3AF; bead-chain: epic rollup failed (continuing)</td>
+<td>The end-of-session epic sweep encountered an error. The chain finished normally — only the automatic epic cleanup was affected.</td>
+<td>Check <code>bd</code> health. You can close eligible epics manually with <code>bd</code> if needed.</td>
+</tr>
+<tr>
+<td>&amp;#x1F3AF; bead-chain: epic in-progress check failed (continuing)</td>
+<td>The chain couldn't determine whether a parent epic was already in-progress. It continued with the child task anyway.</td>
+<td>Informational — a cosmetic status check failed but work proceeds normally.</td>
+</tr>
+<tr>
+<td>&amp;#x1F3AF; bead-chain: couldn't start epic <em>\<id\></em> (continuing)</td>
+<td>The chain tried to mark a parent epic as in-progress but the claim failed. Work on the child task continues regardless.</td>
+<td>Check <code>bd</code> health if this recurs. The child task is unaffected.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="gate-check-messages-x23f3">Gate Check Messages (&amp;#x23F3;)</h2>
+<p>Gate checks happen once at the end of a chain run, when the queue appears empty. The chain probes whether any waiting gates (timers, external checks, dependency gates) have been satisfied since the run started.</p>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x23F3; <em>N</em> gate(s) resolved on the empty-queue probe — re-opening their targets…</td>
+<td>One or more gates were satisfied, releasing their gated tasks back into the ready queue. The chain will pick them up and keep going.</td>
+<td>Informational — the chain just unlocked more work automatically.</td>
+</tr>
+<tr>
+<td>&amp;#x23F3; <em>N</em> gate(s) escalated (expired/failed) during the empty-queue probe — these need a human look.</td>
+<td>One or more gates expired or failed. Their gated tasks remain blocked.</td>
+<td>Investigate the escalated gates. They may represent external checks that didn't pass (failed CI runs, expired timers, etc.).</td>
+</tr>
+<tr>
+<td>&amp;#x23F3; bead-chain: gate check failed (continuing)</td>
+<td>The gate probe itself failed (a <code>bd</code> error). The chain finishes normally — only the gate sweep was skipped.</td>
+<td>Check <code>bd</code> health if you expected gates to resolve.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="revert-messages-x1f504">Revert Messages (&amp;#x1F504;)</h2>
+<p>Revert messages appear when the chain moves a task back from in-progress to the open queue. This happens when a task turns out to be blocked or is an invalid type that shouldn't have been picked up.</p>
+<table><thead><tr>
+<th>Message</th>
+<th>Meaning</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>&amp;#x1F504; reverted <em>\<id\></em> to open</td>
+<td>A task was moved back to the open queue (usually because it's blocked by dependencies or is an invalid type). It will re-enter the ready queue once its blockers are resolved.</td>
+<td>Informational — the chain is cleaning up and moving on.</td>
+</tr>
+<tr>
+<td>reverted blocked <em>\<id\></em> to open</td>
+<td>A stranded in-progress task from a prior run turned out to have open blockers. It was sent back to the queue behind its blockers rather than being recovered.</td>
+<td>Informational — the chain is correctly respecting dependencies.</td>
+</tr>
+<tr>
+<td>also couldn't revert <em>\<id\></em></td>
+<td>The chain tried to revert a task but the revert command also failed. The task may be in an inconsistent state.</td>
+<td>Check <code>bd</code> health and the task's status manually with <code>bd show &lt;id&gt;</code>.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="when-messages-appear-the-chain-lifecycle">When Messages Appear — The Chain Lifecycle</h2>
+<p>The diagram below shows which message categories appear at each phase of a chain run:</p>
+<pre class="mermaid">
+flowchart TD
+    START(["You run /bead-chain"]) --&gt; STARTUP["Starting...\nENGAGED!\nHints applied"]
+    STARTUP --&gt; RECOVERY{"Stranded\ntasks?"}
+    RECOVERY -- Yes --&gt; RECOVER["Recovery\nRecovered id"]
+    RECOVERY -- No --&gt; CLAIM["Claimed id\nEpic started"]
+    RECOVER --&gt; WORK["Agent works the task\nClose Guard active"]
+    CLAIM --&gt; WORK
+    WORK --&gt; CLOSE["Closed id\nEpic rolled up"]
+    CLOSE --&gt; MORE{"More\ntasks?"}
+    MORE -- Yes --&gt; CLAIM
+    MORE -- No --&gt; GATES["Gate check"]
+    GATES --&gt; DONE["Queue empty\nor cap reached"]
+
+    INT{{"Ctrl+C"}} -.-&gt; HALT["Halted\nBead left in-progress"]
+
+    style START fill:#0071dc,color:#fff
+    style DONE fill:#2e7d32,color:#fff
+    style HALT fill:#ffc220,color:#000
+    style WORK fill:#e6f2ff
+</pre>
+<h2 id="tips">Tips</h2>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Scan the emoji first.</strong> The emoji prefix tells you the category instantly — you don't need to read the full message to know whether it's lifecycle (&amp;#x1F517;), safety (&amp;#x1F6D1;), or recovery (&amp;#x1F516;).</p></div>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Most messages need no action.</strong> The vast majority of messages are informational progress updates. Only warnings that end with "Stopping chain" or "investigate before re-running" require your attention.</p></div>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>The &amp;#x1F516; bookmark means "come back later."</strong> When you see the bookmark emoji after a Ctrl+C, it's bead-chain telling you the task is safely parked. Just run <code>/bead-chain</code> again and recovery handles the rest — don't manually reset the task's status.</p></div>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p><strong>Don't ignore &amp;#x23F3; escalated gates.</strong> Unlike most messages, escalated gates represent external checks that failed and won't resolve on their own. They need a human to investigate what went wrong (a failed CI run, an expired deadline, etc.).</p></div>
+<h2 id="see-also">See Also</h2>
+<ul>
+<li><a href="Commands.html">Commands</a> — every command, option, and control at a glance; the messages documented here are the output you see when using those commands.</li>
+<li><a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> — the claim→drive→judge→close loop that generates these messages.</li>
+<li><a href="../Concepts/RecoveryMode.html">Recovery Mode</a> — deep dive into the &amp;#x1F516; bookmark and &amp;#x26A0;&amp;#xFE0F; multi-strand recovery messages.</li>
+<li><a href="BeadSelectionOrder.html">Bead Selection Order</a> — the four-tier priority waterfall that determines which task is picked and which messages you see.</li>
+<li><a href="../Concepts/TheCloseGuard.html">The Close Guard</a> — how the &amp;#x1F6D1; close-block messages are triggered and why.</li>
+<li><a href="../Overview.html">Overview</a> — bead-chain at a glance.</li>
+<li><a href="Configuration.html">Configuration</a> — environment variables, timeout/retry defaults, and excluded container types.</li>
+<li><a href="../Guides/RunACappedSession.html">How to Run a Capped Session</a> — the step-by-step guide for using <code>--max=N</code>, which produces the cap-reached message documented above.</li>
+<li><a href="../Guides/ResumeAfterInterruption.html">How to Resume After an Interruption</a> — step-by-step instructions for what to do when a run is cut short; pairs with the bookmark and multi-strand recovery messages above.</li>
+<li><a href="../Guides/HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a> — what the agent does when it finds an unrelated bug mid-task, including how filed bugs and triage messages relate to the status output documented here.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Reference</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

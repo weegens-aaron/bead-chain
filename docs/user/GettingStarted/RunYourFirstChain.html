@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quick Start: Run Your First Chain — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="../Concepts/RecoveryMode.html">Recovery Mode</a>
+<a href="../Concepts/TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="index.html">Index</a>
+<a href="Installation.html">Installation</a>
+<a href="RunYourFirstChain.html" class="active">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="../Guides/index.html">Index</a>
+<a href="../Guides/HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="../Guides/ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="../Guides/RunACappedSession.html">Run ACapped Session</a>
+<a href="../Guides/UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="../Reference/index.html">Index</a>
+<a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="../Reference/Commands.html">Commands</a>
+<a href="../Reference/Configuration.html">Configuration</a>
+<a href="../Reference/StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="quick-start-run-your-first-chain">Quick Start: Run Your First Chain</h1>
+<h2 id="what-you-ll-achieve">What You'll Achieve</h2>
+<p>A complete bead-chain run — you'll start the chain, watch it pick up a task from your queue, hand it to the AI agent, wait for the independent judges to approve the work, close the task, and either drain the queue or stop the chain yourself.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><strong>bead-chain installed.</strong> If you haven't done this yet, follow <a href="Installation.html">Installation</a> first — it takes about two minutes.</li>
+<li><strong>Code Puppy</strong> (or wiggum) running with <code>/goal</code> mode available.</li>
+<li>**beads (<code>bd</code>)** installed and on your PATH.</li>
+<li><strong>At least one ready task in your queue.</strong> bead-chain needs something to work. If your queue is empty, create a task or two with <code>bd create</code> before proceeding.</li>
+</ul>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>Not sure whether you have ready work? Run <code>bd ready</code> in your terminal. If you see tasks listed, you're good. If you see an empty list, add a task first.</p></div>
+<h2 id="step-1-check-your-queue">Step 1: Check Your Queue</h2>
+<p>Before starting the chain, confirm there's work waiting. Run:</p>
+<pre><code>bd ready</code></pre>
+<p><strong>What you should see:</strong> A list of tasks with their IDs, titles, and priorities. Something like:</p>
+<pre><code>◯ abc-123 · Fix the login timeout                [● P1 · OPEN]
+◯ abc-456 · Add retry logic to the upload flow    [● P2 · OPEN]
+◯ abc-789 · Update the README examples            [● P3 · OPEN]</code></pre>
+<p>Each line is a task the chain can pick up. The order here is roughly what the chain will follow, though bead-chain applies its own <a href="../Reference/BeadSelectionOrder.html">priority logic</a> — blocking bugs jump ahead, and sibling tasks under the same epic stay together.</p>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>If <code>bd ready</code> shows nothing, the chain will have nothing to fetch. Create at least one task before continuing.</p></div>
+<h2 id="step-2-start-the-chain">Step 2: Start the Chain</h2>
+<p>Type the following in Code Puppy:</p>
+<pre><code>/bead-chain</code></pre>
+<p><strong>What you should see — immediately:</strong></p>
+<p>An emoji-prefixed acknowledgement (all bead-chain messages carry a small icon prefix — see <a href="../Reference/StatusMessages.html">Status Messages</a> for the complete list):</p>
+<pre><code>bead-chain starting…</code></pre>
+<p>This appears right away so you know the command registered. Behind the scenes, the chain is probing your queue for the first task to work.</p>
+<p><strong>What you should see — a moment later:</strong></p>
+<pre><code>BEAD-CHAIN ENGAGED!
+First bead: abc-123 — Fix the login timeout
+Will claim → /goal → close → repeat until `bd ready` is empty.
+Press Ctrl+C to halt.</code></pre>
+<p>The chain has claimed the first task and handed it to the AI work loop. The assembly line is moving.</p>
+<pre class="mermaid">
+flowchart TD
+    YOU(["You type /bead-chain"]) --&gt; ACK["bead-chain starting"]
+    ACK --&gt; PROBE["Chain probes the queue"]
+    PROBE --&gt; ENGAGED["BEAD-CHAIN ENGAGED!"]
+    ENGAGED --&gt; WORK["AI agent starts working\nthe first task"]
+
+    style YOU fill:#0071dc,color:#fff
+    style ENGAGED fill:#2e7d32,color:#fff
+    style WORK fill:#e6f2ff
+</pre>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>If you see <strong>"No ready beads — bead-chain has nothing to fetch"</strong> instead, your queue is empty. Add a task with <code>bd create</code> and try again.</p></div>
+<h2 id="step-3-watch-the-first-task-get-worked">Step 3: Watch the First Task Get Worked</h2>
+<p>Once the chain is engaged, the AI agent takes over. You'll see it working in your terminal — reading files, writing code, running tests, whatever the task requires. This is the <strong>drive</strong> phase: the agent is doing the actual work while bead-chain stays in the background, keeping the assembly line moving.</p>
+<p><strong>What you should see:</strong> The agent's activity streams in your terminal just like a normal <code>/goal</code> session. You'll see file reads, edits, shell commands, and reasoning — all directed at completing the claimed task.</p>
+<p>During this phase, bead-chain enforces one important rule: the agent <strong>cannot</strong> close the task itself. If it tries to run a close command, the <a href="../Concepts/TheCloseGuard.html">close guard</a> blocks it with a reminder:</p>
+<blockquote><p>bead-chain blocked <code>bd close</code>. The bead will be closed automatically once
+the LLM judges sign off — do NOT close it yourself.</p></blockquote>
+<p>This separation of "doer" and "evaluator" is how bead-chain guarantees consistent quality. The agent does the work; the judges decide when it's done.</p>
+<h2 id="step-4-watch-the-judges-evaluate">Step 4: Watch the Judges Evaluate</h2>
+<p>When the agent believes the work is finished, it summarises what it did. A panel of independent LLM judges then evaluates the result against the task's acceptance criteria.</p>
+<p><strong>What you should see:</strong> The judges provide feedback in the terminal. If the work passes, you'll see progress move to the close step. If the judges identify gaps, the agent goes back and keeps working — informed by the judges' feedback — and resubmits when ready. This cycle can repeat until the work genuinely satisfies the criteria.</p>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>The judges are independent from the agent that did the work. They provide an unbiased second opinion — there's no way to skip or override this check.</p></div>
+<h2 id="step-5-watch-the-task-close">Step 5: Watch the Task Close</h2>
+<p>Once the judges approve the work, bead-chain closes the task automatically.</p>
+<p><strong>What you should see:</strong></p>
+<pre><code>bead-chain closed abc-123 (#1 completed this run)</code></pre>
+<p>The <code>#1</code> counter tells you how many tasks have been completed in this run. If more tasks are waiting in the queue, the chain immediately claims the next one and you'll see:</p>
+<pre><code>bead-chain claimed abc-456 — Add retry logic to the upload flow</code></pre>
+<p>The cycle starts again: drive → judge → close → next.</p>
+<pre class="mermaid">
+flowchart LR
+    CLAIM["① Claim"] --&gt; DRIVE["② Drive"]
+    DRIVE --&gt; JUDGE["③ Judge"]
+    JUDGE -- Fail --&gt; DRIVE
+    JUDGE -- Pass --&gt; CLOSE["④ Close"]
+    CLOSE --&gt; NEXT{{"More tasks?"}}
+    NEXT -- Yes --&gt; CLAIM
+    NEXT -- No --&gt; DONE["Chain stops"]
+
+    style CLAIM fill:#e6f2ff
+    style DRIVE fill:#e6f2ff
+    style JUDGE fill:#ffc220,color:#000
+    style CLOSE fill:#2e7d32,color:#fff
+    style DONE fill:#76c043,color:#000
+</pre>
+<h2 id="step-6-stop-or-let-it-drain">Step 6: Stop or Let It Drain</h2>
+<p>You have two choices at this point:</p>
+<h3 id="option-a-let-the-chain-finish">Option A: Let the Chain Finish</h3>
+<p>Do nothing. The chain keeps claiming, working, and closing tasks until the queue is empty. When it runs out of work, you'll see:</p>
+<pre><code>bead-chain: no more ready beads. Closed 3 this run. Good boy!</code></pre>
+<p>The chain stops and you're back in control.</p>
+<h3 id="option-b-press-ctrl-c">Option B: Press Ctrl+C</h3>
+<p>If you want to stop early — maybe you want to review the work so far, or you need the terminal for something else — press <strong>Ctrl+C</strong>.</p>
+<p><strong>What you should see:</strong></p>
+<pre><code>bead-chain halted due to cancelled.
+Bead abc-456 left in_progress — the next /bead-chain run will resume it
+  with a recovery preamble so the agent assesses the current state before
+  doing new work.</code></pre>
+<p>The current task stays in-progress <strong>on purpose</strong>. The next time you run <code>/bead-chain</code>, the chain detects it, loads a recovery prompt, and the agent checks what's already been done before picking up where it left off. Nothing is lost or orphaned.</p>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>Don't manually revert a task's status to open after pressing Ctrl+C. If you do, you'll lose the recovery prompt that tells the agent to check existing work before starting fresh. Let the chain recover naturally.</p></div>
+<h2 id="common-issues">Common Issues</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td>"No ready beads" when you expected tasks</td>
+<td>Run <code>bd ready</code> to check your queue. If it's empty, create tasks with <code>bd create</code>. If tasks exist but show as blocked, their blockers need to be resolved first.</td>
+</tr>
+<tr>
+<td>"bead-chain is already running"</td>
+<td>You already have an active chain. Wait for it to finish or press Ctrl+C to stop it, then start a new one.</td>
+</tr>
+<tr>
+<td>"bead-chain can't reach <code>bd</code>"</td>
+<td>The <code>bd</code> command failed or isn't on your PATH. Run <code>bd ready</code> manually to diagnose.</td>
+</tr>
+<tr>
+<td>The chain claimed a task but seems stuck</td>
+<td>The AI agent is working — give it time. Complex tasks can take several minutes. If it genuinely stalls, press Ctrl+C and re-run <code>/bead-chain</code> to trigger recovery.</td>
+</tr>
+<tr>
+<td>The judges keep rejecting the work</td>
+<td>The judges found gaps against the task's acceptance criteria. The agent will keep iterating. If you think the criteria are unreasonable, press Ctrl+C, revise the task's description or acceptance criteria with <code>bd update</code>, and re-run.</td>
+</tr>
+<tr>
+<td>You pressed Ctrl+C but the task didn't close</td>
+<td>That's intentional. The task stays in-progress so the next run can recover it. See <a href="../Concepts/RecoveryMode.html">Recovery Mode</a>.</td>
+</tr>
+</tbody></table>
+<h2 id="what-you-learned">What You Learned</h2>
+<ul>
+<li>Starting a chain is one command: <code>/bead-chain</code>.</li>
+<li>The chain follows a steady cycle — claim, drive, judge, close — for every task in your queue.</li>
+<li>You see clear status messages at every stage: startup, claiming, closing, and stopping.</li>
+<li>The agent does the work; independent judges decide when it's done.</li>
+<li>Pressing Ctrl+C stops the chain cleanly and leaves the current task ready for recovery on the next run.</li>
+<li>The chain handles its own task management — you don't need to pick, assign, or close anything manually.</li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p>You've run your first chain — now explore what else bead-chain can do:</p>
+<ul>
+<li><a href="../Guides/RunACappedSession.html">How to Run a Capped Session</a> — limit how many tasks process in one run with <code>--max=N</code>, for predictable, bounded progress.</li>
+<li><a href="../Tutorials/AutomateASprintBacklog.html">Tutorial: Automate a Sprint Backlog</a> — a full end-to-end walkthrough: set up a batch of tasks, run the chain, interrupt and recover, and watch the parent epic close itself.</li>
+<li><a href="../Guides/ResumeAfterInterruption.html">How to Resume After an Interruption</a> — a deeper look at what happens when things get cut short.</li>
+<li><a href="../Guides/HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a> — what the agent does when it finds an unrelated bug mid-task.</li>
+<li><a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> — understand the claim → drive → judge → close engine under the hood.</li>
+<li><a href="../Concepts/RecoveryMode.html">Recovery Mode</a> — how interrupted work is detected, recovered, and resumed.</li>
+<li><a href="../Concepts/TheCloseGuard.html">The Close Guard</a> — how the separation of "doer" and "evaluator" is enforced.</li>
+<li><a href="../Reference/Commands.html">Commands Reference</a> — every command and option at a glance.</li>
+<li><a href="../Reference/StatusMessages.html">Status Messages</a> — what every emoji-prefixed message means and what to do when you see it.</li>
+<li><a href="../Reference/Configuration.html">Configuration</a> — environment variables and built-in defaults.</li>
+<li><a href="../Overview.html">Overview</a> — what bead-chain is, who it's for, and its key features.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Getting Started</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

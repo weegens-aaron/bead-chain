@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quick Start: Install bead-chain — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="../Concepts/RecoveryMode.html">Recovery Mode</a>
+<a href="../Concepts/TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="index.html">Index</a>
+<a href="Installation.html" class="active">Installation</a>
+<a href="RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="../Guides/index.html">Index</a>
+<a href="../Guides/HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="../Guides/ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="../Guides/RunACappedSession.html">Run ACapped Session</a>
+<a href="../Guides/UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="../Reference/index.html">Index</a>
+<a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="../Reference/Commands.html">Commands</a>
+<a href="../Reference/Configuration.html">Configuration</a>
+<a href="../Reference/StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="quick-start-install-bead-chain">Quick Start: Install bead-chain</h1>
+<h2 id="what-you-ll-achieve">What You'll Achieve</h2>
+<p>A working bead-chain installation — the plugin downloaded, placed in the right directory, and ready to run its first chain.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><strong>Code Puppy</strong> (or wiggum) with <code>/goal</code> mode available. bead-chain delegates AI-judged work to this mode, so it must be installed and working before you add the plugin.</li>
+<li>**beads (<code>bd</code>)** installed and on your PATH. bead-chain drives the beads issue tracker — without <code>bd</code>, there's nothing to chain. If your <code>bd</code> binary lives somewhere non-standard, you can point bead-chain at it via the <code>BEADS_BIN</code> environment variable (see <a href="../Reference/Configuration.html">Configuration</a>).</li>
+</ul>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>Not sure whether you have the prerequisites? Open a terminal and run <code>bd ready</code>. If you see a task list (even an empty one), you're good to go. If the command isn't found, install beads first.</p></div>
+<h2 id="step-1-download-and-install-the-plugin">Step 1: Download and Install the Plugin</h2>
+<p>Pick the method that matches your platform. All three do the same thing: download the latest release zip and extract the <code>bead_chain/</code> folder into your Code Puppy plugins directory.</p>
+<pre class="mermaid">
+flowchart TD
+    START(["Pick your platform"]) --&gt; MAC{"macOS / Linux?"}
+    MAC -- Yes --&gt; CURL["Run the one-liner\nin your terminal"]
+    MAC -- No --&gt; WIN{"Windows?"}
+    WIN -- Yes --&gt; PS["Run the one-liner\nin PowerShell"]
+    WIN -- No --&gt; MANUAL["Download the zip\nfrom the Releases page"]
+    CURL --&gt; RESTART["Restart Code Puppy"]
+    PS --&gt; RESTART
+    MANUAL --&gt; EXTRACT["Extract bead_chain/\ninto your plugins directory"]
+    EXTRACT --&gt; RESTART
+    RESTART --&gt; DONE([" /bead-chain\nis available"])
+</pre>
+<h3 id="option-a-macos-linux">Option A: macOS / Linux</h3>
+<p>Open your terminal and run:</p>
+<pre><code class="language-bash">curl -fsSL https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip \
+  -o /tmp/bead-chain.zip \
+  &amp;&amp; unzip -o /tmp/bead-chain.zip -d ~/.code_puppy/plugins/</code></pre>
+<p><strong>What you should see:</strong> The zip downloads silently (<code>-fsSL</code> suppresses progress bars), then <code>unzip</code> lists the extracted files. No errors, no prompts.</p>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>The plugins directory is <code>~/.code_puppy/plugins/</code>. If the directory doesn't exist yet, the <code>unzip</code> command creates it automatically.</p></div>
+<h3 id="option-b-windows-powershell">Option B: Windows (PowerShell)</h3>
+<p>Open PowerShell and run:</p>
+<pre><code class="language-powershell">Invoke-WebRequest `
+  -Uri https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip `
+  -OutFile $env:TEMP\bead-chain.zip
+Expand-Archive -Force $env:TEMP\bead-chain.zip `
+  -DestinationPath ~\.code_puppy\plugins\</code></pre>
+<p><strong>What you should see:</strong> A progress bar while the zip downloads, then silent extraction. No errors.</p>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>The plugins directory is <code>~\.code_puppy\plugins\</code> (i.e. <code>%USERPROFILE%\.code_puppy\plugins\</code>). The <code>-Force</code> flag overwrites any existing installation, making this safe to run on a fresh machine or as an upgrade.</p></div>
+<h3 id="option-c-manual-download-any-platform">Option C: Manual Download (Any Platform)</h3>
+<p>Prefer the browser? No command line required.</p>
+<ol>
+<li>Go to the <a href="https://github.com/weegens-aaron/bead-chain/releases/latest">Releases page</a>.</li>
+<li>Download <strong>bead-chain.zip</strong> from the latest release's assets.</li>
+<li>Extract the zip so that the <code>bead_chain/</code> folder lands directly inside your plugins directory: - macOS / Linux: <code>~/.code_puppy/plugins/bead_chain/</code> - Windows: <code>~\.code_puppy\plugins\bead_chain\</code></li>
+</ol>
+<p><strong>What you should see:</strong> A <code>bead_chain/</code> folder inside your plugins directory containing the plugin files.</p>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>The zip contains a single top-level <code>bead_chain/</code> folder. Extract it directly — don't nest it. The correct result is <code>…/plugins/bead_chain/</code>, <strong>not</strong> <code>…/plugins/bead-chain/bead_chain/</code>.</p></div>
+<h2 id="step-2-restart-code-puppy">Step 2: Restart Code Puppy</h2>
+<p>Code Puppy loads plugins at startup. After extracting the files, <strong>restart Code Puppy</strong> so it picks up the new plugin.</p>
+<p><strong>What you should see:</strong> Code Puppy starts normally. No errors about the plugin directory, no missing-dependency warnings.</p>
+<h2 id="step-3-verify-the-installation">Step 3: Verify the Installation</h2>
+<p>Type <code>/bead-chain</code> in Code Puppy.</p>
+<ul>
+<li><strong>If you have ready tasks:</strong> The chain starts claiming and working them. Press <strong>Ctrl+C</strong> to stop it for now — you'll do a proper run in the next guide.</li>
+<li><strong>If your queue is empty:</strong> You'll see a message that there's nothing to work. That's fine — the plugin is installed and responding.</li>
+</ul>
+<p><strong>What you should see:</strong> bead-chain either starts processing tasks or reports an empty queue. Either way, the <code>/bead-chain</code> command is recognised and running.</p>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>If <code>/bead-chain</code> isn't recognised, double-check that the <code>bead_chain/</code> folder is directly inside <code>~/.code_puppy/plugins/</code> (not nested in a subfolder), and that you restarted Code Puppy after extracting.</p></div>
+<h2 id="common-issues">Common Issues</h2>
+<table><thead><tr>
+<th>Symptom</th>
+<th>What to do</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/bead-chain</code> isn't recognised after installing</td>
+<td>Restart Code Puppy. It only loads plugins at startup.</td>
+</tr>
+<tr>
+<td><code>curl</code> or <code>Invoke-WebRequest</code> fails with a network error</td>
+<td>The download URL points to GitHub Releases. If your network blocks GitHub, download the zip manually from a machine with access (Option C) and transfer it to your plugins directory.</td>
+</tr>
+<tr>
+<td><code>unzip</code> says the directory doesn't exist</td>
+<td>The plugins directory (<code>~/.code_puppy/plugins/</code>) should be created automatically. If it isn't, create it manually: <code>mkdir -p ~/.code_puppy/plugins/</code> (macOS / Linux) or <code>New-Item -ItemType Directory -Force ~\.code_puppy\plugins\</code> (PowerShell).</td>
+</tr>
+<tr>
+<td><code>bd ready</code> returns "command not found"</td>
+<td>beads (<code>bd</code>) isn't installed or isn't on your PATH. Install beads first, then come back to install bead-chain.</td>
+</tr>
+<tr>
+<td>The plugin installs but <code>/bead-chain</code> errors out</td>
+<td>Make sure both Code Puppy and <code>bd</code> meet the prerequisites. bead-chain needs <code>/goal</code> mode and a working beads installation.</td>
+</tr>
+<tr>
+<td>You see a nested <code>bead-chain/bead_chain/</code> folder</td>
+<td>You extracted the zip one level too deep. Move the inner <code>bead_chain/</code> folder up so it sits directly inside <code>plugins/</code>, then delete the empty outer folder.</td>
+</tr>
+</tbody></table>
+<h2 id="what-you-learned">What You Learned</h2>
+<ul>
+<li>bead-chain is a single-directory plugin — no package manager, no registry, no background service. Just files in a folder.</li>
+<li>Installation is a three-step process: download, extract to the plugins directory, restart Code Puppy.</li>
+<li>The install URL always points to the latest release — you never need to edit version numbers.</li>
+<li>bead-chain requires Code Puppy with <code>/goal</code> mode and <code>bd</code> on your PATH.</li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p>You're installed — now put it to work:</p>
+<ul>
+<li><a href="RunYourFirstChain.html">Run Your First Chain</a> — go from zero to watching tasks close themselves.</li>
+<li><a href="../Tutorials/AutomateASprintBacklog.html">Tutorial: Automate a Sprint Backlog</a> — a full end-to-end walkthrough: set up tasks, run the chain, interrupt and recover, and watch the parent epic close itself.</li>
+<li><a href="../Guides/UpgradeOrUninstall.html">How to Upgrade or Uninstall bead-chain</a> — keep the plugin current or remove it cleanly. Upgrading is just re-running the same install command.</li>
+<li><a href="../Reference/Commands.html">Commands Reference</a> — every command and option at a glance.</li>
+<li><a href="../Overview.html">Overview</a> — what bead-chain is, its key features, and requirements.</li>
+<li><a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> — understand the claim → drive → judge → close loop that powers bead-chain.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Getting Started</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commands Reference — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="../Concepts/RecoveryMode.html">Recovery Mode</a>
+<a href="../Concepts/TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="../GettingStarted/index.html">Index</a>
+<a href="../GettingStarted/Installation.html">Installation</a>
+<a href="../GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="../Guides/index.html">Index</a>
+<a href="../Guides/HandleBugsDuringWork.html">Handle Bugs During Work</a>
+<a href="../Guides/ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="../Guides/RunACappedSession.html">Run ACapped Session</a>
+<a href="../Guides/UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="index.html">Index</a>
+<a href="BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="Commands.html" class="active">Commands</a>
+<a href="Configuration.html">Configuration</a>
+<a href="StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="commands-reference">Commands Reference</h1>
+<h2 id="overview">Overview</h2>
+<p>bead-chain has exactly one command you type — <code>/bead-chain</code> — plus one keyboard shortcut — Ctrl+C. Everything else happens automatically inside the chain. Outside a running chain, two <code>bd</code> commands are useful for checking what the chain did or will do next.</p>
+<p>This page is a quick-lookup table for every command, option, and control you interact with. For what the chain does internally once you start it, see <a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>.</p>
+<hr>
+<h2 id="starting-a-chain">Starting a Chain</h2>
+<table><thead><tr>
+<th>What you type</th>
+<th>What happens</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/bead-chain</code></td>
+<td>Start the chain with no limit. It claims the next ready task, hands it to the AI work loop, waits for the judges to sign off, closes it, and grabs the next one — repeating until the queue is empty.</td>
+</tr>
+<tr>
+<td><code>/bead-chain --max=N</code></td>
+<td>Start the chain but stop after closing <strong>N</strong> tasks. The chain runs the same claim→drive→judge→close cycle, but halts cleanly once the completed count reaches <strong>N</strong>.</td>
+</tr>
+</tbody></table>
+<h3 id="the-max-option">The <code>--max</code> Option</h3>
+<p>The <code>--max</code> flag accepts a positive integer and caps how many tasks the chain will close in a single run. It's useful when you want predictable, bounded sessions — process a few tasks, review the results, then decide whether to keep going.</p>
+<table><thead><tr>
+<th>Syntax</th>
+<th>Example</th>
+<th>Meaning</th>
+</tr></thead><tbody>
+<tr>
+<td><code>--max=N</code></td>
+<td><code>/bead-chain --max=5</code></td>
+<td>Stop after closing 5 tasks.</td>
+</tr>
+<tr>
+<td><code>--max N</code></td>
+<td><code>/bead-chain --max 3</code></td>
+<td>Same thing — the space-separated form works too.</td>
+</tr>
+</tbody></table>
+<p><strong>What counts toward the cap:</strong> Only successfully closed tasks (judge-approved) count. Recovery assessments that confirm a task is already complete count as a close. Tasks that are skipped (blocked, excluded type) do not count.</p>
+<p><strong>What happens when the cap is reached:</strong> The chain stops cleanly — the just-completed task is closed, the total is reported, and you're back in control. No task is left half-done.</p>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>The value must be a positive integer. Zero, negative numbers, and non-numeric values are rejected and the chain refuses to start. You'll see a message like: <strong>"--max requires a positive integer."</strong></p></div>
+<hr>
+<h2 id="stopping-a-chain">Stopping a Chain</h2>
+<table><thead><tr>
+<th>Control</th>
+<th>What happens</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Ctrl+C</strong></td>
+<td>Halt the chain immediately. The current task stays marked as in-progress on purpose — it's a breadcrumb for the next run.</td>
+</tr>
+<tr>
+<td>**<code>--max</code> cap reached**</td>
+<td>The chain stops automatically once the specified number of tasks have been closed.</td>
+</tr>
+<tr>
+<td><strong>Queue empty</strong></td>
+<td>The chain stops on its own when there are no more ready tasks.</td>
+</tr>
+</tbody></table>
+<h3 id="what-happens-after-ctrl-c">What Happens After Ctrl+C</h3>
+<p>When you press Ctrl+C mid-chain:</p>
+<ol>
+<li>The chain stops — no new tasks are claimed.</li>
+<li>The task the agent was working on stays <strong>in-progress</strong>. Any changes already made (code written, files modified) remain in the repository exactly as they were.</li>
+<li>You see a bookmark message confirming the task ID and that the next run will resume it (see <a href="StatusMessages.html">Status Messages</a> for the full message catalog).</li>
+<li>The next time you run <code>/bead-chain</code>, the chain detects the stranded task and enters <a href="../Concepts/RecoveryMode.html">Recovery Mode</a> — the agent assesses what's already been done before continuing.</li>
+</ol>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>Don't manually reset a stranded task's status to open after pressing Ctrl+C. That erases the recovery signal and the agent won't know to check what's already done. Let recovery handle it naturally.</p></div>
+<h3 id="the-ctrl-c-recovery-flow">The Ctrl+C Recovery Flow</h3>
+<pre class="mermaid">
+flowchart TD
+    RUN(["Chain is running"]) --&gt; CTRLC{{"You press Ctrl+C"}}
+    CTRLC --&gt; HALT["Chain stops\nTask stays in-progress\nPartial work preserved"]
+    HALT -.-&gt;|"Later…"| RESTART(["/bead-chain"])
+    RESTART --&gt; DETECT{"Stranded task\nfound?"}
+    DETECT -- Yes --&gt; RECOVER["Recovery Mode\nAgent assesses current state\nbefore continuing"]
+    DETECT -- No --&gt; READY["Normal operation\nPick from ready queue"]
+    RECOVER --&gt; JUDGE["Judges evaluate\nthe result"]
+    JUDGE --&gt; CLOSE["Task closes normally\nChain continues"]
+
+    style RUN fill:#0071dc,color:#fff
+    style CTRLC fill:#e03131,color:#fff
+    style HALT fill:#ffc220,color:#000
+    style RESTART fill:#0071dc,color:#fff
+    style CLOSE fill:#2e7d32,color:#fff
+</pre>
+<hr>
+<h2 id="checking-the-queue">Checking the Queue</h2>
+<p>These <code>bd</code> commands aren't part of bead-chain itself, but they're the ones you'll reach for most often when inspecting what the chain is doing or planning to do.</p>
+<table><thead><tr>
+<th>Command</th>
+<th>What it shows</th>
+<th>When to use it</th>
+</tr></thead><tbody>
+<tr>
+<td><code>bd ready</code></td>
+<td>The list of tasks available for the chain to pick up next, in priority order.</td>
+<td>Before starting a chain — to preview the work. After a chain finishes — to see what's left.</td>
+</tr>
+<tr>
+<td><code>bd list --status=in_progress</code></td>
+<td>Any tasks currently marked as in-progress. During a chain, this is the task being worked. After a Ctrl+C, this is the stranded task that recovery will resume.</td>
+<td>To check whether a previous run left unfinished work. To confirm the chain is working the task you expect.</td>
+</tr>
+</tbody></table>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Predict the next pick.</strong> The chain follows a strict <a href="BeadSelectionOrder.html">four-tier priority waterfall</a>: stranded in-progress tasks first, then blocking bugs, then epic siblings, then whatever <code>bd ready</code> shows. Check <code>bd list --status=in_progress</code> before <code>bd ready</code> to see the chain's actual next move.</p></div>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>These commands work whether or not a chain is running. They're standard <code>bd</code> commands — bead-chain just happens to be the most common reason you'd use them.</p></div>
+<hr>
+<h2 id="command-summary">Command Summary</h2>
+<table><thead><tr>
+<th>Command / Control</th>
+<th>Purpose</th>
+<th>Stops the chain?</th>
+</tr></thead><tbody>
+<tr>
+<td><code>/bead-chain</code></td>
+<td>Start an unlimited chain run</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>/bead-chain --max=N</code></td>
+<td>Start a capped chain run</td>
+<td>After N closes</td>
+</tr>
+<tr>
+<td>Ctrl+C</td>
+<td>Halt immediately, preserve current task for recovery</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>bd ready</code></td>
+<td>Preview the task queue</td>
+<td>No (read-only)</td>
+</tr>
+<tr>
+<td><code>bd list --status=in_progress</code></td>
+<td>Check for in-progress or stranded tasks</td>
+<td>No (read-only)</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="tips">Tips</h2>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Start simple.</strong> Your first run should be a plain <code>/bead-chain</code> with no flags. The defaults are sensible — it'll run until the queue is empty. Add <code>--max</code> later when you want bounded sessions.</p></div>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p><strong>Ctrl+C is safe.</strong> Pressing Ctrl+C doesn't lose work. The current task stays in-progress and partial changes stay on disk. The next <code>/bead-chain</code> run recovers it automatically. Use Ctrl+C freely — it's the designed way to stop a chain early.</p></div>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>**Use <code>--max=1</code> for a test drive.** Want to see what bead-chain does without committing to a long run? <code>/bead-chain --max=1</code> processes exactly one task and stops. Great for learning the flow or testing a new backlog.</p></div>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>**<code>bd ready</code> is your preview.** Before starting a chain, run <code>bd ready</code> to see what's in the queue. This is the same list the chain will draw from (after checking for recovery and blocking bugs first — see <a href="BeadSelectionOrder.html">Bead Selection Order</a>).</p></div>
+<hr>
+<h2 id="see-also">See Also</h2>
+<ul>
+<li><a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> — the claim→drive→judge→close cycle that <code>/bead-chain</code> kicks off.</li>
+<li><a href="../Concepts/RecoveryMode.html">Recovery Mode</a> — how interrupted runs (Ctrl+C, crashes) are detected and resumed automatically.</li>
+<li><a href="../Concepts/TheCloseGuard.html">The Close Guard</a> — the safety rail that prevents AI agents from closing tasks during a chain.</li>
+<li><a href="BeadSelectionOrder.html">Bead Selection Order</a> — the four-tier priority waterfall that decides which task the chain picks next.</li>
+<li><a href="Configuration.html">Configuration</a> — the <code>BEADS_BIN</code> environment variable, timeout/retry behavior, and excluded container types.</li>
+<li><a href="StatusMessages.html">Status Messages</a> — what every emoji-prefixed message means, including the startup, cap-reached, and recovery messages you'll see when using these commands.</li>
+<li><a href="../Guides/HandleBugsDuringWork.html">How to Handle Bugs Discovered During Work</a> — what happens when the agent finds an unrelated bug mid-task.</li>
+<li><a href="../Guides/RunACappedSession.html">How to Run a Capped Session</a> — step-by-step guide to using <code>--max=N</code> for bounded, predictable runs.</li>
+<li><a href="../Guides/ResumeAfterInterruption.html">How to Resume After an Interruption</a> — what to do when Ctrl+C or a crash stops a run mid-task; recovery handles the rest.</li>
+<li><a href="../GettingStarted/Installation.html">Installation</a> — download and set up the plugin.</li>
+<li><a href="../Overview.html">Overview</a> — bead-chain at a glance.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Reference</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

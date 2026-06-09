@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Handle Bugs Discovered During Work — bead-chain User Docs</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+<div class="sidebar-title">bead-chain User Docs</div>
+<nav>
+<div class="nav-section">Overview</div>
+<a href="../index.html">Index</a>
+<a href="../FAQ.html">FAQ</a>
+<a href="../Overview.html">Overview</a>
+<div class="nav-section">Concepts</div>
+<a href="../Concepts/index.html">Index</a>
+<a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>
+<a href="../Concepts/RecoveryMode.html">Recovery Mode</a>
+<a href="../Concepts/TheCloseGuard.html">The Close Guard</a>
+<div class="nav-section">GettingStarted</div>
+<a href="../GettingStarted/index.html">Index</a>
+<a href="../GettingStarted/Installation.html">Installation</a>
+<a href="../GettingStarted/RunYourFirstChain.html">Run Your First Chain</a>
+<div class="nav-section">Guides</div>
+<a href="index.html">Index</a>
+<a href="HandleBugsDuringWork.html" class="active">Handle Bugs During Work</a>
+<a href="ResumeAfterInterruption.html">Resume After Interruption</a>
+<a href="RunACappedSession.html">Run ACapped Session</a>
+<a href="UpgradeOrUninstall.html">Upgrade Or Uninstall</a>
+<div class="nav-section">Reference</div>
+<a href="../Reference/index.html">Index</a>
+<a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a>
+<a href="../Reference/Commands.html">Commands</a>
+<a href="../Reference/Configuration.html">Configuration</a>
+<a href="../Reference/StatusMessages.html">Status Messages</a>
+<div class="nav-section">Tutorials</div>
+<a href="../Tutorials/index.html">Index</a>
+<a href="../Tutorials/AutomateASprintBacklog.html">Automate ASprint Backlog</a>
+</nav>
+</aside>
+<main id="main" class="content">
+<h1 id="how-to-handle-bugs-discovered-during-work">How to Handle Bugs Discovered During Work</h1>
+<h2 id="what-you-ll-learn">What You'll Learn</h2>
+<p>How bead-chain handles the situation where an AI agent discovers an unrelated bug while working on a completely different task. You'll understand the two paths — non-blocking and blocking — and what you'll see in your terminal for each one. You'll also learn how filed bugs get picked up and verified in later chain iterations.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>bead-chain installed and working.</li>
+<li>A chain run started with <code>/bead-chain</code>.</li>
+<li>Familiarity with how the chaining loop works (see <a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a>).</li>
+</ul>
+<h2 id="overview">Overview</h2>
+<p>During a chain run, the AI agent is laser-focused on one task at a time. But code is messy — sometimes the agent stumbles across a bug that has nothing to do with the task it's working on. Maybe it's a broken utility function, a typo in a config, or an edge case that slipped through testing.</p>
+<p>bead-chain handles this with a built-in protocol that every task prompt includes automatically. The agent doesn't need to remember special rules or decide how to handle it from scratch — the protocol is right there in its instructions, every single iteration. The key principle: <strong>file first, then decide whether to fix inline or move on.</strong></p>
+<pre class="mermaid">
+flowchart TD
+    WORK(["Agent is working\non a task"]) --&gt; FIND{"Finds an\nunrelated bug"}
+    FIND --&gt; DECIDE{"Can this task's\nacceptance criteria\nbe met WITHOUT\nfixing the bug?"}
+    DECIDE -- "Yes → Non-blocking" --&gt; FILE_NB["File the bug\nas a new bead\n(priority 2)"]
+    FILE_NB --&gt; CONTINUE["Continue working\nthe original task"]
+    DECIDE -- "No → Blocking" --&gt; FILE_BL["File the bug\nwith a triage marker\n(priority 1, linked\nas blocker)"]
+    FILE_BL --&gt; FIX["Fix the bug inline\nas scope expansion"]
+    FIX --&gt; FINISH["Finish the original\ntask and summarize\nboth pieces of work"]
+    CONTINUE --&gt; DONE(["Task completes\nnormally"])
+    FINISH --&gt; DONE
+    FILE_NB -.-&gt;|"Later iteration"| PICKUP_NB["Bug enters the\nready queue"]
+    FILE_BL -.-&gt;|"Later iteration"| PICKUP_BL["Bug gets special\ntriage verification\nprompt"]
+</pre>
+<h2 id="step-1-recognise-what-s-happening">Step 1: Recognise What's Happening</h2>
+<p>During a chain run, you may notice the agent suddenly create a new bead mid-task using <code>bd create --type=bug</code>. This means the agent has spotted something wrong that isn't part of its current assignment.</p>
+<p><strong>What you'll see:</strong> A <code>bd create</code> command in the agent's output, creating a bug-type bead with a short title and description of the issue. The agent does this immediately upon discovery — it doesn't wait until the end of the task.</p>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>Every task the agent works on includes the bug discovery protocol in its prompt. The agent doesn't have to recall these rules from memory — they're right there every time. This costs a few extra tokens per task, but it guarantees consistent behavior across the entire chain.</p></div>
+<h2 id="step-2-understand-the-blocking-decision">Step 2: Understand the Blocking Decision</h2>
+<p>The agent makes a judgment call for each bug it finds: <strong>can it finish the current task's acceptance criteria without fixing this bug?</strong></p>
+<table><thead><tr>
+<th>If the answer is…</th>
+<th>The bug is…</th>
+<th>What the agent does</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Yes</strong> — the current task can be completed regardless</td>
+<td><strong>Non-blocking</strong></td>
+<td>Files the bug and moves on. The original task continues uninterrupted.</td>
+</tr>
+<tr>
+<td><strong>No</strong> — the current task cannot pass its acceptance criteria without a fix</td>
+<td><strong>Blocking</strong></td>
+<td>Files the bug with a special triage marker, fixes it inline, and reports both the original work and the fix.</td>
+</tr>
+</tbody></table>
+<div class="callout callout-important"><div class="callout-title">IMPORTANT</div><p>"Blocking" is defined relative to <strong>this task's acceptance criteria</strong>, not in the abstract. A serious bug that doesn't affect the current task is still non-blocking in this context. The question is always: "Can I finish what I was asked to do?"</p></div>
+<h2 id="step-3-follow-the-non-blocking-path">Step 3: Follow the Non-Blocking Path</h2>
+<p>When the bug doesn't prevent the current task from completing:</p>
+<ol>
+<li>The agent files a new bug bead with a description of what it found, steps to reproduce, and a suspected cause.</li>
+<li>The bug is filed at priority 2.</li>
+<li>The agent immediately returns to its original task and finishes it as if nothing happened.</li>
+</ol>
+<p><strong>What you'll see:</strong> A brief <code>bd create</code> command creating the bug bead, followed by the agent continuing its normal work. The chain doesn't pause, restart, or change course. The current task completes and is judged normally.</p>
+<p><strong>What happens to the bug later:</strong> The filed bug enters the ready queue like any other work item. If another task depends on it, it gets <a href="../Reference/BeadSelectionOrder.html#tier-1--blocking-bugs">tier 1 priority</a> and jumps to the front of the line in a future iteration. If nothing depends on it, it waits its turn in the <a href="../Reference/BeadSelectionOrder.html#tier-3--global-ready-queue">global queue</a>.</p>
+<div class="callout callout-tip"><div class="callout-title">TIP</div><p>You don't need to do anything when you see a non-blocking bug get filed. The chain handles everything — the bug is recorded, the current task finishes, and a future iteration picks it up automatically.</p></div>
+<h2 id="step-4-follow-the-blocking-path">Step 4: Follow the Blocking Path</h2>
+<p>When the bug prevents the current task from meeting its acceptance criteria:</p>
+<ol>
+<li>The agent files a new bug bead, but this time with two differences: - It includes a <strong>triage marker</strong> (<code>[bead-chain:triaged]</code>) in the description, which tells future iterations that this bug was already spotted and inline-fixed. - It links the bug as a <strong>blocker</strong> of the current task, making the dependency relationship explicit.</li>
+<li>The bug is filed at priority 1.</li>
+<li>The agent fixes the bug <strong>right there</strong>, as part of the current task's work. This is called <strong>scope expansion</strong> — the task's scope grows to include both the original goal and the bug fix.</li>
+<li>The agent finishes the original task and presents both pieces of work in its summary so the judges can evaluate the full scope.</li>
+</ol>
+<p><strong>What you'll see:</strong> The <code>bd create</code> command (with the triage marker and <code>--blocks</code> flag visible), followed by the agent fixing the bug, then completing the original task, then a combined summary covering both the fix and the original deliverable.</p>
+<div class="callout callout-warning"><div class="callout-title">WARNING</div><p>The filed bug bead stays <strong>open</strong> even after the agent fixes it inline. This is intentional. The inline fix was done under time pressure as scope expansion — it needs proper verification. A future chain iteration will pick up the bug bead and verify the fix with a dedicated triage-verification prompt.</p></div>
+<h2 id="step-5-watch-the-triage-verification-later">Step 5: Watch the Triage Verification (Later)</h2>
+<p>When a future <code>/bead-chain</code> run claims a bug that carries the triage marker, something special happens. Instead of the normal task prompt, the agent receives a <strong>triage verification</strong> preamble that tells it:</p>
+<ol>
+<li>This bug was discovered and inline-fixed by a previous task's agent.</li>
+<li>The agent should check what the prior fix actually did.</li>
+<li>The agent needs to decide one of three things:</li>
+</ol>
+<table><thead><tr>
+<th>Scenario</th>
+<th>What the agent does</th>
+</tr></thead><tbody>
+<tr>
+<td>The inline fix is correct and complete</td>
+<td>Adds or verifies tests, then summarizes for the judges. The bead closes normally.</td>
+</tr>
+<tr>
+<td>The inline fix is a band-aid — a proper fix is needed</td>
+<td>Implements the proper fix and summarizes the upgrade.</td>
+</tr>
+<tr>
+<td>The fix was backed out or never landed</td>
+<td>Implements the fix from scratch as ordinary work.</td>
+</tr>
+</tbody></table>
+<p><strong>What you'll see:</strong> The agent reading the bug description, checking recent changes (via the commit history), and then either confirming the fix, upgrading it, or doing it fresh. The triage marker is a breadcrumb, not a guarantee — the agent doesn't assume the fix is good just because the marker is present.</p>
+<div class="callout callout-note"><div class="callout-title">NOTE</div><p>If a triaged bug also happens to be stranded in-progress (the verifying agent crashed mid-work), the recovery prompt takes precedence over the triage verification prompt. "Assess current state" naturally subsumes "verify a prior fix." See <a href="../Concepts/RecoveryMode.html">Recovery Mode</a>.</p></div>
+<h2 id="step-6-multiple-bugs-one-per-bead">Step 6: Multiple Bugs — One Per Bead</h2>
+<p>If the agent discovers more than one unrelated bug during a single task, it files each one as a <strong>separate bead</strong>. One bug, one bead — always. This keeps each issue trackable, independently claimable, and separately verifiable.</p>
+<p><strong>What you'll see:</strong> Multiple <code>bd create --type=bug</code> commands during a single task, each with its own title and description. Each bug follows the same blocking/non-blocking decision independently.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<table><thead><tr>
+<th>Problem</th>
+<th>Fix</th>
+</tr></thead><tbody>
+<tr>
+<td>The agent filed a bug but didn't continue working the original task</td>
+<td>This shouldn't happen — the protocol tells the agent to keep working after filing a non-blocking bug. If it does, the task likely ended for another reason (timeout, error). Check the chain's status messages.</td>
+</tr>
+<tr>
+<td>A blocking bug was filed but the agent didn't fix it inline</td>
+<td>The agent may have misjudged the blocking/non-blocking boundary. The bug is still filed and tracked — a future iteration will pick it up. The current task's judges will flag any gaps in their verdict.</td>
+</tr>
+<tr>
+<td>The triage verification accepted a bad fix</td>
+<td>The triage verification prompt is thorough — it tells the agent to check, not assume. If a bad fix does slip through, the judges provide the safety net. Report persistent quality issues as a new bug.</td>
+</tr>
+<tr>
+<td>A filed bug never gets picked up</td>
+<td>Check that the bug bead is in the ready queue (<code>bd ready</code>). If it has unresolved blockers of its own, it won't appear until those are cleared. If it's ready but low priority, it will be reached when higher-priority work drains.</td>
+</tr>
+<tr>
+<td>The agent keeps finding the same bug on every task</td>
+<td>The bug is likely non-blocking each time, so it gets filed but never rises high enough in the queue to be worked. Consider manually claiming and fixing it, or adjusting its priority so the chain picks it up sooner.</td>
+</tr>
+</tbody></table>
+<h2 id="related-guides">Related Guides</h2>
+<ul>
+<li><a href="../Concepts/HowBeadChainingWorks.html">How Bead Chaining Works</a> — the claim→drive→judge→close loop where bug discovery happens during the "drive" phase.</li>
+<li><a href="../Reference/BeadSelectionOrder.html">Bead Selection Order</a> — how filed bugs get prioritised in future iterations, especially the <a href="../Reference/BeadSelectionOrder.html#tier-1--blocking-bugs">tier 1 blocking-bug fast lane</a>.</li>
+<li><a href="../Concepts/RecoveryMode.html">Recovery Mode</a> — what happens when a triaged bug is also stranded in-progress (recovery wins).</li>
+<li><a href="../Concepts/TheCloseGuard.html">The Close Guard</a> — why the agent can't close the bug bead itself; only the judges can.</li>
+<li><a href="../Tutorials/AutomateASprintBacklog.html">Tutorial: Automate a Sprint Backlog</a> — a full walkthrough of a chain run that shows how tasks flow from start to finish.</li>
+<li><a href="../Reference/StatusMessages.html">Status Messages</a> — what every emoji-prefixed message means, including messages related to bug filing and triage.</li>
+<li><a href="../Reference/Configuration.html">Configuration</a> — environment variables and defaults that affect chain behavior.</li>
+<li><a href="ResumeAfterInterruption.html">How to Resume After an Interruption</a> — what to do when a run is cut short; recovery works identically whether a task is fresh or has a triaged bug attached.</li>
+<li><a href="../Overview.html">Overview</a> — bead-chain at a glance, including the bug discovery protocol as one of the features the chain automates.</li>
+<li><a href="../Reference/Commands.html">Commands Reference</a> — every command and option at a glance, including the <code>/bead-chain</code> command under which bug discovery occurs.</li>
+<li><a href="RunACappedSession.html">How to Run a Capped Session</a> — using <code>--max=N</code> for bounded runs; the bug protocol works identically whether or not a cap is set.</li>
+<li><a href="UpgradeOrUninstall.html">How to Upgrade or Uninstall bead-chain</a> — keeping the plugin current; upgrading preserves filed bug beads since they live in the repository, not the plugin directory.</li>
+</ul>
+<hr>
+<p><a href="index.html">← Back to Guides</a> · <a href="../index.html">← Back to User Docs</a></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad: true, theme: 'neutral'});</script>
+</body>
+</html>

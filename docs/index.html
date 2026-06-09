@@ -4,25 +4,54 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>bead-chain Documentation</title>
-<link rel="stylesheet" href="maintainer/style.css">
+<link rel="stylesheet" href="user/style.css">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <main id="main" class="content" style="max-width:880px;margin:0 auto;padding:3rem 1.5rem;">
 <h1 id="bead-chain-documentation">bead-chain Documentation</h1>
 
-<p>Static documentation site for <strong>bead-chain</strong> — the Code Puppy
+<p>Static documentation site for <strong>bead-chain</strong> &mdash; the Code Puppy
 plugin that drives your <code>bd ready</code> queue through wiggum's
 <code>/goal</code> mode one bead at a time. Built from the FlowDoc markdown
 sources with the <code>md-to-html</code> skill.</p>
 
 <div class="exec-grid">
+  <div class="box-green">
+    <strong>&#128214; User Docs</strong>
+    <p>Getting started, guides, tutorials, and reference for anyone
+    <em>using</em> bead-chain to automate their issue queue.</p>
+  </div>
   <div class="box-blue">
     <strong>&#128296; Maintainer FlowDoc</strong>
     <p>Deep architectural docs for people who hack on bead-chain itself:
     Features, Flows, and Concepts with mermaid diagrams and impl maps.</p>
   </div>
 </div>
+
+<h2 id="user-site">User Docs site</h2>
+
+<p>The user site is for anyone running <code>/bead-chain</code>. It covers
+installation, daily workflows, and the complete reference.</p>
+
+<ul>
+  <li><a href="user/index.html"><strong>User site home</strong></a>
+  &mdash; the full user docs index with site-wide navigation.</li>
+  <li><a href="user/Overview.html">Overview</a>
+  &mdash; what bead-chain is, who it's for, and key features.</li>
+  <li><a href="user/GettingStarted/index.html">Getting Started</a>
+  &mdash; installation and your first chain run.</li>
+  <li><a href="user/Guides/index.html">Guides</a>
+  &mdash; capped sessions, bug handling, interruptions, upgrades.</li>
+  <li><a href="user/Reference/index.html">Reference</a>
+  &mdash; commands, configuration, status messages, selection order.</li>
+  <li><a href="user/Tutorials/index.html">Tutorials</a>
+  &mdash; end-to-end walkthroughs (sprint backlog automation).</li>
+  <li><a href="user/Concepts/index.html">Concepts</a>
+  &mdash; how chaining works, recovery mode, the close guard.</li>
+  <li><a href="user/FAQ.html">FAQ</a>
+  &mdash; frequently asked questions.</li>
+</ul>
 
 <h2 id="maintainer-site">Maintainer FlowDoc site</h2>
 
@@ -50,7 +79,8 @@ runs end to end. Start at the site index, or jump straight to a section:</p>
 <div class="callout callout-note">
 <div class="callout-title">NOTE</div>
 <p>This site is generated output. Edit the markdown under
-<code>__docs/</code> and rebuild &mdash; do not hand-edit the HTML.</p>
+<code>_docs/</code> (user) or <code>__docs/</code> (maintainer) and
+rebuild &mdash; do not hand-edit the HTML.</p>
 </div>
 
 </main>
