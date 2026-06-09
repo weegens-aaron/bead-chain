@@ -8,21 +8,45 @@ Claim → `/goal` → close → repeat — until the queue is empty or you hit C
 
 ## Install
 
-One line — copy, paste, run:
+Pick your platform — one line, copy, paste, run. Then **restart code_puppy** and the `/bead-chain` command is available.
+
+### macOS / Linux (bash/zsh)
 
 ```bash
 curl -fsSL https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip -o /tmp/bead-chain.zip && unzip -o /tmp/bead-chain.zip -d ~/.code_puppy/plugins/
 ```
 
-Then **restart code_puppy** and the `/bead-chain` command is available.
+Plugins live at `~/.code_puppy/plugins/`.
 
-| Action | How |
-|--------|-----|
-| **Install** | Run the line above, then restart code_puppy. |
-| **Upgrade** | Re-run the exact same line — it always pulls the latest release. |
-| **Uninstall** | `rm -rf ~/.code_puppy/plugins/bead_chain` |
+### Windows (PowerShell)
 
-The URL points at `/releases/latest/download/bead-chain.zip` — a stable asset name on the latest release — so it never needs editing for new versions.
+```powershell
+Invoke-WebRequest -Uri https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip -OutFile $env:TEMP\bead-chain.zip; Expand-Archive -Force $env:TEMP\bead-chain.zip -DestinationPath ~\.code_puppy\plugins\
+```
+
+Plugins live at `~\.code_puppy\plugins\` (i.e. `%USERPROFILE%\.code_puppy\plugins\`).
+
+### Manual download (any platform, no CLI)
+
+Prefer the browser?
+
+1. Go to the [**Releases** page](https://github.com/weegens-aaron/bead-chain/releases/latest).
+2. Download **`bead-chain.zip`** from the latest release's assets.
+3. Extract it so that the `bead_chain/` folder lands directly inside your plugins directory:
+   - macOS / Linux: `~/.code_puppy/plugins/bead_chain/`
+   - Windows: `~\.code_puppy\plugins\bead_chain\`
+4. Restart code_puppy.
+
+The zip contains a single top-level `bead_chain/` folder, so every path above results in `…/plugins/bead_chain/…` — extract, don't nest.
+
+### Upgrade / Uninstall
+
+| Action | macOS / Linux | Windows (PowerShell) |
+|--------|---------------|----------------------|
+| **Upgrade** | Re-run the install line — it always pulls the latest release. | Re-run the install line — it always pulls the latest release. |
+| **Uninstall** | `rm -rf ~/.code_puppy/plugins/bead_chain` | `Remove-Item -Recurse -Force ~\.code_puppy\plugins\bead_chain` |
+
+Every command uses the stable `/releases/latest/download/bead-chain.zip` URL — a fixed asset name on the latest release — so nothing ever needs version-editing for new releases.
 
 ### Prerequisites
 
