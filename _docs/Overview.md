@@ -25,7 +25,8 @@ keeps the assembly line moving without manual intervention.
 - **Smart task ordering** — related tasks under the same epic stay together;
   blocking bugs jump to the front of the line.
 - **Safety guardrails** — AI agents cannot close tasks themselves; only the
-  independent LLM judges can sign off on completed work.
+  independent LLM judges can sign off on completed work. See
+  [The Close Guard](Concepts/TheCloseGuard.md).
 - **Automatic cleanup** — when all children of a parent epic finish, the epic
   closes itself at the end of the session.
 - **Iteration cap** — limit how many tasks get processed in a single run for
