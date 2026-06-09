@@ -197,14 +197,11 @@ def _is_html_block(line: str) -> bool:
 
 
 def _inline_format(text: str, rewrite_fn) -> str:
-    """Bold and italic, applied to text outside images/links/code spans.
+    """Escape plain text while preserving inline HTML tags.
 
-    Preserves inline HTML tags (e.g. <span class="badge">) by extracting
-    them before escaping, then reinserting after.
-
-    Note: image and link parsing is handled by ``convert_inline`` so that
-    code spans inside link text render correctly. ``rewrite_fn`` is kept in
-    the signature for forward compatibility but is currently unused here.
+    Inline HTML tags (e.g. ``<span class="badge">``) are stashed before
+    escaping, then restored. Bold and italic are handled later by
+    ``_apply_bold_italic`` after all inline tokens have been assembled.
     """
     del rewrite_fn  # signature kept for symmetry; not used at this layer
 
@@ -219,10 +216,28 @@ def _inline_format(text: str, rewrite_fn) -> str:
     t = _escape(t)
     for idx, tag in enumerate(tags):
         t = t.replace(f"\x00TAG{idx}\x00", tag)
+    return t
 
+
+def _apply_bold_italic(text: str) -> str:
+    """Apply bold/italic markdown to fully assembled inline HTML.
+
+    Stashes existing HTML tags before matching ``***``, ``**``, and ``*``
+    delimiters so that bold markers wrapping ``<code>`` (or any other
+    already-converted inline element) are matched correctly.
+    """
+    tags: list[str] = []
+
+    def _stash(m: re.Match) -> str:
+        tags.append(m.group(0))
+        return f"\x00BIT{len(tags) - 1}\x00"
+
+    t = re.sub(r"<[^>]+>", _stash, text)
     t = re.sub(r"\*\*\*(.+?)\*\*\*", r"<strong><em>\1</em></strong>", t)
     t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
     t = re.sub(r"\*(.+?)\*", r"<em>\1</em>", t)
+    for idx, tag in enumerate(tags):
+        t = t.replace(f"\x00BIT{idx}\x00", tag)
     return t
 
 
@@ -273,7 +288,7 @@ def convert_inline(text: str, rewrite_fn) -> str:
 
     if last < len(text):
         parts.append(_inline_format(text[last:], rewrite_fn))
-    return "".join(parts)
+    return _apply_bold_italic("".join(parts))
 
 
 # ── Post-build guard ─────────────────────────────────────────────────────────

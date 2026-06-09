@@ -183,8 +183,20 @@
       "bases:Create new base": false
     }
   },
-  "active": "7c253d31690a3c83",
+  "active": "944deaaa00cfc56a",
   "lastOpenFiles": [
+    "docs/user/Tutorials/index.html",
+    "docs/user/Tutorials/AutomateASprintBacklog.html",
+    "docs/user/Tutorials",
+    "docs/user/Reference/index.html",
+    "docs/user/Reference/StatusMessages.html",
+    "docs/user/Reference/Configuration.html",
+    "docs/user/Reference/Commands.html",
+    "docs/user/Reference/BeadSelectionOrder.html",
+    "docs/user/Reference",
+    "docs/user/Guides/index.html",
+    "docs/user/Guides/UpgradeOrUninstall.html",
+    "_docs/FAQ.md",
     "_docs/Guides/ResumeAfterInterruption.md",
     "_docs/GettingStarted/RunYourFirstChain.md",
     "_docs/Guides/RunACappedSession.md",
@@ -208,18 +220,6 @@
     "_docs/_Manifest.md",
     "_docs/_FlowDocGuide.md",
     "_docs/Overview.md",
-    "_docs/Tutorials",
-    "_docs/Reference",
-    "_docs/Guides",
-    "_docs/GettingStarted",
-    "_docs/Concepts",
-    "_docs",
-    "generic-judges.json",
-    "notes/spikes/formula-parent-field-investigation-eq8.md",
-    "notes/spikes",
-    "plan.json",
-    "dist/bead-chain-v0.1.0.zip",
-    "staging/bead_chain/README.md",
-    "notes/decisions/0002-release-allowlist.md"
+    "notes/spikes/formula-parent-field-investigation-eq8.md"
   ]
 }

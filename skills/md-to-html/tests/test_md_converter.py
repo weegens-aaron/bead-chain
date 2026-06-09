@@ -311,5 +311,74 @@ class TestHeadingFragmentConsistency:
         assert "#excluded-container-types" in body
 
 
+# ── Bold adjacent to code spans (bead_chain-94u) ────────────────────────────
+# When ** delimiters wrap inline <code>, the bold regex used to fail because
+# the tokenizer split the text at code-span boundaries, leaving the **
+# in separate fragments that couldn't match the bold pattern.
+
+
+class TestBoldAdjacentToCode:
+    """Regression tests for bold markdown (**) adjacent to <code> tags."""
+
+    def test_bold_wrapping_code_span(self):
+        md = "**`some_thing`**\n"
+        body = _convert(md, known_pages=set())
+        assert "<strong><code>some_thing</code></strong>" in body
+        assert "**" not in body
+
+    def test_bold_with_embedded_code_span(self):
+        md = "**text with `inline` code**\n"
+        body = _convert(md, known_pages=set())
+        assert "<strong>text with <code>inline</code> code</strong>" in body
+        assert "**" not in body
+
+    def test_multiple_bold_code_combos(self):
+        md = "**`code1`** and **`code2`**\n"
+        body = _convert(md, known_pages=set())
+        assert "<strong><code>code1</code></strong>" in body
+        assert "<strong><code>code2</code></strong>" in body
+        assert "**" not in body
+
+    def test_bold_code_in_heading(self):
+        md = "## Using **`my_func`** in code\n"
+        body = _convert(md, known_pages=set())
+        assert "<strong><code>my_func</code></strong>" in body
+        assert "**" not in body
+
+    def test_bold_code_in_list(self):
+        md = "- Set **`enabled`** to true\n"
+        body = _convert(md, known_pages=set())
+        assert "<strong><code>enabled</code></strong>" in body
+        assert "**" not in body
+
+    def test_bold_code_in_table(self):
+        md = "| **`key`** | value |\n|---|---|\n| a | b |\n"
+        body = _convert(md, known_pages=set())
+        assert "<strong><code>key</code></strong>" in body
+        assert "**" not in body
+
+    def test_italic_wrapping_code_span(self):
+        md = "*`some_func`*\n"
+        body = _convert(md, known_pages=set())
+        assert "<em><code>some_func</code></em>" in body
+
+    def test_bold_italic_wrapping_code_span(self):
+        md = "***`critical`***\n"
+        body = _convert(md, known_pages=set())
+        assert "<strong><em><code>critical</code></em></strong>" in body
+
+    def test_plain_bold_still_works(self):
+        """Sanity: plain bold without code spans is unaffected."""
+        md = "**bold text**\n"
+        body = _convert(md, known_pages=set())
+        assert "<strong>bold text</strong>" in body
+
+    def test_bold_code_in_blockquote(self):
+        md = "> Use **`flag`** to enable\n"
+        body = _convert(md, known_pages=set())
+        assert "<strong><code>flag</code></strong>" in body
+        assert "**" not in body
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
