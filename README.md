@@ -6,6 +6,42 @@ Claim → `/goal` → close → repeat — until the queue is empty or you hit C
 
 ---
 
+## Install
+
+One line — copy, paste, run:
+
+```bash
+curl -fsSL https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip -o /tmp/bead-chain.zip && unzip -o /tmp/bead-chain.zip -d ~/.code_puppy/plugins/
+```
+
+Then **restart code_puppy** and the `/bead-chain` command is available.
+
+| Action | How |
+|--------|-----|
+| **Install** | Run the line above, then restart code_puppy. |
+| **Upgrade** | Re-run the exact same line — it always pulls the latest release. |
+| **Uninstall** | `rm -rf ~/.code_puppy/plugins/bead_chain` |
+
+The URL points at `/releases/latest/download/bead-chain.zip` — a stable asset name on the latest release — so it never needs editing for new versions.
+
+### Prerequisites
+
+- **code_puppy** (or wiggum) with `/goal` mode — bead-chain delegates LLM-judged completion to it.
+- **`bd` (beads)** on your `PATH` — the issue tracker bead-chain drives. Override the binary with the `BEADS_BIN` env var if it lives elsewhere.
+
+---
+
+## Usage
+
+```bash
+/bead-chain           # Start chaining — runs until queue empty
+/bead-chain --max=3   # Stop after completing 3 beads (safety cap)
+```
+
+**To stop:** Press `Ctrl+C`. The current bead stays `in_progress` — the next `/bead-chain` run will resume it with a recovery preamble.
+
+---
+
 ## How It Works
 
 ```
@@ -32,17 +68,6 @@ Claim → `/goal` → close → repeat — until the queue is empty or you hit C
 4. **Judge** — Wiggum's LLM judges evaluate completion each turn
 5. **Close** — On pass, `bd close <id>` and grab the next bead
 6. **Repeat** — Until queue empty, `--max` cap hit, or Ctrl+C
-
----
-
-## Usage
-
-```bash
-/bead-chain           # Start chaining — runs until queue empty
-/bead-chain --max=3   # Stop after completing 3 beads (safety cap)
-```
-
-**To stop:** Press `Ctrl+C`. The current bead stays `in_progress` — the next `/bead-chain` run will resume it with a recovery preamble.
 
 ---
 
@@ -172,6 +197,6 @@ bd ready
 
 ## See Also
 
-- **AGENTS.md** — Agent instructions for the beads issue tracker (general `bd` usage)
-- **wiggum** — The `/goal` engine that bead-chain delegates to
-- **beads/bd** — The underlying issue tracker CLI
+- **[bead-chain on GitHub](https://github.com/weegens-aaron/bead-chain)** — source, full test suite, design notes (ADRs), and issue tracker.
+- **wiggum / code_puppy** — the `/goal` engine that bead-chain delegates LLM-judged completion to.
+- **[beads / `bd`](https://github.com/gastownhall/beads)** — the underlying issue tracker CLI bead-chain drives.
