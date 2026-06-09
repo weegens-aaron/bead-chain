@@ -198,6 +198,16 @@ blocking/non-blocking decision independently.
 - [How to Resume After an Interruption](ResumeAfterInterruption.md) — what
   to do when a run is cut short; recovery works identically whether a task
   is fresh or has a triaged bug attached.
+- [Overview](../Overview.md) — bead-chain at a glance, including the bug
+  discovery protocol as one of the features the chain automates.
+- [Commands Reference](../Reference/Commands.md) — every command and option at
+  a glance, including the `/bead-chain` command under which bug discovery
+  occurs.
+- [How to Run a Capped Session](RunACappedSession.md) — using `--max=N` for
+  bounded runs; the bug protocol works identically whether or not a cap is set.
+- [How to Upgrade or Uninstall bead-chain](UpgradeOrUninstall.md) — keeping
+  the plugin current; upgrading preserves filed bug beads since they live in
+  the repository, not the plugin directory.
 
 ---
 

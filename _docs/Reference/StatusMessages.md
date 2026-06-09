@@ -262,6 +262,9 @@ flowchart TD
 - [How to Resume After an Interruption](../Guides/ResumeAfterInterruption.md)
   — step-by-step instructions for what to do when a run is cut short;
   pairs with the bookmark and multi-strand recovery messages above.
+- [How to Handle Bugs Discovered During Work](../Guides/HandleBugsDuringWork.md)
+  — what the agent does when it finds an unrelated bug mid-task, including how
+  filed bugs and triage messages relate to the status output documented here.
 
 ---
 

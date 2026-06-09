@@ -146,6 +146,9 @@ guard. This means:
   close-block messages look like and what the agent sees when the guard fires.
 - [Configuration](../Reference/Configuration.md) — environment variables,
   timeout/retry behavior, and excluded container types.
+- [How to Handle Bugs Discovered During Work](../Guides/HandleBugsDuringWork.md)
+  — the bug discovery protocol in context; the Close Guard applies to bug beads
+  just as it does to any other task during a chain.
 
 ---
 

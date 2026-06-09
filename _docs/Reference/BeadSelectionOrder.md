@@ -283,6 +283,9 @@ respects a deliberate pin.
 - [How to Resume After an Interruption](../Guides/ResumeAfterInterruption.md)
   — what to do when a run is cut short; recovery (tier 0) picks up the
   stranded task first.
+- [Quick Start: Run Your First Chain](../GettingStarted/RunYourFirstChain.md)
+  — go from zero to watching tasks close themselves; shows the selection order
+  in action during a first run.
 
 ---
 

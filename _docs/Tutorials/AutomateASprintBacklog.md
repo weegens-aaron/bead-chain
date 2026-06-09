@@ -370,6 +370,8 @@ handled seamlessly, and a parent epic closed automatically — all from two
   defaults that shape bead-chain's behavior.
 - [Status Messages](../Reference/StatusMessages.md) — what every emoji-prefixed
   message means and what to do when you see it.
+- [Overview](../Overview.md) — bead-chain at a glance: what it is, who it's
+  for, and its key features.
 
 ---
 

@@ -196,6 +196,9 @@ If bead-chain refuses a bead because of its type, you'll see a refusal message i
 - [How to Resume After an Interruption](../Guides/ResumeAfterInterruption.md)
   — what to do when a run is cut short; configuration defaults (timeouts,
   retries) affect how the chain communicates with `bd` during recovery.
+- [How to Handle Bugs Discovered During Work](../Guides/HandleBugsDuringWork.md)
+  — how the agent handles unrelated bugs found mid-task; the bug discovery
+  protocol operates within the timeout and retry framework described here.
 
 ---
 

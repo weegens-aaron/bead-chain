@@ -187,6 +187,9 @@ won't override a deliberate pin.
   task automatically after the restart.
 - [Configuration](../Reference/Configuration.md) — timeout/retry defaults that
   affect how bead-chain communicates with `bd` during recovery.
+- [How to Handle Bugs Discovered During Work](../Guides/HandleBugsDuringWork.md)
+  — how the agent handles unrelated bugs found mid-task; a triaged bug that is
+  also stranded in-progress triggers recovery over triage verification.
 
 ---
 

@@ -172,6 +172,9 @@ in the plugin directory. You can still use `bd` directly.
   chain message means and what to do when you see it.
 - [How to Handle Bugs Discovered During Work](HandleBugsDuringWork.md) — how
   filed bugs feed back into the chain across iterations.
+- [How to Run a Capped Session](RunACappedSession.md) — using `--max=N` for
+  bounded, predictable runs; useful after an upgrade to verify the new version
+  on a small batch before draining the queue.
 
 ---
 
