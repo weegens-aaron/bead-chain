@@ -250,6 +250,8 @@ flowchart TD
 - [The Close Guard](../Concepts/TheCloseGuard.md) — how the &#x1F6D1;
   close-block messages are triggered and why.
 - [Overview](../Overview.md) — bead-chain at a glance.
+- [Configuration](Configuration.md) — environment variables, timeout/retry
+  defaults, and excluded container types.
 
 ---
 

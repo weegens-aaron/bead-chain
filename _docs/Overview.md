@@ -61,5 +61,7 @@ Once you're up and running:
   glance.
 - [Status Messages](Reference/StatusMessages.md) — what every emoji-prefixed
   message means and what to do when you see it.
+- [Configuration](Reference/Configuration.md) — environment variables and
+  built-in defaults.
 - [How Bead Chaining Works](Concepts/HowBeadChainingWorks.md) — understand the
   engine under the hood.

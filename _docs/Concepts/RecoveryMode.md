@@ -173,6 +173,8 @@ won't override a deliberate pin.
   what to do.
 - [How to Resume After an Interruption](../Guides/ResumeAfterInterruption.md)
   — step-by-step instructions for what to do when a run is cut short.
+- [Configuration](../Reference/Configuration.md) — timeout/retry defaults that
+  affect how bead-chain communicates with `bd` during recovery.
 
 ---
 

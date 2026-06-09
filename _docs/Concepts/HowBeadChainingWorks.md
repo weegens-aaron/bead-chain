@@ -223,6 +223,8 @@ bead-chain is aware of this hierarchy:
   detected, recovered, and resumed.
 - [Status Messages](../Reference/StatusMessages.md) — what every emoji-prefixed
   message means and what to do when you see it.
+- [Configuration](../Reference/Configuration.md) — environment variables,
+  timeout/retry behavior, and excluded container types.
 
 ---
 
