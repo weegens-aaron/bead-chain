@@ -52,9 +52,9 @@ if continuation.get("clear_context", False):
 | System prompt | Rebuilt fresh via `get_full_system_prompt()` on every agent `run()` call | `base_agent.py:162–180` |
 | AGENTS.md / puppy rules | Loaded from disk by `load_puppy_rules()` → appended to system prompt | `_builder.py:38–83` |
 | `load_prompt` plugin fragments | Collected fresh by `callbacks.on_load_prompt()` each turn | `base_agent.py:176–178` |
-| Tool registrations | Statically defined in `get_available_tools()` | `agent_code_puppy.py:26–41` |
+| Tool registrations | Statically defined in `get_available_tools()` | `agent_code_puppy.py:23–40` |
 | MCP server connections | Held in `_mcp_servers` on the agent instance | `base_agent.py:79` |
-| Agent identity | `self.id` is a `uuid4()` set at construction, never cleared | `base_agent.py:73` |
+| Agent identity | `self.id` is a `uuid4()` set at construction, never cleared | `base_agent.py:72` |
 
 **The flag is authoritative, not advisory.** The host's continuation loop
 in `cli_runner.py` checks `continuation.get("clear_context", False)` and
@@ -69,7 +69,7 @@ in `cli_runner.py` checks `continuation.get("clear_context", False)` and
 | **AGENTS.md** |  Yes | `load_puppy_rules()` reads from disk at prompt assembly time (`_builder.py:40–83`) |
 | **`load_prompt` fragments** |  Yes | `on_load_prompt()` callback fires fresh each turn — includes Walmart rules, timestamp/CWD, file permissions, kennel recall, Tableau/Concord pointers |
 | **Kennel memories** (host) |  Yes | `puppy_kennel` plugin's `_on_load_prompt()` calls `build_recall_block()` which queries the kennel SQLite DB fresh each turn (`puppy_kennel/register_callbacks.py:34–39`) |
-| **bd memories** (project) |  Yes | `format_bead_as_goal()` calls `_fetch_memory_digest()` → `bd memories` subprocess each time a bead is armed; injected as `## Persistent Memories` block in the goal prompt (`prompt.py:117–150`) |
+| **bd memories** (project) |  Yes | `format_bead_as_goal()` calls `_fetch_memory_digest()` → `bd memories` subprocess each time a bead is armed; injected as `## Persistent Memories` block in the goal prompt (`prompt.py:104–135`) |
 | **Plugin state (bead-chain)** |  Yes | `state.BeadChainState` is a module-level singleton (`_STATE`); `clear_context` never touches it. `active`, `current_bead`, `completed_count` persist across turns. |
 | **Plugin state (wiggum)** |  Reset then re-armed | `wiggum_state.start(goal_prompt, mode="goal")` resets `loop_count=0`, `remediation_notes=None`, and sets the new prompt. So wiggum starts fresh for each bead but is re-armed in the same call. |
 | **Execution hints** |  Reapplied | `apply_execution_hints(bead)` is called for each new bead in `activate_next_bead()` (`lifecycle.py:714–716`) |
@@ -79,7 +79,7 @@ in `cli_runner.py` checks `continuation.get("clear_context", False)` and
 
 ### Q3: What does `format_bead_as_goal()` inject as the new context?
 
-**Source:** `prompt.py:354–415`
+**Source:** `prompt.py:613–759`
 
 The goal prompt is built from these components, in order:
 
