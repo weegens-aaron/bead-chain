@@ -188,7 +188,7 @@ element (the strand list `_list_by_status` returns):
   only appears after a hard crash and is drained one bead per iteration.
 - **Every spawn rides the single chokepoint.** `bd list`, `bd show`, and
   `bd update` all flow through `beads.py:_run_bd` with its retry/timeout policy
-  (`DEFAULT_TIMEOUT = 30.0`, `MAX_ATTEMPTS = 3`) — see
+  (`DEFAULT_TIMEOUT = 15.0`, `MAX_ATTEMPTS = 3`) — see
   [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md).
 - **No persistence here.** Recovery reads status and at most flips it; it never
   pushes/pulls/exports bead state. Durability is a session-close concern — see

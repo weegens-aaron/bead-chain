@@ -62,7 +62,7 @@ __all__ = [
     "PARENT_EPIC_KEY",
 ]
 
-DEFAULT_TIMEOUT = 30.0
+DEFAULT_TIMEOUT = 15.0
 DEFAULT_BD_BIN = "bd"
 
 # Bead ids are attacker-reachable strings: they come from bd's own JSON
@@ -78,19 +78,45 @@ _BEAD_ID_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
 #
 # bd talks to a sqlite database that can briefly contend on locks
 # (concurrent agents, cold-cache opens, the daemon flushing, etc.).
-# Stranding the entire chain on a single 30s blip is way worse than
-# trying again, so we retry on ``subprocess.TimeoutExpired`` only.
-# ``FileNotFoundError`` (bd not installed) and non-zero exits (real bd
-# errors like 'bead not found', 'already closed') are NOT retried —
-# those are permanent and retrying just delays the truth.
+# Stranding the entire chain on a single blip is way worse than trying
+# again, so we retry on ``subprocess.TimeoutExpired`` only. Permanent
+# failures — ``FileNotFoundError`` (bd not installed), ``PermissionError``
+# (bd present but not executable), and non-zero exits (real bd errors
+# like 'bead not found', 'already closed') — are NOT retried; those are
+# fatal and retrying just delays the truth (and burns wall-clock).
+#
+# WORST-CASE BUDGET (bead_chain-7b6): the old policy (DEFAULT_TIMEOUT=30,
+# backoffs 0.5/1.0) cost up to 91.5s per call (30 + 0.5 + 30 + 1.0 + 30).
+# With 10+ sequential calls per activation a flaky bd binary could add
+# minutes of pure infra overhead to a single bead. The current policy
+# (DEFAULT_TIMEOUT=15, exponential backoff capped at 2.0s) caps a fully
+# timed-out call at:
+#     15 + 0.25 + 15 + 0.5 + 15 = 45.75s  (about half the old worst case).
 #
 # Kept as module constants per YAGNI: if someone needs env-var knobs
 # we add them later (5-line follow-up). Doing both up front overcommits.
 MAX_ATTEMPTS: int = 3  # initial try + up to (MAX_ATTEMPTS - 1) retries
-# Backoff delays applied BEFORE each retry. Length must be >= MAX_ATTEMPTS-1;
-# extra entries are ignored. Short and exponential-ish — long enough to
-# let a sqlite lock clear, short enough not to feel like a hang.
-_RETRY_BACKOFFS: tuple[float, ...] = (0.5, 1.0)
+# Exponential backoff applied BEFORE each retry: delay(n) = BASE * 2**(n-1),
+# capped at CEILING so a flaky bd binary can never stack arbitrarily long
+# sleeps. ``n`` is the 1-based retry index (the initial attempt never waits).
+# With the defaults the pre-retry sleeps are 0.25s, 0.50s, 1.00s, 2.00s, ...
+# — long enough to let a sqlite lock clear, short enough not to feel like a
+# hang. See :func:`_retry_backoff`.
+_RETRY_BACKOFF_BASE: float = 0.25
+_RETRY_BACKOFF_CEILING: float = 2.0
+
+
+def _retry_backoff(attempt: int) -> float:
+    """Exponential pre-retry delay (seconds) for retry index ``attempt``.
+
+    ``attempt`` is the 1-based retry number — the 0th attempt is the
+    initial try and never waits, so callers only invoke this for
+    ``attempt >= 1``. Delay grows as ``BASE * 2 ** (attempt - 1)`` and is
+    clamped to :data:`_RETRY_BACKOFF_CEILING` so the worst-case retry
+    budget stays bounded no matter how high :data:`MAX_ATTEMPTS` climbs.
+    """
+    return min(_RETRY_BACKOFF_BASE * (2 ** (attempt - 1)), _RETRY_BACKOFF_CEILING)
+
 
 # Bead types that /bead-chain must never try to drive directly.
 # These are container / handle types: they organise or gate *other*
@@ -416,20 +442,18 @@ def _parse_json_list(raw: str, context: str) -> list[Any]:
 def _run_bd(*args: str, timeout: float = DEFAULT_TIMEOUT) -> str:
     """Run ``bd <args>`` and return stdout, or raise :class:`BeadsError`.
 
-    Transient timeouts are retried per :data:`MAX_ATTEMPTS` /
-    :data:`_RETRY_BACKOFFS`. Non-zero exits and missing-binary errors
-    are surfaced on the first failure — they're not transient.
+    Transient timeouts are retried per :data:`MAX_ATTEMPTS` with
+    exponential backoff (:func:`_retry_backoff`). Non-zero exits,
+    missing-binary (:class:`FileNotFoundError`) and not-executable
+    (:class:`PermissionError`) errors are fatal and surfaced on the
+    first failure — they're not transient, so we fail fast.
     """
     bd = _bd_bin()
     last_timeout: subprocess.TimeoutExpired | None = None
 
     for attempt in range(MAX_ATTEMPTS):
         if attempt > 0:
-            # Cap the index so a future bump to MAX_ATTEMPTS without a
-            # matching bump to _RETRY_BACKOFFS still works — the last
-            # configured delay just gets reused. Belt-and-suspenders.
-            delay_idx = min(attempt - 1, len(_RETRY_BACKOFFS) - 1)
-            time.sleep(_RETRY_BACKOFFS[delay_idx])
+            time.sleep(_retry_backoff(attempt))
 
         try:
             proc = subprocess.run(
@@ -442,6 +466,13 @@ def _run_bd(*args: str, timeout: float = DEFAULT_TIMEOUT) -> str:
         except FileNotFoundError as exc:
             # Permanent — retrying won't make bd appear.
             raise BeadsError(f"`{bd}` not found on PATH — is beads installed?") from exc
+        except PermissionError as exc:
+            # Permanent — bd exists but isn't executable. Retrying won't
+            # change the file mode, so fail fast instead of burning the
+            # whole retry budget on a guaranteed-fatal error.
+            raise BeadsError(
+                f"`{bd}` is not executable (permission denied) — check its file mode"
+            ) from exc
         except subprocess.TimeoutExpired as exc:
             last_timeout = exc
             continue  # try again after backoff

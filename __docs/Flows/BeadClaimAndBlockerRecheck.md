@@ -200,7 +200,7 @@ The continuation dict this flow returns to the runner on a successful claim:
   activated per iteration — there is no per-collection fan-out here.
 - **Every spawn rides the single chokepoint.** All `bd show` / `bd list` /
   `bd update` calls flow through `beads.py:_run_bd` (`beads.py:280`) with
-  `DEFAULT_TIMEOUT = 30.0` and `MAX_ATTEMPTS = 3` retry/backoff — see
+  `DEFAULT_TIMEOUT = 15.0` and `MAX_ATTEMPTS = 3` retry/backoff — see
   [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md).
 - **No persistence here.** This flow flips bead status at most; it never
   pushes/pulls/exports. Durability is a session-close concern — see

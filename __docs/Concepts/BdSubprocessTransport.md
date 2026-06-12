@@ -27,12 +27,16 @@ rest of the module gets for free:
 
 - **One retry policy.** Transient `subprocess.TimeoutExpired` blips (sqlite lock
   contention from concurrent agents, cold-cache opens, the daemon flushing) are
-  retried up to `MAX_ATTEMPTS` times with `_RETRY_BACKOFFS` delays. A single 30s
-  blip stranding the whole chain is far worse than one retry.
-- **One error taxonomy.** Permanent failures — bd missing (`FileNotFoundError`)
-  and real bd errors (non-zero exit: "bead not found", "already closed") — are
-  surfaced *immediately* as `BeadsError` and are **never** retried, because
-  retrying just delays the truth.
+  retried up to `MAX_ATTEMPTS` times with exponential `_retry_backoff` delays
+  (capped at `_RETRY_BACKOFF_CEILING`). A single blip stranding the whole chain
+  is far worse than one retry. The worst case for a fully timed-out call is
+  bounded at `DEFAULT_TIMEOUT * MAX_ATTEMPTS + backoffs` = `15*3 + 0.25 + 0.5` =
+  **45.75s** (down from the old 91.5s — bead_chain-7b6).
+- **One error taxonomy.** Permanent failures — bd missing (`FileNotFoundError`),
+  bd not executable (`PermissionError`), and real bd errors (non-zero exit:
+  "bead not found", "already closed") — are surfaced *immediately* as
+  `BeadsError` and are **never** retried, because retrying just delays the truth
+  (and burns wall-clock).
 - **One test seam.** Tests stub `beads._run_bd` with a lambda returning a fixed
   payload (or a recording stub), so the entire module can be exercised without a
   real `bd` on `PATH`.
@@ -43,13 +47,15 @@ rest of the module gets for free:
 via `_bd_bin()` (honoring the `BEADS_BIN` env override, else `DEFAULT_BD_BIN =
 "bd"` on `PATH`), then loops up to `MAX_ATTEMPTS` (3) times:
 
-1. Before any retry (`attempt > 0`) it sleeps `_RETRY_BACKOFFS[delay_idx]`, where
-   `delay_idx = min(attempt - 1, len(_RETRY_BACKOFFS) - 1)` — so a future bump to
-   `MAX_ATTEMPTS` without extending the backoff tuple just reuses the last delay.
+1. Before any retry (`attempt > 0`) it sleeps `_retry_backoff(attempt)`, an
+   exponential delay `_RETRY_BACKOFF_BASE * 2**(attempt-1)` clamped to
+   `_RETRY_BACKOFF_CEILING` — so the retry budget stays bounded no matter how
+   high `MAX_ATTEMPTS` climbs.
 2. It runs `subprocess.run([bd, *args], capture_output=True, text=True,
    timeout=timeout, check=False)`.
-3. `FileNotFoundError` → raise `BeadsError("...not found on PATH...")` (permanent,
-   no retry).
+3. `FileNotFoundError` → raise `BeadsError("...not found on PATH...")` and
+   `PermissionError` → raise `BeadsError("...not executable...")` (both
+   permanent, no retry).
 4. `subprocess.TimeoutExpired` → stash it in `last_timeout` and `continue` to the
    next attempt (the *only* retried case).
 5. `proc.returncode != 0` → raise `BeadsError("...failed (exit N): <stderr>")`
@@ -73,10 +79,11 @@ flowchart TD
     Bin --> Attempt{attempt < MAX_ATTEMPTS=3?}
     Attempt -->|no| AllTO[raise BeadsError:<br/>timed out on every attempt]
     Attempt -->|yes| Backoff{attempt > 0?}
-    Backoff -->|yes| Sleep[sleep _RETRY_BACKOFFS<br/>0.5s then 1.0s]
+    Backoff -->|yes| Sleep[sleep _retry_backoff attempt<br/>0.25s, 0.5s, ... capped at 2.0s]
     Backoff -->|no| Spawn
     Sleep --> Spawn[subprocess.run bd args<br/>capture_output, text, timeout, check=False]
     Spawn -->|FileNotFoundError| NotFound[raise BeadsError:<br/>bd not on PATH — PERMANENT]
+    Spawn -->|PermissionError| NoExec[raise BeadsError:<br/>bd not executable — PERMANENT]
     Spawn -->|TimeoutExpired| StashTO[last_timeout = exc;<br/>continue — TRANSIENT, retry]
     Spawn -->|returncode != 0| NonZero[raise BeadsError:<br/>exit N + stderr — PERMANENT]
     Spawn -->|exit 0| Stdout[return proc.stdout]
@@ -128,8 +135,8 @@ leaked container type (defence-in-depth via `is_excluded_type`).
 Now the unhappy paths, all routed through the same function:
 
 - **Transient lock.** The first `subprocess.run` raises `TimeoutExpired`.
-  `_run_bd` sleeps `0.5s`, retries; the second succeeds. The caller never sees the
-  blip.
+  `_run_bd` sleeps `0.25s`, retries; the second succeeds. The caller never sees
+  the blip.
 - **Real bd error.** `bd close bead_chain-xyz` exits non-zero with
   `error: issue has open child issue(s)`. `_run_bd` raises immediately —
   `BeadsError("`/opt/homebrew/bin/bd close bead_chain-xyz` failed (exit 1):
@@ -144,10 +151,10 @@ Now the unhappy paths, all routed through the same function:
 | Responsibility | File:Symbol |
 |----------------|-------------|
 | Module contract — "shell out, never import beads" | `beads.py` (module docstring) |
-| Default per-call timeout (seconds) | `beads.py:DEFAULT_TIMEOUT` (`30.0`) |
+| Default per-call timeout (seconds) | `beads.py:DEFAULT_TIMEOUT` (`15.0`) |
 | Default binary name when no override | `beads.py:DEFAULT_BD_BIN` (`"bd"`) |
 | Max spawn attempts (initial + retries) | `beads.py:MAX_ATTEMPTS` (`3`) |
-| Pre-retry backoff delays | `beads.py:_RETRY_BACKOFFS` (`(0.5, 1.0)`) |
+| Pre-retry backoff (exponential, capped) | `beads.py:_retry_backoff` / `_RETRY_BACKOFF_BASE` (`0.25`) / `_RETRY_BACKOFF_CEILING` (`2.0`) |
 | Binary resolution + `BEADS_BIN` override | `beads.py:_bd_bin` |
 | The sole subprocess chokepoint (spawn + retry + error taxonomy) | `beads.py:_run_bd` |
 | Shared error type for all transport failures | `beads.py:BeadsError` |
