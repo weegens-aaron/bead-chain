@@ -643,6 +643,21 @@ def activate_next_bead(
     bead_id = str(bead.get("id", ""))
     recovery = is_recovery_bead(bead)
 
+    # Call consolidation (bead_chain-lqf): both the work-time blocker
+    # guard and the fan-out gate guard below need this bead's FULL
+    # ``bd show`` record (the ``bd ready`` / ``bd list`` dict the picker
+    # handed us lacks per-dependency status and the ``waits_for`` field).
+    # We fetch it ONCE here and thread it into both checks rather than
+    # letting each spawn its own identical ``bd show``. One fresh read at
+    # the activation boundary preserves the mid-flight-mutation safety
+    # (pinned/re-blocked detection) the two guards were written for, at
+    # one subprocess instead of two. Soft-fails to ``None`` so the
+    # guards fall back to their own fetch / safe defaults on a bd blip.
+    try:
+        full_bead = show(bead_id)
+    except BeadsError:
+        full_bead = None
+
     # Last-line-of-defence assertion: the picker is *not allowed* to
     # return a bead with open work-time blockers. Tier 0 reverts+drops
     # them; tiers 1-3 reject them via :func:`_reject_if_blocked`. If one
@@ -653,7 +668,7 @@ def activate_next_bead(
     # beads are exempt from the revert path here (they were already
     # blocker-filtered in :func:`_unblocked_strands`); we just stop
     # if somehow one is blocked, leaving it in_progress for inspection.
-    blockers = open_blocker_ids(bead_id)
+    blockers = open_blocker_ids(bead_id, full_bead)
     if blockers:
         emit_warning(
             f"bead-chain refused to activate {bead_id}: it has open "
@@ -671,8 +686,9 @@ def activate_next_bead(
 
     # WORKAROUND (bead_chain-9sc): Check for unsatisfied fan-out gates.
     # Beads with waits_for: children-of(...) are invisible to bd blocked,
-    # so we detect and refuse to claim them here.
-    if _has_fan_out_gate_issue(bead_id):
+    # so we detect and refuse to claim them here. Reuses ``full_bead``
+    # fetched above (bead_chain-lqf) so we don't re-spawn ``bd show``.
+    if _has_fan_out_gate_issue(bead_id, full_bead):
         emit_warning(
             f"bead-chain refused to activate {bead_id}: it has an unsatisfied "
             "fan-out gate (waits_for: children-of(...) with unclosed spawned "
@@ -731,7 +747,7 @@ def activate_next_bead(
     }
 
 
-def _has_fan_out_gate_issue(bead_id: str) -> bool:
+def _has_fan_out_gate_issue(bead_id: str, bead: dict[str, Any] | None = None) -> bool:
     """True if bead has unsatisfied fan-out gate (bead_chain-9sc workaround).
 
     Beads with waits_for: children-of(...) are invisible to bd blocked due
@@ -742,15 +758,23 @@ def _has_fan_out_gate_issue(bead_id: str) -> bool:
     1. It has a "waits_for" field
     2. The field is in "children-of(spawner_id)" format
     3. The spawner has at least one child that is not yet closed
+
+    Call consolidation (bead_chain-lqf): callers that have already
+    fetched ``bead_id``'s full ``bd show`` record this activation pass
+    may pass it as ``bead`` so we don't spawn a second identical
+    ``bd show``. When omitted we fetch it ourselves (preserving the
+    original single-arg contract). The spawner lookup is always a
+    separate, distinct ``bd show`` — it's a different bead.
     """
     if not bead_id:
         return False
 
-    try:
-        bead = show(bead_id)
-    except BeadsError:
-        # Can't determine gate status; assume no gate issue
-        return False
+    if bead is None:
+        try:
+            bead = show(bead_id)
+        except BeadsError:
+            # Can't determine gate status; assume no gate issue
+            return False
     if not bead:
         return False
 

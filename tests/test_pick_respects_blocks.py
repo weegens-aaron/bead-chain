@@ -36,7 +36,7 @@ def _install(
 ):
     """Wire the beads.* selection surface that pick_next_bead calls."""
     blocked = set(blocked_ids)
-    blocker_fn = lambda bid: [f"{bid}-blocker"] if bid in blocked else []  # noqa: E731
+    blocker_fn = lambda bid, _bead=None: [f"{bid}-blocker"] if bid in blocked else []  # noqa: E731
     monkeypatch.setattr(beads, "open_blocker_ids", blocker_fn)
     monkeypatch.setattr(lifecycle, "open_blocker_ids", blocker_fn)
 

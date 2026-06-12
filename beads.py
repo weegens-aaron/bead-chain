@@ -457,18 +457,25 @@ def list_in_progress() -> list[dict[str, Any]]:
     return _list_by_status(IN_PROGRESS_STATUS)
 
 
-def _list_by_status(status: str) -> list[dict[str, Any]]:
-    """Return all non-epic beads in ``status``, in bd's listed order.
+def _list_by_status(*statuses: str) -> list[dict[str, Any]]:
+    """Return all non-epic beads in any of ``statuses``, in bd's listed order.
 
     DRY core of :func:`list_in_progress` and :func:`list_recoverable_strands`:
-    every stranded-work query is the same `bd list --status=<s>
-    --exclude-type=epic --json` shape with the same client-side epic
+    every stranded-work query is the same ``bd list --status=<s[,s...]>
+    --exclude-type=epic --json`` shape with the same client-side epic
     re-filter (the server-side flag has leaked epics in the wild — see
     :func:`is_excluded_type`). Centralising it means a new recoverable
     status is a one-line edit to :data:`RECOVERABLE_STATUSES`.
+
+    bd's ``--status`` flag accepts a comma-separated list (``bd list
+    --status open,in_progress``), so **N statuses cost a single
+    subprocess spawn**, not N. This is the consolidation behind
+    bead_chain-lqf: ``list_recoverable_strands`` used to fan out one
+    ``bd list`` call per recoverable status; it now issues exactly one.
     """
-    raw = _run_bd("list", f"--status={status}", _exclude_type_arg(), "--json")
-    items = _parse_json_list(raw, f"bd list --status={status} --json")
+    status_arg = ",".join(statuses)
+    raw = _run_bd("list", f"--status={status_arg}", _exclude_type_arg(), "--json")
+    items = _parse_json_list(raw, f"bd list --status={status_arg} --json")
     return [
         item for item in items if isinstance(item, dict) and not is_excluded_type(item)
     ]
@@ -481,32 +488,44 @@ def list_recoverable_strands() -> list[dict[str, Any]]:
     chain only queried ``--status=in_progress``, so a bead flipped to
     ``hooked`` mid-flight by another agent/tool was invisible to BOTH
     ``bd ready`` (hooked is out of the ready frontier) AND recovery —
-    stranded work that no run ever resumed. We now enumerate every
-    status in :data:`RECOVERABLE_STATUSES` and merge the results.
+    stranded work that no run ever resumed. We now query every status in
+    :data:`RECOVERABLE_STATUSES` in **one** ``bd list --status=a,b``
+    subprocess call (bead_chain-lqf: the prior implementation fanned out
+    one spawn per status).
 
-    Ordering: in_progress strands come first (their status leads the
-    tuple), preserving the prior single-status behaviour for the common
-    case; hooked strands follow. Duplicate ids across queries are
-    de-duped (first occurrence wins) — a bead can only hold one status,
-    but bd version drift could echo one twice, and the one-at-a-time
-    recovery contract must never see the same id twice.
+    Ordering: in_progress strands come first, hooked strands follow,
+    preserving the prior per-status-merge behaviour for the common case.
+    Because a single comma-status call returns beads in bd's own sort
+    order (not grouped by our tuple), we restore the contract with a
+    *stable* client-side sort keyed on each bead's position in
+    :data:`RECOVERABLE_STATUSES`. Unknown/missing statuses sort last.
+
+    Duplicate ids are de-duped (first occurrence wins) — a bead can only
+    hold one status, but bd version drift could echo one twice, and the
+    one-at-a-time recovery contract must never see the same id twice.
 
     Epics are excluded both server-side and client-side per
     :func:`_list_by_status`. Raises :class:`BeadsError` on infra failure
     — same soft-fail contract callers already expect from
     :func:`list_in_progress`.
     """
-    merged: list[dict[str, Any]] = []
+    rank = {status: i for i, status in enumerate(RECOVERABLE_STATUSES)}
+    last = len(RECOVERABLE_STATUSES)
+
+    deduped: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for status in RECOVERABLE_STATUSES:
-        for bead in _list_by_status(status):
-            bead_id = str(bead.get("id", "")).strip()
-            if bead_id and bead_id in seen:
-                continue
-            if bead_id:
-                seen.add(bead_id)
-            merged.append(bead)
-    return merged
+    for bead in _list_by_status(*RECOVERABLE_STATUSES):
+        bead_id = str(bead.get("id", "")).strip()
+        if bead_id and bead_id in seen:
+            continue
+        if bead_id:
+            seen.add(bead_id)
+        deduped.append(bead)
+
+    # Stable sort keeps bd's intra-status order while restoring the
+    # in_progress-before-hooked contract the per-status merge used to give.
+    deduped.sort(key=lambda b: rank.get(str(b.get("status", "")).strip().lower(), last))
+    return deduped
 
 
 def next_in_progress() -> dict[str, Any] | None:
@@ -607,7 +626,7 @@ def extract_parent_epic_id(bead: dict[str, Any] | None) -> str | None:
     return None
 
 
-def open_blocker_ids(bead_id: str) -> list[str]:
+def open_blocker_ids(bead_id: str, bead: dict[str, Any] | None = None) -> list[str]:
     """Return the ids of ``bead_id``'s **open** work-time blockers.
 
     An empty list means the bead is *ready to work* (no unresolved
@@ -645,6 +664,12 @@ def open_blocker_ids(bead_id: str) -> list[str]:
     list of bare edge records (no status), so it can't tell us whether
     a blocker is still open.
 
+    Call consolidation (bead_chain-lqf): callers that have *already*
+    fetched the full ``bd show`` record this activation pass may pass it
+    as ``bead`` to skip a redundant subprocess spawn. When omitted we
+    fetch it ourselves, preserving the original single-arg contract and
+    the fresh-read semantics every other caller relies on.
+
     Soft-fails to ``[]`` (treat as not-blocked) on any infrastructure
     error: a transient bd blip must not strand the chain, and the
     close-time guard remains as the final safety net.
@@ -652,12 +677,13 @@ def open_blocker_ids(bead_id: str) -> list[str]:
     if not bead_id:
         return []
     _validate_bead_id(bead_id)
-    try:
-        bead = show(bead_id)
-    except BeadsError:
-        # Can't determine blockers — don't strand the chain on a blip;
-        # the close-time guard still backstops us.
-        return []
+    if bead is None:
+        try:
+            bead = show(bead_id)
+        except BeadsError:
+            # Can't determine blockers — don't strand the chain on a blip;
+            # the close-time guard still backstops us.
+            return []
     if not bead:
         return []
 

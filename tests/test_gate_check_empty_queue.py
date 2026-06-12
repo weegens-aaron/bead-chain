@@ -52,8 +52,10 @@ def _stub_activation_surface(monkeypatch):
     Returns a dict of call-tracking lists the tests can assert against.
     """
     calls: dict[str, list] = {"rollup": [], "claim": [], "wiggum": []}
-    monkeypatch.setattr(lifecycle, "open_blocker_ids", lambda _bid: [])
-    monkeypatch.setattr(lifecycle, "_has_fan_out_gate_issue", lambda _bid: False)
+    monkeypatch.setattr(lifecycle, "open_blocker_ids", lambda _bid, _bead=None: [])
+    monkeypatch.setattr(
+        lifecycle, "_has_fan_out_gate_issue", lambda _bid, _bead=None: False
+    )
     monkeypatch.setattr(lifecycle, "ensure_epic_in_progress", lambda _b: None)
     monkeypatch.setattr(lifecycle, "claim", lambda bid: calls["claim"].append(bid))
     monkeypatch.setattr(lifecycle, "format_bead_as_goal", lambda *_a, **_k: "GOAL")
