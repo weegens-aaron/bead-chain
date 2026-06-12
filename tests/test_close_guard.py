@@ -147,6 +147,87 @@ def test_real_close_after_quoted_multiline_body_still_detected():
 
 
 # ---------------------------------------------------------------------------
+# bead_chain-khg: ANSI-C $'...' quoting + heredoc edge cases.
+# ---------------------------------------------------------------------------
+
+
+def test_ansi_c_quote_with_escaped_quote_ignored():
+    """An escaped quote inside $'...' must not split the literal.
+
+    In bash ``$'a\\'; bd close x'`` is ONE ANSI-C string: the ``\\'`` is an
+    *escaped* quote, so the literal continues past it. The plain
+    single-quote matcher used to stop at the escaped quote, leaving
+    ``; bd close x'`` exposed — a false positive at the ``;`` boundary.
+    """
+    cmd = r"echo $'a\'; bd close cpp-1 still inside'"
+    assert close_guard.detect_premature_close(cmd) is None
+
+
+def test_ansi_c_quote_plain_bd_close_inside_ignored():
+    """A plain bd close mention inside an ANSI-C literal is harmless."""
+    cmd = r"printf $'remember to bd close when done\n'"
+    assert close_guard.detect_premature_close(cmd) is None
+
+
+def test_real_bd_close_after_ansi_c_literal_still_detected():
+    """Blanking the ANSI-C literal must not swallow a real close after it."""
+    cmd = r"printf $'done\n'; bd close cpp-1"
+    match = close_guard.detect_premature_close(cmd)
+    assert match is not None
+    assert match.pattern_name == "bd close"
+
+
+def test_heredoc_body_bd_close_ignored():
+    """A bd close line inside a heredoc body is literal stdin, not a command."""
+    cmd = "cat <<EOF\nbd close cpp-1\nEOF"
+    assert close_guard.detect_premature_close(cmd) is None
+
+
+def test_heredoc_body_status_closed_ignored():
+    cmd = "cat <<EOF\nbd update cpp-1 --status=closed\nEOF"
+    assert close_guard.detect_premature_close(cmd) is None
+
+
+def test_heredoc_dash_variant_with_tabbed_terminator_ignored():
+    """``<<-`` strips leading tabs on the terminator line."""
+    cmd = "cat <<-EOF\n\tbd close cpp-1\n\tEOF"
+    assert close_guard.detect_premature_close(cmd) is None
+
+
+def test_heredoc_quoted_delimiter_ignored():
+    """Quoted delimiters (``<<'EOF'``) are still recognised as openers."""
+    cmd = "cat <<'EOF'\nbd close cpp-1\nEOF"
+    assert close_guard.detect_premature_close(cmd) is None
+
+
+def test_real_bd_close_after_heredoc_still_detected():
+    """A genuine close on the line after the terminator must still trip."""
+    cmd = "cat <<EOF\nharmless body\nEOF\nbd close cpp-1"
+    match = close_guard.detect_premature_close(cmd)
+    assert match is not None
+    assert match.pattern_name == "bd close"
+
+
+def test_heredoc_without_terminator_stays_scannable():
+    """Conservative fallback: no terminator → do NOT hide a real close.
+
+    A malformed heredoc must not become a false-negative escape hatch.
+    """
+    cmd = "cat <<EOF\nbd close cpp-1"
+    match = close_guard.detect_premature_close(cmd)
+    assert match is not None
+    assert match.pattern_name == "bd close"
+
+
+def test_blank_heredocs_preserves_length_and_newlines():
+    cmd = "cat <<EOF\nbd close x\nEOF"
+    blanked = close_guard._blank_heredocs(cmd)
+    assert len(blanked) == len(cmd)
+    assert blanked.count("\n") == cmd.count("\n")
+    assert "bd close" not in blanked
+
+
+# ---------------------------------------------------------------------------
 # _blank_quoted helper unit checks.
 # ---------------------------------------------------------------------------
 

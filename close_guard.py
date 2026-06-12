@@ -44,15 +44,26 @@ class CloseGuardMatch:
 _COMMAND_BOUNDARY = r"(?:^|&&|\|\||;|\|)\s*"
 
 # Quoted-segment matcher used to blank out shell string literals before
-# the boundary scan. Single-quoted strings are literal (no escapes);
-# double-quoted strings honour backslash escapes. We replace each quoted
-# run — quotes included — with same-length whitespace so that:
+# the boundary scan. Three flavours, ordered so the longest/most-specific
+# prefix wins at each position:
+#   * ANSI-C ``$'...'`` (``bead_chain-khg``) — honours backslash escapes,
+#     so ``\'`` does NOT end the string. Must come first so the ``$``
+#     prefix is consumed as a unit; otherwise the plain single-quote alt
+#     below would match ``'a\'`` and stop at the *escaped* quote, leaving
+#     the real string tail exposed to the boundary scan (a ``; bd close``
+#     inside the literal would then false-positive at the ``;``).
+#   * plain ``'...'`` — fully literal, no escapes (shell single quotes).
+#   * double ``"..."`` — honours backslash escapes.
+# We replace each quoted run — quotes included — with same-length
+# whitespace so that:
 #   * a ``bd close`` line *inside* a quoted arg (e.g. a git commit
 #     message body) is no longer at a real command boundary, and
 #   * a genuine ``bd close`` on its own line *outside* quotes still is.
 # This is what lets us keep ``re.MULTILINE`` (so newline-separated
 # commands are caught) without the false-positive in ``bead_chain-21d``.
-_QUOTED_SEGMENT_RE = re.compile(r"""(?:'[^']*'|"(?:\\.|[^"\\])*")""", re.DOTALL)
+_QUOTED_SEGMENT_RE = re.compile(
+    r"""(?:\$'(?:\\.|[^'\\])*'|'[^']*'|"(?:\\.|[^"\\])*")""", re.DOTALL
+)
 
 
 def _blank_quoted(command: str) -> str:
@@ -63,8 +74,91 @@ def _blank_quoted(command: str) -> str:
     Newlines inside a quoted run become spaces, so an embedded
     ``\nbd close`` no longer looks like a fresh command; newlines
     *outside* quotes are untouched and still act as separators.
+
+    Handles plain ``'...'``, double ``"..."`` *and* ANSI-C ``$'...'``
+    quoting (``bead_chain-khg``); the latter honours backslash escapes
+    so an escaped quote (``\'``) doesn't prematurely end the literal.
     """
     return _QUOTED_SEGMENT_RE.sub(lambda m: " " * len(m.group(0)), command)
+
+
+# ---------------------------------------------------------------------------
+# Heredoc-body blanking (bead_chain-khg)
+# ---------------------------------------------------------------------------
+#
+# A heredoc body is literal text fed to a command's stdin, e.g.
+#
+#     cat <<EOF
+#     bd close cpp-1
+#     EOF
+#
+# Without blanking, the newline before ``bd close`` looks like a real
+# command boundary under ``re.MULTILINE`` and false-positives. Quote
+# blanking doesn't help — heredoc bodies aren't quoted. So we blank the
+# body (newlines preserved, offsets stable) up to — but not including —
+# the terminator line.
+#
+# Supported openers: ``<<EOF``, ``<< EOF``, ``<<-EOF`` (tab-stripped
+# terminator), and quoted delimiters ``<<'EOF'`` / ``<<"EOF"``. We run
+# this BEFORE quote-blanking so the raw terminator line is intact and
+# reliably found; a ``<<EOF`` that lives *inside* quotes simply has no
+# matching terminator line and is left alone (see conservative fallback).
+#
+# Conservative fallback (anti-false-negative): if no terminator line is
+# found, we do NOT blank anything. A real ``bd close`` slipping through
+# (false negative — a bead closed without judges) is strictly worse than
+# a spurious block (false positive — a mild annoyance), so when in doubt
+# we leave the text scannable.
+_HEREDOC_OPENER_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
+
+
+def _find_heredoc_terminator(
+    command: str, start: int, delim: str, dash: bool
+) -> int | None:
+    """Return the offset of the terminator line for a heredoc, or None.
+
+    Scans line-by-line from ``start``; a line equal to ``delim`` ends the
+    body. With ``<<-`` (``dash``), leading tabs on the terminator are
+    stripped before comparison, matching shell semantics.
+    """
+    pos = start
+    while pos <= len(command):
+        nl = command.find("\n", pos)
+        line_end = nl if nl != -1 else len(command)
+        line = command[pos:line_end]
+        candidate = line.lstrip("\t") if dash else line
+        if candidate == delim:
+            return pos
+        if nl == -1:
+            return None
+        pos = nl + 1
+    return None
+
+
+def _blank_heredocs(command: str) -> str:
+    """Blank heredoc bodies with equal-length whitespace (newlines kept).
+
+    Runs before :func:`_blank_quoted`. Only blanks a body when a matching
+    terminator line is found; otherwise leaves the text untouched so a
+    genuine ``bd close`` can never hide behind a malformed heredoc.
+    """
+    if "<<" not in command:
+        return command
+    result = list(command)
+    for opener in _HEREDOC_OPENER_RE.finditer(command):
+        dash = command[opener.start() + 2 : opener.start() + 3] == "-"
+        delim = opener.group(2)
+        nl = command.find("\n", opener.end())
+        if nl == -1:
+            continue  # single-line: no body to blank
+        body_start = nl + 1
+        term_start = _find_heredoc_terminator(command, body_start, delim, dash)
+        if term_start is None:
+            continue  # conservative: no terminator → leave scannable
+        for i in range(body_start, term_start):
+            if result[i] != "\n":
+                result[i] = " "
+    return "".join(result)
 
 
 # ---------------------------------------------------------------------------
@@ -160,16 +254,22 @@ def detect_premature_close(command: str) -> CloseGuardMatch | None:
     if "bd" not in command:
         return None
 
-    # Blank out quoted string literals first so text inside an argument
-    # (e.g. a multi-line git commit message that happens to start a line
-    # with "bd close") can never be mistaken for a real command at a
-    # boundary. Real, unquoted invocations are unaffected. See
-    # ``bead_chain-21d`` for the re.MULTILINE false-positive this guards.
+    # Blank out heredoc bodies first (``bead_chain-khg``): their literal
+    # text isn't quoted, so a ``bd close`` line inside ``<<EOF ... EOF``
+    # would otherwise look like a fresh command at a newline boundary.
     #
-    # Then blank text-consuming flag arguments (--append-notes, -m, etc.)
-    # to handle the case where quotes were stripped before the hook
+    # Then blank quoted string literals so text inside an argument
+    # (e.g. a multi-line git commit message that happens to start a line
+    # with "bd close", or an ANSI-C ``$'...'`` literal) can never be
+    # mistaken for a real command at a boundary. Real, unquoted
+    # invocations are unaffected. See ``bead_chain-21d`` for the
+    # re.MULTILINE false-positive this guards, and ``bead_chain-khg``
+    # for the ANSI-C / heredoc edge cases.
+    #
+    # Finally blank text-consuming flag arguments (--append-notes, -m,
+    # etc.) to handle the case where quotes were stripped before the hook
     # received the command (``bead_chain-4hy``).
-    scannable = _blank_flag_args(_blank_quoted(command))
+    scannable = _blank_flag_args(_blank_quoted(_blank_heredocs(command)))
 
     if _BD_CLOSE_RE.search(scannable):
         return CloseGuardMatch(
