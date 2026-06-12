@@ -500,6 +500,14 @@ def pick_next_bead(
 
     Raises :class:`BeadsError` on infrastructure failure so the caller
     can stop the chain cleanly.
+
+    .. note:: **Pick-then-activate race (bead_chain-hvi).** The bead this
+       returns is read from the ready queue, not yet claimed. Another
+       agent can claim it in the window before
+       :func:`activate_next_bead` calls ``claim()``. That race is a known,
+       accepted limitation; see the ``KNOWN RACE`` comment at the
+       ``claim()`` call site for the window, the BeadsError mitigation,
+       and why a distributed lock is not warranted.
     """
     workable = _unblocked_strands()
     if workable:
@@ -725,6 +733,34 @@ def activate_next_bead(
     ensure_epic_in_progress(bead)
 
     if not recovery:
+        # KNOWN RACE — pick-then-activate (bead_chain-hvi):
+        # There is an unavoidable window between pick_next_bead() reading
+        # the ready queue (`bd ready` / `bd list`) and this claim() call
+        # flipping the bead to in_progress. In that gap a *different* agent
+        # — another bead-chain on another machine, a human in the bd UI,
+        # CI — can claim the very same bead. pick/claim is read-then-write,
+        # not a single atomic compare-and-swap, so two drivers can both see
+        # the bead "ready" and race for it.
+        #
+        # MITIGATION (sufficient, by design): the claim is the serializing
+        # point. bd's `update --claim` is atomic at the database layer, so
+        # at most one racer wins; the loser's claim() raises BeadsError
+        # (the bead is no longer claimable in the state it expected). We
+        # catch that here, warn, and stop the chain cleanly rather than
+        # double-driving a bead someone else owns. No work is lost or
+        # duplicated — the winner drives it, the loser backs off. Worst
+        # case is one wasted `bd ready` + `bd show` round-trip on the loser.
+        #
+        # WHY NO DISTRIBUTED LOCK: closing the window entirely would need a
+        # cross-process/cross-machine lock (lease, advisory lock, CAS token)
+        # spanning pick→claim. That's a large amount of distributed-systems
+        # machinery (lock store, lease renewal, crash-recovery for orphaned
+        # locks) to defend against a sub-second window whose only failure
+        # mode is already handled gracefully by the claim-fails-→-stop path.
+        # The race is rare (it requires two drivers targeting the same bead
+        # in the same instant), self-healing (the loser simply stops), and
+        # harmless (no corruption). YAGNI: the atomic claim *is* the lock we
+        # need; a second locking layer would be redundant complexity.
         try:
             claim(bead_id)
         except BeadsError as exc:
