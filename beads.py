@@ -9,12 +9,23 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import time
 from typing import Any
 
 DEFAULT_TIMEOUT = 30.0
 DEFAULT_BD_BIN = "bd"
+
+# Bead ids are attacker-reachable strings: they come from bd's own JSON
+# output, but bead-chain also accepts them from CLI args and recovery
+# flows where a crafted value could slip through. List-form
+# ``subprocess.run`` already blocks *shell* injection, but a value
+# bristling with flags/whitespace/dashes can still confuse bd's own
+# argument parser. We pin ids to the shape bd actually emits and reject
+# anything else loudly. See :func:`_validate_bead_id`.
+_BEAD_ID_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
 # Retry policy for transient `bd` timeouts.
 #
@@ -232,16 +243,94 @@ _PARENT_EPIC_FALLBACK_KEYS: tuple[str, ...] = ("parent_id", "epic_id")
 
 
 def _bd_bin() -> str:
-    """Return the ``bd`` executable to invoke.
+    """Return the validated ``bd`` executable path to invoke.
 
     Honors the ``BEADS_BIN`` environment variable so users with a
     non-standard install location can override the default ``bd``
     lookup on ``PATH``. An unset or empty value falls back to ``bd``.
+
+    Security: ``BEADS_BIN`` is an attacker-reachable env var — anyone
+    who can set it could otherwise redirect *every* bd call to an
+    arbitrary binary. Before trusting it we:
+
+      1. resolve it to an absolute path (via ``PATH`` if it's a bare
+         command name, else from the given path), and
+      2. verify the resolved target is a real, executable file.
+
+    A bad override raises :class:`BeadsError` with a clear message
+    rather than silently exec'ing junk or falling back. The unset case
+    is *not* validated here — bd-on-PATH is resolved by ``subprocess``
+    itself and a missing bd already surfaces a clear error in
+    :func:`_run_bd`.
     """
     override = os.environ.get("BEADS_BIN")
-    if override:
-        return override
-    return DEFAULT_BD_BIN
+    if not override:
+        return DEFAULT_BD_BIN
+    return _validate_beads_bin(override)
+
+
+def _validate_beads_bin(override: str) -> str:
+    """Resolve + verify a ``BEADS_BIN`` override to an absolute executable.
+
+    Accepts either a bare command name (resolved via ``PATH``) or a
+    path (resolved to absolute). Raises :class:`BeadsError` if the
+    target can't be found or isn't an executable file.
+    """
+    # A bare name (no path separator) is resolved against PATH so
+    # `BEADS_BIN=bd-dev` keeps working like a normal command lookup.
+    if os.sep in override or (os.altsep and os.altsep in override):
+        resolved = os.path.abspath(os.path.expanduser(override))
+    else:
+        found = shutil.which(override)
+        if found is None:
+            raise BeadsError(
+                f"BEADS_BIN={override!r} not found on PATH "
+                "(set it to an absolute path or an executable on PATH)"
+            )
+        resolved = os.path.abspath(found)
+
+    if not os.path.isfile(resolved):
+        raise BeadsError(
+            f"BEADS_BIN={override!r} (resolved to {resolved!r}) is not a file"
+        )
+    if not os.access(resolved, os.X_OK):
+        raise BeadsError(
+            f"BEADS_BIN={override!r} (resolved to {resolved!r}) is not executable"
+        )
+    return resolved
+
+
+def _validate_bead_id(bead_id: str) -> str:
+    """Return ``bead_id`` unchanged if it matches the safe-id shape.
+
+    Bead ids are passed straight to the ``bd`` binary as subprocess
+    args. List-form ``subprocess.run`` stops shell injection, but a
+    crafted id (leading dash → looks like a flag; whitespace, NUL,
+    shell metachars) can still confuse bd's own argument parsing. We
+    accept only the shape bd actually emits — ``[a-zA-Z0-9_.-]`` — and
+    raise :class:`BeadsError` on anything else instead of failing
+    silently downstream.
+
+    Empty ids are rejected here: the public entry points already short
+    -circuit falsy ids *before* calling this, so reaching it with an
+    empty string is a programming error worth surfacing.
+
+    A leading ``-`` is rejected even though the regex char class allows
+    it mid-id: an id like ``--force`` matches ``[a-zA-Z0-9_.-]+`` but
+    bd would parse it as a *flag*, not an id — the exact argument-
+    confusion this guard exists to stop.
+    """
+    if not isinstance(bead_id, str) or not _BEAD_ID_RE.match(bead_id):
+        raise BeadsError(
+            f"invalid bead id {bead_id!r}: must match {_BEAD_ID_RE.pattern} "
+            "(letters, digits, '_', '.', '-')"
+        )
+    if bead_id.startswith("-"):
+        raise BeadsError(
+            f"invalid bead id {bead_id!r}: must not start with '-' "
+            "(bd would read it as a flag, not an id)"
+        )
+    return bead_id
 
 
 class BeadsError(RuntimeError):
@@ -448,6 +537,7 @@ def next_ready_in_epic(epic_id: str) -> dict[str, Any] | None:
     """
     if not epic_id:
         return None
+    _validate_bead_id(epic_id)
     raw = _run_bd("ready", f"--parent={epic_id}", _exclude_type_arg(), "--json")
     items = _parse_json_list(raw, f"bd ready --parent={epic_id} --json")
     # Client-side epic filter as well — see :func:`next_ready` for why.
@@ -483,6 +573,7 @@ def has_open_children(parent_id: str) -> bool:
     """
     if not parent_id:
         return False
+    _validate_bead_id(parent_id)
     try:
         raw = _run_bd("list", f"--parent={parent_id}", "--json")
         children = _parse_json_list(raw, f"bd list --parent={parent_id} --json")
@@ -560,6 +651,7 @@ def open_blocker_ids(bead_id: str) -> list[str]:
     """
     if not bead_id:
         return []
+    _validate_bead_id(bead_id)
     try:
         bead = show(bead_id)
     except BeadsError:
@@ -624,6 +716,7 @@ def is_pinned(bead_id: str) -> bool:
     """
     if not bead_id:
         return False
+    _validate_bead_id(bead_id)
     try:
         bead = show(bead_id)
     except BeadsError:
@@ -694,6 +787,7 @@ def show(bead_id: str) -> dict[str, Any] | None:
     """
     if not bead_id:
         return None
+    _validate_bead_id(bead_id)
     raw = _run_bd("show", bead_id, "--json").strip()
     if not raw:
         return None
@@ -773,6 +867,7 @@ def memories() -> dict[str, str]:
 
 def claim(bead_id: str) -> None:
     """Claim a bead as in-progress for the current actor."""
+    _validate_bead_id(bead_id)
     _run_bd("update", bead_id, "--claim")
 
 
@@ -794,11 +889,13 @@ def revert_to_open(bead_id: str) -> None:
     :class:`BeadsError` on infrastructure failure so callers can decide
     whether to soft-fail or escalate.
     """
+    _validate_bead_id(bead_id)
     _run_bd("update", bead_id, "--status=open")
 
 
 def close(bead_id: str, *, reason: str | None = None) -> None:
     """Close a bead with an optional reason note."""
+    _validate_bead_id(bead_id)
     args = ["close", bead_id]
     if reason:
         args.extend(["--reason", reason])
@@ -1082,6 +1179,7 @@ def lint_warnings(bead_id: str) -> list[str]:
     ``[]`` rather than raising: a courtesy lint shouldn't halt the
     chain over a log-format quirk.
     """
+    _validate_bead_id(bead_id)
     raw = _run_bd("lint", bead_id, "--status", "all", "--json")
     return _parse_lint_missing(raw, bead_id)
 
