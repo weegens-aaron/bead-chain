@@ -222,35 +222,18 @@ def is_excluded_type(bead: dict[str, Any] | None) -> bool:
     return issue_type in EXCLUDED_TYPES
 
 
-# Dependency-edge types that mean "this bead is blocked until the other
-# one closes". bd uses the literal string ``"blocks"`` for both sides of
-# the edge (it's the edge type, not a perspective) — see repo memory
-# 'dep-edge-direction'. From a bead's *inbound* ``dependencies`` list a
-# ``blocks`` entry reads as "X blocks me", i.e. a work-time blocker.
-#
-#   * 'blocks'    — the canonical hard work-time block.
-#   * 'waits-for' — a *generic* fan-out/aggregation edge created by
-#     ``bd dep add B A --type=waits-for`` (or ``--waits-for=A``). It
-#     lands in the inbound ``dependencies`` array with
-#     ``dependency_type == "waits-for"`` and gates work exactly like
-#     ``blocks`` does. ``bd ready`` honours it server-side, but the
-#     recovery tier (which reads ``bd list --status=in_progress``,
-#     bypassing the ready frontier) did not — so a stranded in_progress
-#     bead re-gated by a generic ``waits-for`` would be re-driven, the
-#     same bdboard-oals failure class as a re-opened ``blocks`` edge
-#     (FB-10). NOTE: the molecule ``waits_for: children-of(...)`` *field*
-#     gate is a different mechanism (a marker, not an inbound edge) and
-#     is handled separately by
-#     :func:`lifecycle._has_fan_out_gate_issue`; the two don't overlap.
-#
-# ``parent-child`` / ``discovered-from`` / ``related`` edges do NOT gate
-# work, so they are deliberately excluded. Tuple-constant so adding a
-# future blocking edge type (e.g. ``"requires"``) stays a one-line edit.
+# Inbound dependency-edge types that gate work until the other bead
+# closes. ``blocks`` is the canonical hard block; ``waits-for`` is the
+# generic fan-out edge, which gates identically. ``parent-child`` /
+# ``discovered-from`` / ``related`` do NOT gate and are excluded. Tuple
+# so a new blocking type stays a one-line edit. (The molecule
+# ``waits_for: children-of(...)`` *field* is a different mechanism, see
+# :func:`lifecycle._has_fan_out_gate_issue`.) Rationale:
+# ``__docs/Features/WorkTimeBlockerGate.md``.
 BLOCKING_DEP_TYPES: tuple[str, ...] = ("blocks", "waits-for")
 
-# Statuses that mean a blocker is *satisfied* (no longer gates work).
-# Only a closed blocker is satisfied; open / in_progress / blocked all
-# still gate. Case-insensitive comparison, see :func:`open_blocker_ids`.
+# A blocker is satisfied only once closed (open / in_progress / blocked
+# all still gate). Compared case-insensitively in :func:`open_blocker_ids`.
 SATISFIED_BLOCKER_STATUSES: frozenset[str] = frozenset({"closed"})
 
 
@@ -261,24 +244,14 @@ IN_PROGRESS_STATUS: str = "in_progress"
 HOOKED_STATUS: str = "hooked"
 PINNED_STATUS: str = "pinned"
 
-# Statuses that represent *stranded in-flight work* the chain must be
-# able to recover (FB-12 / lifecycle#2). bd's ``wip`` category rolls up
-# ``in_progress``, ``blocked`` and ``hooked``; a bead flipped to
-# ``hooked`` by another agent/tool *after* bead-chain claimed it is real
-# partial work that would otherwise be invisible to BOTH ``bd ready``
-# (hooked is out of the ready frontier) AND the recovery tier (which
-# historically only queried ``--status=in_progress``) — so it never gets
-# resumed. We deliberately DO NOT include the frozen states here:
-#
-#   * ``blocked`` — bead-chain models blockedness via the ``blocks``
-#     edge graph (see :func:`open_blocker_ids`), never the status; a
-#     blocked strand is reverted to open, not recovered.
-#   * ``pinned`` / ``deferred`` (frozen) — a human deliberately parked
-#     these "out of the queue". Auto-recovering one would fight that
-#     intent and risk a re-pick loop. ``pinned`` is instead handled at
-#     close-time (see :func:`is_pinned`) so it can't *halt* the chain.
-#
-# One-tuple-edit to widen, mirroring :data:`EXCLUDED_TYPES`. DRY.
+# Statuses for *stranded in-flight work* the chain must recover:
+# ``in_progress`` plus ``hooked`` (real partial work another tool flipped
+# after we claimed it, invisible to both ``bd ready`` and an
+# in_progress-only query). Frozen states are deliberately excluded —
+# ``blocked`` is modelled via the edge graph (reverted, not recovered)
+# and ``pinned`` / ``deferred`` are human-parked (``pinned`` handled at
+# close-time, see :func:`is_pinned`). Full rationale:
+# ``__docs/Flows/StrandedBeadRecovery.md``.
 RECOVERABLE_STATUSES: tuple[str, ...] = (IN_PROGRESS_STATUS, HOOKED_STATUS)
 
 
@@ -707,50 +680,21 @@ def extract_parent_epic_id(bead: dict[str, Any] | None) -> str | None:
 def open_blocker_ids(bead_id: str, bead: dict[str, Any] | None = None) -> list[str]:
     """Return the ids of ``bead_id``'s **open** work-time blockers.
 
-    An empty list means the bead is *ready to work* (no unresolved
-    work-time dependencies). A non-empty list names the still-open
-    issues that gate it — exactly the set ``bd close`` would later
-    refuse on.
+    Empty list ⇒ ready to work; a non-empty list names the still-open
+    issues ``bd close`` would later refuse on. Counts every inbound edge
+    whose ``dependency_type`` is in :data:`BLOCKING_DEP_TYPES` and whose
+    status is not in :data:`SATISFIED_BLOCKER_STATUSES`. Re-fetches via
+    :func:`show` because only ``bd show --json`` carries each dep's
+    *status* + *dependency_type*; pass an already-fetched record as
+    ``bead`` to skip the redundant spawn.
 
-    This function checks every inbound edge whose ``dependency_type`` is
-    in :data:`BLOCKING_DEP_TYPES` — today ``blocks`` and the generic
-    ``waits-for`` edge (``bd dep add B A --type=waits-for``). Both gate
-    work the same way and ``bd ready`` honours both server-side; mirroring
-    them here keeps the recovery tier honest when it bypasses ``bd ready``
-    (FB-10). The molecule fan-out gate (``waits_for: children-of(...)``
-    *field*, not an inbound edge) is a different mechanism, checked
-    separately in :func:`lifecycle._has_fan_out_gate_issue` and integrated
-    into :func:`lifecycle.activate_next_bead`.
+    Soft-fails to ``[]`` on any bd blip — a transient failure must not
+    strand the chain; the close-guard is the final net.
 
-    Why this exists
-    ---------------
-    ``bd ready`` already filters blocked beads server-side, but two
-    chain paths bypass it and can therefore surface a blocked bead:
-
-      1. The **recovery tier** reads ``bd list --status=in_progress``,
-         which does NOT honour the ready frontier. A bead claimed while
-         ready, then re-blocked (blocker reopened, or a ``blocks`` edge
-         wired after the claim), would be re-driven to completion and
-         only trip at ``bd close`` — the exact bug in bdboard-oals.
-      2. **bd version drift.** Same defence-in-depth rationale as the
-         epic ``--exclude-type`` filter: if a future ``bd ready`` ever
-         leaked a blocked bead, we still refuse to drive it.
-
-    We re-fetch via :func:`show` because only ``bd show <id> --json``
-    carries each dependency's *status* + *dependency_type*; the
-    ``dependencies`` array on ``bd ready`` / ``bd list`` output is a
-    list of bare edge records (no status), so it can't tell us whether
-    a blocker is still open.
-
-    Call consolidation (bead_chain-lqf): callers that have *already*
-    fetched the full ``bd show`` record this activation pass may pass it
-    as ``bead`` to skip a redundant subprocess spawn. When omitted we
-    fetch it ourselves, preserving the original single-arg contract and
-    the fresh-read semantics every other caller relies on.
-
-    Soft-fails to ``[]`` (treat as not-blocked) on any infrastructure
-    error: a transient bd blip must not strand the chain, and the
-    close-time guard remains as the final safety net.
+    Why it exists (recovery/version-drift defence-in-depth) and the
+    distinction from the molecule fan-out-gate field:
+    see ``__docs/Flows/StrandedBeadRecovery.md`` and
+    ``__docs/Flows/BeadClaimAndBlockerRecheck.md``.
     """
     if not bead_id:
         return []
