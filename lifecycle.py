@@ -28,7 +28,7 @@ from code_puppy.messaging import (
 )
 from code_puppy.plugins.wiggum import state as wiggum_state
 
-from . import beads, state
+from . import state
 from .beads import (
     BeadsError,
     RECOVERABLE_STATUSES,
@@ -38,6 +38,7 @@ from .beads import (
     close_eligible_epics,
     extract_parent_epic_id,
     has_epic_in_progress,
+    has_open_children,
     is_excluded_type,
     is_pinned,
     list_recoverable_strands,
@@ -779,17 +780,8 @@ def _has_fan_out_gate_issue(bead_id: str) -> bool:
     if not spawner:
         return False
 
-    # Find children with parent=spawner_id and status != closed
-    try:
-        raw = beads._run_bd("list", "--json")
-        all_issues = beads._parse_json_list(raw, "bd list --json")
-        for issue in all_issues:
-            if isinstance(issue, dict) and issue.get("parent") == spawner_id:
-                if issue.get("status", "").lower() != "closed":
-                    # Found an unclosed child; gate is unsatisfied
-                    return True
-    except BeadsError:
-        # Can't determine; assume gate is satisfied
-        pass
-
-    return False
+    # Gate is unsatisfied iff the spawner still has an unclosed child.
+    # ``has_open_children`` scopes the query to this one spawner
+    # (``bd list --parent=<id>``) instead of scanning the whole database,
+    # and soft-fails to False (gate satisfied) on infrastructure error.
+    return has_open_children(spawner_id)

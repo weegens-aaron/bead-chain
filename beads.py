@@ -457,6 +457,49 @@ def next_ready_in_epic(epic_id: str) -> dict[str, Any] | None:
     return None
 
 
+def has_open_children(parent_id: str) -> bool:
+    """True if ``parent_id`` has at least one direct child that isn't closed.
+
+    Scopes the query with ``bd list --parent=<parent_id> --json`` so only
+    that parent's children are fetched — never the whole issue database.
+    This is the public entry point backing the molecule fan-out gate check
+    in :func:`lifecycle._has_fan_out_gate_issue`: a ``waits_for:
+    children-of(spawner)`` field is satisfied only once *every* child of
+    the spawner is closed, so a single still-open child means the gate is
+    unsatisfied.
+
+    Why a scoped query
+    ------------------
+    The earlier implementation fetched the *entire* issue database
+    (``bd list --json`` with no filter) and scanned it client-side for
+    children of one spawner — O(total issues) work to answer a question
+    about one parent's handful of children. On a project with thousands
+    of beads that's needlessly slow and memory-hungry. ``--parent=<id>``
+    pushes the filter server-side, matching bd's own ``--parent`` filter
+    used by :func:`next_ready_in_epic`.
+
+    Soft-fails to ``False`` (treat the gate as satisfied) on any
+    infrastructure error, mirroring the rest of the gate-detection path.
+    """
+    if not parent_id:
+        return False
+    try:
+        raw = _run_bd("list", f"--parent={parent_id}", "--json")
+        children = _parse_json_list(raw, f"bd list --parent={parent_id} --json")
+    except BeadsError:
+        return False
+    for child in children:
+        if not isinstance(child, dict):
+            continue
+        # Defence-in-depth: trust the server-side ``--parent`` filter but
+        # re-assert it client-side in case a future bd loosens the match.
+        if child.get("parent") != parent_id:
+            continue
+        if child.get("status", "").lower() != "closed":
+            return True
+    return False
+
+
 def extract_parent_epic_id(bead: dict[str, Any] | None) -> str | None:
     """Return the parent epic id of ``bead`` if discoverable, else ``None``.
 

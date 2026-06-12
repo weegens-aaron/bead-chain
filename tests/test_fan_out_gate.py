@@ -265,6 +265,41 @@ def test_gate_unblock_transition():
     assert lifecycle._has_fan_out_gate_issue("finalize") is False
 
 
+def test_gate_check_uses_scoped_parent_query():
+    """Regression (bead_chain-ygs): the gate check must scope its query.
+
+    The old implementation fetched the ENTIRE issue database
+    (``bd list --json`` with no filter) and scanned it client-side —
+    O(total issues) work to answer a question about one spawner's
+    children. The fix routes through ``beads.has_open_children``, which
+    issues a ``bd list --parent=<spawner> --json`` so the filter happens
+    server-side. This locks in that contract by asserting the argv.
+    """
+    captured: list[tuple[str, ...]] = []
+
+    def mock_run_bd(*args, **kwargs):  # noqa: ARG001
+        captured.append(args)
+        import json
+
+        return json.dumps(
+            [{"id": "discover.1", "parent": "discover", "status": "open"}]
+        )
+
+    def mock_parse_json(raw, context):  # noqa: ARG001
+        import json
+
+        return json.loads(raw)
+
+    _patch_show({"id": "finalize", "waits_for": "children-of(discover)"})
+    beads._run_bd = mock_run_bd  # type: ignore[assignment]
+    beads._parse_json_list = mock_parse_json  # type: ignore[assignment]
+
+    assert lifecycle._has_fan_out_gate_issue("finalize") is True
+    # Exactly one bd query, and it is the SCOPED parent filter — never a
+    # bare ``bd list --json`` full-database scan.
+    assert captured == [("list", "--parent=discover", "--json")]
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
