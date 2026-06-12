@@ -39,6 +39,36 @@ Prefer the browser?
 
 The zip contains a single top-level `bead_chain/` folder, so every path above results in `…/plugins/bead_chain/…` — extract, don't nest.
 
+### Verify your download (optional but recommended)
+
+Every release publishes a `bead-chain.zip.sha256` asset next to the zip. Verifying it confirms the download is the exact artifact the maintainer built — a quick guard against a corrupted or tampered file. **This is optional**: the install one-liners above work fine on their own. If you skip it, nothing breaks.
+
+#### macOS / Linux (bash/zsh)
+
+After running the install one-liner (which leaves the zip at `/tmp/bead-chain.zip`):
+
+```bash
+curl -fsSL https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip.sha256 -o /tmp/bead-chain.zip.sha256
+( cd /tmp && shasum -a 256 -c bead-chain.zip.sha256 )   # prints "bead-chain.zip: OK"
+```
+
+(`sha256sum -c bead-chain.zip.sha256` works too on distros that ship `sha256sum` instead of `shasum`.)
+
+#### Windows (PowerShell)
+
+After running the install one-liner (which leaves the zip at `$env:TEMP\bead-chain.zip`):
+
+```powershell
+Invoke-WebRequest -Uri https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip.sha256 -OutFile $env:TEMP\bead-chain.zip.sha256
+$expected = (Get-Content $env:TEMP\bead-chain.zip.sha256).Split(' ')[0]
+$actual   = (Get-FileHash $env:TEMP\bead-chain.zip -Algorithm SHA256).Hash
+if ($actual -eq $expected) { "OK: checksum matches" } else { Write-Error "CHECKSUM MISMATCH — do not install" }
+```
+
+(`-eq` is case-insensitive in PowerShell, so the uppercase `Get-FileHash` output matches the lowercase published hash.)
+
+If verification fails, **don't install** — re-download or report it.
+
 ### Upgrade / Uninstall
 
 | Action | macOS / Linux | Windows (PowerShell) |
