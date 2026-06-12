@@ -352,11 +352,7 @@ def test_real_status_closed_chained_after_notes_still_detected():
 def _restore_state():
     """Leave the shared chain singleton pristine for the next module."""
     yield
-    s = state.get_state()
-    s.active = False
-    s.current_bead = None
-    s.completed_count = 0
-    s.max_iterations = None
+    state.reset()
 
 
 @pytest.fixture

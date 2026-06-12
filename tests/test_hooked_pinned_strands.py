@@ -208,11 +208,7 @@ import pytest  # noqa: E402
 def _restore_state():
     """Leave the shared chain singleton pristine for the next module."""
     yield
-    s = state.get_state()
-    s.active = False
-    s.current_bead = None
-    s.completed_count = 0
-    s.max_iterations = None
+    state.reset()
 
 
 def _bead(bead_id: str, **extra) -> dict:

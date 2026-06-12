@@ -41,9 +41,7 @@ def _fresh_state():
     s.completed_count = 0
     s.max_iterations = None
     yield
-    s.active = False
-    s.current_bead = None
-    s.max_iterations = None
+    state.reset()
 
 
 def _stub_activation_surface(monkeypatch):

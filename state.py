@@ -2,6 +2,17 @@
 
 Mirrors wiggum's tiny-singleton pattern. Behavior lives in
 ``register_callbacks.py`` — this module is a dumb data box.
+
+Thread-safety (known limitation)
+--------------------------------
+The singleton is **not** thread-safe: ``_STATE`` is a bare module-level
+instance with no lock around its mutators. This is deliberate and safe in
+practice — bead-chain's three coordinating hooks (command / turn-end /
+turn-cancel) all fire on code_puppy's single interactive event loop, never
+concurrently, so there is no contended writer. If bead-chain ever grows a
+background/worker thread that mutates state, this box must gain a lock (or
+move to per-run dependency injection). Until then, a lock would be pure
+YAGNI ceremony.
 """
 
 from __future__ import annotations
@@ -13,6 +24,7 @@ __all__ = [
     "BeadChainState",
     "get_state",
     "is_active",
+    "reset",
     "start",
     "stop",
 ]
@@ -67,6 +79,25 @@ class BeadChainState:
         self.completed_count += 1
         return self.completed_count
 
+    def reset(self) -> None:
+        """Return this box to its just-constructed state (factory reset).
+
+        This exists primarily for **test isolation**: because the module
+        owns a single process-wide ``_STATE``, mutations leak between
+        tests unless something puts it back to defaults. A teardown
+        fixture calling ``get_state().reset()`` guarantees the next test
+        starts pristine.
+
+        Unlike :meth:`stop` (which disengages the chain but deliberately
+        *preserves* ``completed_count`` so the end-of-run rollup can read
+        the final tally), ``reset`` also zeroes the tally — it is a full
+        factory reset, not a chain disengage. Keep the two distinct.
+        """
+        self.active = False
+        self.current_bead = None
+        self.completed_count = 0
+        self.max_iterations = None
+
 
 _STATE = BeadChainState()
 
@@ -85,3 +116,8 @@ def start() -> None:
 
 def stop() -> None:
     _STATE.stop()
+
+
+def reset() -> None:
+    """Factory-reset the singleton. Thin shortcut for test teardown."""
+    _STATE.reset()
