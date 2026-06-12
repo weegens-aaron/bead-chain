@@ -27,8 +27,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd)"
 cd "${REPO_ROOT}"
 
-# --- The allowlist (ADR 0002: SHIP = 8 runtime .py files + README.md). ------
-#     Anything not named here is excluded by construction (fail-closed).
+# --- The allowlist (ADR 0002: SHIP = 8 runtime .py files + README.md +
+#     LICENSE). Anything not named here is excluded by construction
+#     (fail-closed). LICENSE ships so the MIT terms travel with the artifact
+#     (bead_chain-aij).
 ALLOWLIST=(
   "__init__.py"
   "beads.py"
@@ -39,6 +41,7 @@ ALLOWLIST=(
   "register_callbacks.py"
   "state.py"
   "README.md"
+  "LICENSE"
 )
 
 PKG_NAME="bead_chain"
