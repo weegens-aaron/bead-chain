@@ -357,8 +357,19 @@ async def _on_interactive_turn_end(
     return activate_next_bead(just_closed)
 
 
-def _on_interactive_turn_cancel(prompt: str, *, reason: str = "cancelled") -> None:
+async def _on_interactive_turn_cancel(
+    prompt: str, *, reason: str = "cancelled"
+) -> None:
     """Bow out on Ctrl+C; leave the in-flight bead in_progress for recovery.
+
+    Declared ``async`` to match its sibling :func:`_on_interactive_turn_end`
+    and the host's async dispatch contract: ``on_interactive_turn_cancel``
+    (code_puppy/callbacks.py) is an ``async`` invoker that calls each
+    callback and ``await``s the result iff it's a coroutine. A plain ``def``
+    works today only because the dispatcher tolerates sync callbacks; making
+    this ``async`` removes that latent coupling so the two interactive-turn
+    hooks present one consistent contract. The body stays fully synchronous
+    (no ``await``) — there's no I/O to suspend on.
 
     The bead stays **in_progress** deliberately. The next ``/bead-chain``
     run hits the recovery tier first (:func:`pick_next_bead` tier 0) and
