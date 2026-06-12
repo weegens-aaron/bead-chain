@@ -86,6 +86,8 @@ from .lifecycle import (
 )
 from .prompt import format_bead_as_goal
 
+__all__ = ["handle_bead_chain_command"]
+
 # ---------------------------------------------------------------------------
 # Lazy hook registration
 # ---------------------------------------------------------------------------

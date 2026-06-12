@@ -23,6 +23,12 @@ from code_puppy.messaging import emit_warning
 
 from . import state
 
+__all__ = [
+    "CloseGuardMatch",
+    "detect_premature_close",
+    "on_run_shell_command",
+]
+
 
 @dataclass(frozen=True)
 class CloseGuardMatch:

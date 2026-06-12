@@ -56,6 +56,11 @@ from code_puppy.messaging import emit_warning
 
 from .beads import BeadsError, show
 
+__all__ = [
+    "extract_execution_hints",
+    "apply_execution_hints",
+]
+
 # Recognized ``execution_*`` keys → (config setter attribute, human label).
 #
 # Setters are stored by *name* and resolved via ``getattr(config, name)``
@@ -194,7 +199,16 @@ def apply_execution_hints(bead: dict[str, Any] | None) -> list[str]:
             continue
         try:
             setter(value)
-        except Exception as exc:  # noqa: BLE001 - soft-fail per hint, never strand the chain
+        except (KeyError, ValueError, OSError) as exc:
+            # Soft-fail per hint, never strand the chain. We catch only the
+            # exceptions a setter legitimately raises for a bad/unusable
+            # value or a config-persistence failure:
+            #   * ValueError  — value-rejected (e.g. invalid reasoning effort),
+            #   * KeyError    — unknown key in a setter's lookup table,
+            #   * OSError     — config-file write failed (set_model_name et al).
+            # Programming errors (TypeError, AttributeError, ...) are NOT
+            # caught — they signal a bug in the contract, not a bad hint, and
+            # should surface loudly rather than be silently swallowed.
             emit_warning(
                 f" bead-chain: ignoring {key}={value!r} — couldn't set {label}: {exc}"
             )

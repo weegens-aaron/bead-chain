@@ -15,6 +15,53 @@ import subprocess
 import time
 from typing import Any
 
+__all__ = [
+    # Exception
+    "BeadsError",
+    # Bead classification predicates
+    "is_recurring_epic",
+    "is_excluded_type",
+    "is_blocked",
+    "is_pinned",
+    "has_open_children",
+    "has_epic_in_progress",
+    # Queue / waterfall reads
+    "next_ready",
+    "next_in_progress",
+    "next_ready_in_epic",
+    "next_blocking_bug",
+    "list_in_progress",
+    "list_recoverable_strands",
+    # Bead introspection
+    "show",
+    "memories",
+    "extract_parent_epic_id",
+    "open_blocker_ids",
+    "lint_warnings",
+    # State mutations
+    "claim",
+    "revert_to_open",
+    "close",
+    # Epic / gate housekeeping
+    "close_eligible_epics",
+    "check_gates",
+    # Public configuration constants
+    "DEFAULT_TIMEOUT",
+    "DEFAULT_BD_BIN",
+    "MAX_ATTEMPTS",
+    "EXCLUDED_TYPES",
+    "RECURRING_MOL_TYPES",
+    "RECURRING_EPIC_LABELS",
+    "BLOCKING_DEP_TYPES",
+    "SATISFIED_BLOCKER_STATUSES",
+    "IN_PROGRESS_STATUS",
+    "HOOKED_STATUS",
+    "PINNED_STATUS",
+    "RECOVERABLE_STATUSES",
+    "BLOCKING_BUG_TYPES",
+    "PARENT_EPIC_KEY",
+]
+
 DEFAULT_TIMEOUT = 30.0
 DEFAULT_BD_BIN = "bd"
 

@@ -16,6 +16,12 @@ from typing import Any
 
 from .beads import BeadsError, extract_parent_epic_id, lint_warnings, memories, show
 
+__all__ = [
+    "format_bead_as_goal",
+    "is_triaged_bug",
+    "TRIAGE_MARKER",
+]
+
 # Char cap for the epic-description excerpt injected into the goal prompt.
 # Big enough to convey purpose, small enough that ten chained beads under
 # the same epic don't blow the LLM's context budget on duplicate prose.

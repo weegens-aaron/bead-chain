@@ -9,6 +9,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+__all__ = [
+    "BeadChainState",
+    "get_state",
+    "is_active",
+    "start",
+    "stop",
+]
+
 
 @dataclass
 class BeadChainState:

@@ -52,6 +52,17 @@ from .beads import (
 from .execution_hints import apply_execution_hints
 from .prompt import format_bead_as_goal
 
+__all__ = [
+    "is_recovery_bead",
+    "enforce_single_in_progress",
+    "close_current_bead_success",
+    "rollup_completed_epics",
+    "probe_resolved_gates",
+    "ensure_epic_in_progress",
+    "pick_next_bead",
+    "activate_next_bead",
+]
+
 # Statuses that mark a picked bead as *already in flight* — i.e. residue
 # from a prior run that crashed/cancelled before the LLM judges could
 # rule. A bead in any of these was claimed (or hooked) but not closed,
