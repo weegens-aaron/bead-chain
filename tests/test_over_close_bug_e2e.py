@@ -71,11 +71,19 @@ def statuses(cwd: str) -> dict[str, Any]:
 
 def test_over_close_e2e() -> None:
     """E2E regression test for bead_chain-tfn: unrelated beads aren't over-closed."""
-    # Ensure we're using the real _run_bd, not a mock from earlier tests.
-    # (The mock tests don't properly restore the original function.)
-    import importlib
-
-    importlib.reload(beads)  # type: ignore[attr-defined]
+    # We rely on the real ``_run_bd`` here, not a mock left behind by an
+    # earlier test. The autouse ``_restore_beads_module_globals`` fixture in
+    # conftest.py (bead_chain-221) already snapshots and restores
+    # ``beads._run_bd`` / ``beads._parse_json_list`` around every test, so the
+    # real implementations are guaranteed to be in place by the time this runs.
+    #
+    # We deliberately do NOT ``importlib.reload(beads)`` to achieve that:
+    # since bead_chain-7xv split the read/write halves into ``beads_reads`` /
+    # ``beads_writes`` (imported by beads.py's facade), reloading only ``beads``
+    # re-defines ``BeadsError`` to a fresh class object while the *cached*
+    # submodules keep catching the old one — so a soft-failing ``except
+    # BeadsError`` would stop matching. The conftest guard makes the reload
+    # redundant anyway.
     # Create a temporary bd workspace.
     workdir = tempfile.mkdtemp(prefix="bc_over_close_e2e_")
     sh("init", "--non-interactive", "--prefix", "test", cwd=workdir)

@@ -193,7 +193,9 @@ bead_chain/
 ├── __init__.py           # Package docstring
 ├── register_callbacks.py # Wiring: /bead-chain command, hook handlers
 ├── lifecycle.py          # State transitions: close, pick next, arm wiggum
-├── beads.py              # Subprocess wrapper around `bd` CLI
+├── beads.py              # Subprocess core for `bd` + facade re-export
+├── beads_reads.py        # Read/query waterfall (ready, list, show, blockers)
+├── beads_writes.py       # Mutations + epic/gate/lint housekeeping
 ├── prompt.py             # Bead → goal prompt formatting
 ├── close_guard.py        # Shell hook that blocks premature closes
 └── state.py              # Singleton dataclass for chain state
@@ -205,7 +207,9 @@ bead_chain/
 |--------|------|---------|
 | `register_callbacks` | Slash command, hook registration, CLI flag parsing | State transitions, bd calls |
 | `lifecycle` | Close/claim/pick logic, invariant guards | Hook registration |
-| `beads` | Shell out to `bd`, parse JSON, retry timeouts | Know about chain state |
+| `beads` | Subprocess core (`_run_bd`, retries, predicates, constants) + re-export facade for the two halves | Know about chain state |
+| `beads_reads` | Read-only `bd` queries: ready/list waterfall, `show`, memories, blocker/pin checks | Mutate bead state |
+| `beads_writes` | Mutations (`claim`/`close`/`revert`) + epic rollup, gate probe, lint warnings | Drive the ready queue |
 | `prompt` | Format goal prompts, recovery/triage preambles | Execute commands |
 | `close_guard` | Detect+block agent `bd close` attempts | Close beads itself |
 | `state` | Hold active/current_bead/completed_count | Behavior logic |

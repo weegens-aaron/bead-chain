@@ -30,13 +30,17 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd)"
 cd "${REPO_ROOT}"
 
-# --- The allowlist (ADR 0002: SHIP = 8 runtime .py files + README.md +
+# --- The allowlist (ADR 0002: SHIP = 10 runtime .py files + README.md +
 #     LICENSE). Anything not named here is excluded by construction
 #     (fail-closed). LICENSE ships so the MIT terms travel with the artifact
-#     (bead_chain-aij).
+#     (bead_chain-aij). beads_reads.py / beads_writes.py are the read/write
+#     halves split out of the once-monolithic beads.py (bead_chain-7xv) — they
+#     are imported by beads.py's facade and MUST ship or every consumer breaks.
 ALLOWLIST=(
   "__init__.py"
   "beads.py"
+  "beads_reads.py"
+  "beads_writes.py"
   "close_guard.py"
   "execution_hints.py"
   "lifecycle.py"

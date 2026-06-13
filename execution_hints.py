@@ -54,7 +54,8 @@ from typing import Any
 from code_puppy import config
 from code_puppy.messaging import emit_warning
 
-from .beads import BeadsError, show
+from .beads import BeadsError
+from .beads_reads import show
 
 __all__ = [
     "extract_execution_hints",

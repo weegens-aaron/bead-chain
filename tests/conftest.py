@@ -55,23 +55,33 @@ _register_package()
 def _restore_beads_module_globals():
     """Snapshot and restore the monkeypatchable ``beads`` module globals.
 
-    Many test modules stub ``beads._run_bd`` / ``beads._parse_json_list``
-    by direct attribute assignment (``beads._run_bd = lambda ...``) and
-    never restore the original. Without this guard a leftover stub from an
-    alphabetically-earlier module leaks into later tests that call the real
-    implementation — a test that passes in isolation then fails in the full
-    suite (see bead_chain-221).
+    Many test modules stub ``beads._run_bd`` / ``beads._parse_json_list`` /
+    ``beads.show`` by direct attribute assignment (``beads.show = lambda
+    ...``) and never restore the original. Without this guard a leftover stub
+    from an alphabetically-earlier module leaks into later tests that call the
+    real implementation — a test that passes in isolation then fails in the
+    full suite (see bead_chain-221).
 
     Snapshotting before each test and restoring afterwards keeps that
     global module state per-test isolated, and protects future test
     modules automatically without hand-patching every stub helper.
+
+    ``show`` is part of the snapshot set because of the bead_chain-7xv split:
+    ``is_pinned`` / ``open_blocker_ids`` now live in ``beads_reads`` and
+    resolve ``show`` through the live ``beads`` facade at call time, so the
+    pinned-strand tests still stub ``beads.show`` — and that stub must be
+    rolled back here. (Previously a stray ``importlib.reload(beads)`` in an
+    e2e test happened to recreate the real ``show`` and masked the leak; the
+    split made that reload unsafe, so the guard owns the cleanup outright.)
     """
     import beads
 
     saved_run_bd = beads._run_bd
     saved_parse_json_list = beads._parse_json_list
+    saved_show = beads.show
     try:
         yield
     finally:
         beads._run_bd = saved_run_bd
         beads._parse_json_list = saved_parse_json_list
+        beads.show = saved_show
