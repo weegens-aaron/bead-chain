@@ -145,7 +145,7 @@ closed-epic dicts plus log lines. The hops:
   path). In the common case (nothing recurring) the whole flow is **2** bd
   spawns: dry-run + bulk close. Every spawn goes through the single chokepoint
   `beads.py:_run_bd` and carries its retry/timeout policy
-  (`DEFAULT_TIMEOUT = 30.0`, `MAX_ATTEMPTS = 3`) — see
+  (`DEFAULT_TIMEOUT = 15.0`, `MAX_ATTEMPTS = 3`) — see
   [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md).
 - **The cascade lives server-side.** The fast path's single
   `bd epic close-eligible` does bd's full parent-chain cascade in one call, so a

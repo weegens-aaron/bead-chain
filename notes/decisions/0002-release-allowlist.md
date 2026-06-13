@@ -35,12 +35,14 @@ beads: the build script, the `.gitignore` chore, and the install docs.
 Only named paths are copied into the zip; anything not listed is, by
 construction, excluded.
 
-### SHIP — runtime allowlist (9 paths)
+### SHIP — runtime allowlist (11 paths)
 
 | Path                    | Why it ships                                            |
 | ----------------------- | ------------------------------------------------------ |
 | `__init__.py`           | Package marker for `code_puppy.plugins.bead_chain`.     |
-| `beads.py`              | `bd` subprocess transport + parsing.                    |
+| `beads.py`              | `bd` subprocess core (`_run_bd`, retries, predicates) + facade re-export. |
+| `beads_reads.py`        | Read/query waterfall split from beads.py (bead_chain-7xv). |
+| `beads_writes.py`       | Mutations + epic/gate/lint housekeeping split from beads.py (bead_chain-7xv). |
 | `close_guard.py`        | Premature-`bd close` shell-hook guard.                  |
 | `execution_hints.py`    | Per-bead execution-hint enrichment.                     |
 | `lifecycle.py`          | Chain drain / claim / rollup engine.                    |
@@ -58,7 +60,7 @@ construction, excluded.
 
 - **`skills/` is NOT plugin runtime.** It was tooling (`md-to-html`) invoked by
   `.beads` formulas to build documentation; it is not imported by any runtime
-  module. Verified: `grep -rn "skills" *.py` over the nine SHIP `.py` files
+  module. Verified: `grep -rn "skills" *.py` over the ten SHIP `.py` files
   returns nothing. It does **not** ship.
 - **`AGENTS.md` does NOT ship.** It is the contributor / `bd` workflow guide
   (session-close protocol, dolt-sync step), not user-facing material. The
@@ -77,6 +79,8 @@ bead_chain-v0.1.0.zip
 └── bead_chain/
     ├── __init__.py
     ├── beads.py
+    ├── beads_reads.py
+    ├── beads_writes.py
     ├── close_guard.py
     ├── execution_hints.py
     ├── lifecycle.py
@@ -100,7 +104,7 @@ bead_chain-v0.1.0.zip
   allowlist, the build (and the SHIP-only import validation below) breaks
   immediately with a missing-file/`ImportError`, caught in CI rather than
   shipped broken. A leak, by contrast, is silent.
-- **Matches the "no bs" install goal.** The user gets nine files, no Dolt DB, no
+- **Matches the "no bs" install goal.** The user gets eleven files, no Dolt DB, no
   tests, no maintainer notes.
 
 ## Alternatives considered
@@ -124,7 +128,7 @@ Performed for this ADR and to be re-run by the build script:
 # the plugin entry point. A missing runtime module => ImportError => allowlist
 # is incomplete.
 mkdir -p /tmp/ship_validate/bead_chain
-for f in __init__.py beads.py close_guard.py execution_hints.py \
+for f in __init__.py beads.py beads_reads.py beads_writes.py close_guard.py execution_hints.py \
          lifecycle.py prompt.py register_callbacks.py state.py README.md; do
   cp -f "$f" /tmp/ship_validate/bead_chain/
 done
@@ -132,7 +136,7 @@ python3 -c "import sys; sys.path.insert(0,'/tmp/ship_validate'); \
             import bead_chain.register_callbacks"
 ```
 
-Result: **import succeeds** with only the nine SHIP files present, confirming the
+Result: **import succeeds** with only the eleven SHIP files present, confirming the
 runtime allowlist is self-contained. The runtime depends only on the Python
 stdlib and the host `code_puppy.*` framework (provided by the install
 environment), plus relative imports among the SHIP modules — nothing outside the

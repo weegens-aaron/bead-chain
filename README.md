@@ -39,6 +39,36 @@ Prefer the browser?
 
 The zip contains a single top-level `bead_chain/` folder, so every path above results in `…/plugins/bead_chain/…` — extract, don't nest.
 
+### Verify your download (optional but recommended)
+
+Every release publishes a `bead-chain.zip.sha256` asset next to the zip. Verifying it confirms the download is the exact artifact the maintainer built — a quick guard against a corrupted or tampered file. **This is optional**: the install one-liners above work fine on their own. If you skip it, nothing breaks.
+
+#### macOS / Linux (bash/zsh)
+
+After running the install one-liner (which leaves the zip at `/tmp/bead-chain.zip`):
+
+```bash
+curl -fsSL https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip.sha256 -o /tmp/bead-chain.zip.sha256
+( cd /tmp && shasum -a 256 -c bead-chain.zip.sha256 )   # prints "bead-chain.zip: OK"
+```
+
+(`sha256sum -c bead-chain.zip.sha256` works too on distros that ship `sha256sum` instead of `shasum`.)
+
+#### Windows (PowerShell)
+
+After running the install one-liner (which leaves the zip at `$env:TEMP\bead-chain.zip`):
+
+```powershell
+Invoke-WebRequest -Uri https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip.sha256 -OutFile $env:TEMP\bead-chain.zip.sha256
+$expected = (Get-Content $env:TEMP\bead-chain.zip.sha256).Split(' ')[0]
+$actual   = (Get-FileHash $env:TEMP\bead-chain.zip -Algorithm SHA256).Hash
+if ($actual -eq $expected) { "OK: checksum matches" } else { Write-Error "CHECKSUM MISMATCH — do not install" }
+```
+
+(`-eq` is case-insensitive in PowerShell, so the uppercase `Get-FileHash` output matches the lowercase published hash.)
+
+If verification fails, **don't install** — re-download or report it.
+
 ### Upgrade / Uninstall
 
 | Action | macOS / Linux | Windows (PowerShell) |
@@ -163,7 +193,9 @@ bead_chain/
 ├── __init__.py           # Package docstring
 ├── register_callbacks.py # Wiring: /bead-chain command, hook handlers
 ├── lifecycle.py          # State transitions: close, pick next, arm wiggum
-├── beads.py              # Subprocess wrapper around `bd` CLI
+├── beads.py              # Subprocess core for `bd` + facade re-export
+├── beads_reads.py        # Read/query waterfall (ready, list, show, blockers)
+├── beads_writes.py       # Mutations + epic/gate/lint housekeeping
 ├── prompt.py             # Bead → goal prompt formatting
 ├── close_guard.py        # Shell hook that blocks premature closes
 └── state.py              # Singleton dataclass for chain state
@@ -175,7 +207,9 @@ bead_chain/
 |--------|------|---------|
 | `register_callbacks` | Slash command, hook registration, CLI flag parsing | State transitions, bd calls |
 | `lifecycle` | Close/claim/pick logic, invariant guards | Hook registration |
-| `beads` | Shell out to `bd`, parse JSON, retry timeouts | Know about chain state |
+| `beads` | Subprocess core (`_run_bd`, retries, predicates, constants) + re-export facade for the two halves | Know about chain state |
+| `beads_reads` | Read-only `bd` queries: ready/list waterfall, `show`, memories, blocker/pin checks | Mutate bead state |
+| `beads_writes` | Mutations (`claim`/`close`/`revert`) + epic rollup, gate probe, lint warnings | Drive the ready queue |
 | `prompt` | Format goal prompts, recovery/triage preambles | Execute commands |
 | `close_guard` | Detect+block agent `bd close` attempts | Close beads itself |
 | `state` | Hold active/current_bead/completed_count | Behavior logic |

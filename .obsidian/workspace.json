@@ -185,6 +185,7 @@
   },
   "active": "944deaaa00cfc56a",
   "lastOpenFiles": [
+    "notes/spikes/context-lifecycle-across-bead-transitions-auy.md",
     "docs/user/Tutorials/index.html",
     "docs/user/Tutorials/AutomateASprintBacklog.html",
     "docs/user/Tutorials",
@@ -195,7 +196,6 @@
     "docs/user/Reference/BeadSelectionOrder.html",
     "docs/user/Reference",
     "docs/user/Guides/index.html",
-    "docs/user/Guides/UpgradeOrUninstall.html",
     "_docs/FAQ.md",
     "_docs/Guides/ResumeAfterInterruption.md",
     "_docs/GettingStarted/RunYourFirstChain.md",

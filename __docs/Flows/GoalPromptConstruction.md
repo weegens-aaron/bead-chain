@@ -116,7 +116,7 @@ goal-prompt string. The hops:
   `beads.py:_run_bd` (the single subprocess chokepoint — see
   [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md)). `show` only
   fires when the bead has a parent epic. Each call carries the transport's
-  retry/timeout policy (`DEFAULT_TIMEOUT = 30.0`, `MAX_ATTEMPTS = 3`).
+  retry/timeout policy (`DEFAULT_TIMEOUT = 15.0`, `MAX_ATTEMPTS = 3`).
 - **No N+1.** Exactly one `show` per prompt (the parent epic), not one per
   edge; `memories` and `lint` are one call apiece. The pure formatting helpers
   (`_format_*`) do no I/O.

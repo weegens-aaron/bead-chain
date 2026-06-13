@@ -11,7 +11,10 @@
 #   5. Writes BOTH a stable name (dist/bead-chain.zip — enables the
 #      /releases/latest/download/bead-chain.zip URL) and a versioned name
 #      (dist/bead-chain-v<version>.zip).
-#   6. Self-checks: extracts the stable zip to a temp dir and imports
+#   6. Writes a SHA256 checksum file alongside each zip
+#      (dist/bead-chain.zip.sha256 + versioned) so users — and the published
+#      GitHub Release — can verify download integrity (bead_chain-ixc).
+#   7. Self-checks: extracts the stable zip to a temp dir and imports
 #      bead_chain.register_callbacks. A missing runtime file => ImportError =>
 #      the allowlist is incomplete and the build fails loudly.
 #
@@ -27,11 +30,17 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd)"
 cd "${REPO_ROOT}"
 
-# --- The allowlist (ADR 0002: SHIP = 8 runtime .py files + README.md). ------
-#     Anything not named here is excluded by construction (fail-closed).
+# --- The allowlist (ADR 0002: SHIP = 10 runtime .py files + README.md +
+#     LICENSE). Anything not named here is excluded by construction
+#     (fail-closed). LICENSE ships so the MIT terms travel with the artifact
+#     (bead_chain-aij). beads_reads.py / beads_writes.py are the read/write
+#     halves split out of the once-monolithic beads.py (bead_chain-7xv) — they
+#     are imported by beads.py's facade and MUST ship or every consumer breaks.
 ALLOWLIST=(
   "__init__.py"
   "beads.py"
+  "beads_reads.py"
+  "beads_writes.py"
   "close_guard.py"
   "execution_hints.py"
   "lifecycle.py"
@@ -39,6 +48,7 @@ ALLOWLIST=(
   "register_callbacks.py"
   "state.py"
   "README.md"
+  "LICENSE"
 )
 
 PKG_NAME="bead_chain"
@@ -63,6 +73,27 @@ read_version() {
     exit 1
   fi
   printf '%s\n' "${ver}"
+}
+
+# --- Cross-platform SHA256: macOS ships `shasum`, most Linux ships
+#     `sha256sum`. Pick whichever exists; fail loudly if neither does. The
+#     `_in_dist` variant runs inside dist/ so the written checksum references
+#     the BARE filename (e.g. "bead-chain.zip"), which is exactly what
+#     `shasum -a 256 -c` / `sha256sum -c` expect when the user has the zip and
+#     the .sha256 side by side. ----------------------------------------------
+sha256_in_dist() {
+  local file="$1"  # bare filename, relative to DIST_DIR
+  (
+    cd "${DIST_DIR}"
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum "${file}" > "${file}.sha256"
+    elif command -v shasum >/dev/null 2>&1; then
+      shasum -a 256 "${file}" > "${file}.sha256"
+    else
+      echo "ERROR: neither sha256sum nor shasum found — cannot checksum ${file}" >&2
+      exit 1
+    fi
+  )
 }
 
 VERSION="$(read_version)"
@@ -96,7 +127,16 @@ echo "==> Building ${STABLE_ZIP}"
 cp -f "${STABLE_ZIP}" "${VERSIONED_ZIP}"
 echo "    wrote $(basename "${STABLE_ZIP}") and $(basename "${VERSIONED_ZIP}")"
 
-# --- 6. Self-check: extract to a temp dir and import the entry point. --------
+# --- 6. Write SHA256 checksum files alongside the zips (bead_chain-ixc). -----
+#        Published as additional GitHub Release assets so users can verify the
+#        download is authentic. Verification is optional for end users (the
+#        install one-liner still works without it).
+echo "==> Writing SHA256 checksums"
+sha256_in_dist "$(basename "${STABLE_ZIP}")"
+sha256_in_dist "$(basename "${VERSIONED_ZIP}")"
+echo "    wrote $(basename "${STABLE_ZIP}").sha256 and $(basename "${VERSIONED_ZIP}").sha256"
+
+# --- 7. Self-check: extract to a temp dir and import the entry point. --------
 echo "==> Self-check: extracting and importing ${PKG_NAME}.register_callbacks"
 TMP_CHECK="$(mktemp -d)"
 cleanup() { rm -rf "${TMP_CHECK}"; }
@@ -112,3 +152,11 @@ unzip -l "${STABLE_ZIP}"
 
 echo "==> Done. Release artifacts in dist/:"
 ls -1 "${DIST_DIR}"
+
+# --- Release reminder: the GitHub Release must carry the .sha256 files as
+#     additional assets so users can verify integrity (bead_chain-ixc). With
+#     the GitHub CLI that's a single command that uploads ALL dist/ artifacts:
+echo
+echo "==> To publish: upload BOTH the zips AND their .sha256 files, e.g."
+echo "      gh release create v${VERSION} ${DIST_DIR}/bead-chain*.zip ${DIST_DIR}/bead-chain*.zip.sha256"
+echo "    (the .sha256 assets are what the README's verify step downloads)"

@@ -209,7 +209,7 @@ the continuation dict above (new bead).
   contract) but does no concurrency itself; the `bd` calls are blocking
   subprocess spawns on the calling thread.
 - **Every spawn rides one chokepoint.** All `bd` calls funnel through
-  `beads._run_bd` (`beads.py:280`) with `DEFAULT_TIMEOUT = 30.0` and retry
+  `beads._run_bd` (`beads.py:280`) with `DEFAULT_TIMEOUT = 15.0` and retry
   backoff — see [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md).
   The loop adds no caching beyond holding the current bead dict in memory.
 - **No N+1 over the queue.** The loop processes exactly one bead per boundary;

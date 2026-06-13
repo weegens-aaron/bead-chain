@@ -14,7 +14,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from .beads import BeadsError, extract_parent_epic_id, lint_warnings, memories, show
+from .beads import BeadsError
+from .beads_reads import extract_parent_epic_id, memories, show
+from .beads_writes import lint_warnings
+
+__all__ = [
+    "format_bead_as_goal",
+    "is_triaged_bug",
+    "TRIAGE_MARKER",
+]
 
 # Char cap for the epic-description excerpt injected into the goal prompt.
 # Big enough to convey purpose, small enough that ten chained beads under

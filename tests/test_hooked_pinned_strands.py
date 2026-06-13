@@ -58,18 +58,28 @@ def test_recoverable_statuses_include_in_progress_and_hooked():
 
 
 def _patch_run_bd_by_status(mapping: dict[str, list[dict]]):
-    """Stub beads._run_bd to dispatch on the ``--status=<x>`` arg.
+    """Stub beads._run_bd for the consolidated comma-status ``bd list`` call.
 
-    ``mapping`` maps a status string to the list of beads bd would
-    return for ``bd list --status=<status>``. Missing statuses yield
-    an empty list.
+    bead_chain-lqf collapsed the per-status fan-out into a single
+    ``bd list --status=a,b`` spawn. ``mapping`` still maps each status
+    to the beads bd would return for it; the stub splits the requested
+    ``--status=a,b`` arg on commas and concatenates the per-status
+    lists (in the requested order, mirroring bd's own behaviour) so the
+    client-side dedup + ordering logic is exercised. Each bead inherits
+    its keying status (so the client-side sort has a ``status`` field to
+    work with) unless it already declares one.
     """
 
     def _stub(*args, **kwargs):
         for arg in args:
             if isinstance(arg, str) and arg.startswith("--status="):
-                status = arg[len("--status=") :]
-                return json.dumps(mapping.get(status, []))
+                statuses = arg[len("--status=") :].split(",")
+                out: list[dict] = []
+                for status in statuses:
+                    for bead in mapping.get(status, []):
+                        bead = {"status": status, **bead}
+                        out.append(bead)
+                return json.dumps(out)
         return "[]"
 
     beads._run_bd = _stub  # type: ignore[assignment]
@@ -85,6 +95,39 @@ def test_list_recoverable_strands_surfaces_hooked_bead():
     )
     ids = [b["id"] for b in beads.list_recoverable_strands()]
     assert ids == ["A", "H"], "in_progress leads, hooked follows"
+
+
+def test_list_recoverable_strands_single_subprocess_call(monkeypatch):
+    """bead_chain-lqf: N recoverable statuses cost exactly ONE bd spawn."""
+    calls: list[tuple] = []
+
+    def _counting_stub(*args, **kwargs):
+        calls.append(args)
+        return "[]"
+
+    monkeypatch.setattr(beads, "_run_bd", _counting_stub)
+    beads.list_recoverable_strands()
+    assert len(calls) == 1, f"expected 1 bd list call, got {len(calls)}: {calls}"
+    # The single call must carry every recoverable status comma-joined.
+    status_args = [
+        a for a in calls[0] if isinstance(a, str) and a.startswith("--status=")
+    ]
+    assert status_args, "no --status arg passed"
+    requested = set(status_args[0][len("--status=") :].split(","))
+    assert requested == set(beads.RECOVERABLE_STATUSES)
+
+
+def test_list_recoverable_strands_orders_in_progress_first():
+    """Client-side sort restores in_progress-before-hooked from one call."""
+    # bd returns hooked first (its own sort) -- we must reorder.
+    _patch_run_bd_by_status(
+        {
+            "hooked": [{"id": "H", "issue_type": "task"}],
+            "in_progress": [{"id": "A", "issue_type": "task"}],
+        }
+    )
+    ids = [b["id"] for b in beads.list_recoverable_strands()]
+    assert ids == ["A", "H"], "in_progress must sort ahead of hooked"
 
 
 def test_list_recoverable_strands_dedupes_across_statuses():
@@ -165,11 +208,7 @@ import pytest  # noqa: E402
 def _restore_state():
     """Leave the shared chain singleton pristine for the next module."""
     yield
-    s = state.get_state()
-    s.active = False
-    s.current_bead = None
-    s.completed_count = 0
-    s.max_iterations = None
+    state.reset()
 
 
 def _bead(bead_id: str, **extra) -> dict:
@@ -206,7 +245,7 @@ def test_pick_next_bead_recovers_hooked_strand(monkeypatch):
     hooked = _bead("H", status="hooked")
     ready = _bead("R")
     monkeypatch.setattr(lifecycle, "list_recoverable_strands", lambda: [hooked])
-    monkeypatch.setattr(lifecycle, "open_blocker_ids", lambda _bid: [])
+    monkeypatch.setattr(lifecycle, "open_blocker_ids", lambda _bid, _bead=None: [])
     monkeypatch.setattr(lifecycle, "next_blocking_bug", lambda: None)
     monkeypatch.setattr(lifecycle, "next_ready", lambda: ready)
     picked = lifecycle.pick_next_bead(None)

@@ -26,30 +26,52 @@ from code_puppy.messaging import (
     emit_success,
     emit_warning,
 )
-from code_puppy.plugins.wiggum import state as wiggum_state
+from . import state
 
-from . import beads, state
-from .beads import (
-    BeadsError,
-    RECOVERABLE_STATUSES,
-    check_gates,
-    claim,
-    close,
-    close_eligible_epics,
+try:
+    # bead-chain is a queue driver that delegates the LLM-judged completion
+    # loop to wiggum's /goal mode — wiggum is a hard prerequisite (see
+    # README). We still want this module to *import* cleanly when wiggum is
+    # absent so the plugin loader doesn't spew a raw ImportError traceback:
+    # register_callbacks gates every code path that would actually call
+    # wiggum_state behind an availability check, so a None here is never
+    # dereferenced. (bead_chain-c87)
+    from code_puppy.plugins.wiggum import state as wiggum_state
+except ImportError:  # pragma: no cover - exercised via register_callbacks
+    wiggum_state = None  # type: ignore[assignment]
+from .beads import BeadsError, RECOVERABLE_STATUSES, is_excluded_type
+from .beads_reads import (
     extract_parent_epic_id,
-    has_epic_in_progress,
-    is_excluded_type,
+    has_open_children,
     is_pinned,
     list_recoverable_strands,
     next_blocking_bug,
     next_ready,
     next_ready_in_epic,
     open_blocker_ids,
-    revert_to_open,
     show,
+)
+from .beads_writes import (
+    check_gates,
+    claim,
+    close,
+    close_eligible_epics,
+    has_epic_in_progress,
+    revert_to_open,
 )
 from .execution_hints import apply_execution_hints
 from .prompt import format_bead_as_goal
+
+__all__ = [
+    "is_recovery_bead",
+    "enforce_single_in_progress",
+    "close_current_bead_success",
+    "rollup_completed_epics",
+    "probe_resolved_gates",
+    "ensure_epic_in_progress",
+    "pick_next_bead",
+    "activate_next_bead",
+]
 
 # Statuses that mark a picked bead as *already in flight* — i.e. residue
 # from a prior run that crashed/cancelled before the LLM judges could
@@ -488,6 +510,14 @@ def pick_next_bead(
 
     Raises :class:`BeadsError` on infrastructure failure so the caller
     can stop the chain cleanly.
+
+    .. note:: **Pick-then-activate race (bead_chain-hvi).** The bead this
+       returns is read from the ready queue, not yet claimed. Another
+       agent can claim it in the window before
+       :func:`activate_next_bead` calls ``claim()``. That race is a known,
+       accepted limitation; see the ``KNOWN RACE`` comment at the
+       ``claim()`` call site for the window, the BeadsError mitigation,
+       and why a distributed lock is not warranted.
     """
     workable = _unblocked_strands()
     if workable:
@@ -642,6 +672,21 @@ def activate_next_bead(
     bead_id = str(bead.get("id", ""))
     recovery = is_recovery_bead(bead)
 
+    # Call consolidation (bead_chain-lqf): both the work-time blocker
+    # guard and the fan-out gate guard below need this bead's FULL
+    # ``bd show`` record (the ``bd ready`` / ``bd list`` dict the picker
+    # handed us lacks per-dependency status and the ``waits_for`` field).
+    # We fetch it ONCE here and thread it into both checks rather than
+    # letting each spawn its own identical ``bd show``. One fresh read at
+    # the activation boundary preserves the mid-flight-mutation safety
+    # (pinned/re-blocked detection) the two guards were written for, at
+    # one subprocess instead of two. Soft-fails to ``None`` so the
+    # guards fall back to their own fetch / safe defaults on a bd blip.
+    try:
+        full_bead = show(bead_id)
+    except BeadsError:
+        full_bead = None
+
     # Last-line-of-defence assertion: the picker is *not allowed* to
     # return a bead with open work-time blockers. Tier 0 reverts+drops
     # them; tiers 1-3 reject them via :func:`_reject_if_blocked`. If one
@@ -652,7 +697,7 @@ def activate_next_bead(
     # beads are exempt from the revert path here (they were already
     # blocker-filtered in :func:`_unblocked_strands`); we just stop
     # if somehow one is blocked, leaving it in_progress for inspection.
-    blockers = open_blocker_ids(bead_id)
+    blockers = open_blocker_ids(bead_id, full_bead)
     if blockers:
         emit_warning(
             f"bead-chain refused to activate {bead_id}: it has open "
@@ -670,8 +715,9 @@ def activate_next_bead(
 
     # WORKAROUND (bead_chain-9sc): Check for unsatisfied fan-out gates.
     # Beads with waits_for: children-of(...) are invisible to bd blocked,
-    # so we detect and refuse to claim them here.
-    if _has_fan_out_gate_issue(bead_id):
+    # so we detect and refuse to claim them here. Reuses ``full_bead``
+    # fetched above (bead_chain-lqf) so we don't re-spawn ``bd show``.
+    if _has_fan_out_gate_issue(bead_id, full_bead):
         emit_warning(
             f"bead-chain refused to activate {bead_id}: it has an unsatisfied "
             "fan-out gate (waits_for: children-of(...) with unclosed spawned "
@@ -697,6 +743,34 @@ def activate_next_bead(
     ensure_epic_in_progress(bead)
 
     if not recovery:
+        # KNOWN RACE — pick-then-activate (bead_chain-hvi):
+        # There is an unavoidable window between pick_next_bead() reading
+        # the ready queue (`bd ready` / `bd list`) and this claim() call
+        # flipping the bead to in_progress. In that gap a *different* agent
+        # — another bead-chain on another machine, a human in the bd UI,
+        # CI — can claim the very same bead. pick/claim is read-then-write,
+        # not a single atomic compare-and-swap, so two drivers can both see
+        # the bead "ready" and race for it.
+        #
+        # MITIGATION (sufficient, by design): the claim is the serializing
+        # point. bd's `update --claim` is atomic at the database layer, so
+        # at most one racer wins; the loser's claim() raises BeadsError
+        # (the bead is no longer claimable in the state it expected). We
+        # catch that here, warn, and stop the chain cleanly rather than
+        # double-driving a bead someone else owns. No work is lost or
+        # duplicated — the winner drives it, the loser backs off. Worst
+        # case is one wasted `bd ready` + `bd show` round-trip on the loser.
+        #
+        # WHY NO DISTRIBUTED LOCK: closing the window entirely would need a
+        # cross-process/cross-machine lock (lease, advisory lock, CAS token)
+        # spanning pick→claim. That's a large amount of distributed-systems
+        # machinery (lock store, lease renewal, crash-recovery for orphaned
+        # locks) to defend against a sub-second window whose only failure
+        # mode is already handled gracefully by the claim-fails-→-stop path.
+        # The race is rare (it requires two drivers targeting the same bead
+        # in the same instant), self-healing (the loser simply stops), and
+        # harmless (no corruption). YAGNI: the atomic claim *is* the lock we
+        # need; a second locking layer would be redundant complexity.
         try:
             claim(bead_id)
         except BeadsError as exc:
@@ -730,7 +804,7 @@ def activate_next_bead(
     }
 
 
-def _has_fan_out_gate_issue(bead_id: str) -> bool:
+def _has_fan_out_gate_issue(bead_id: str, bead: dict[str, Any] | None = None) -> bool:
     """True if bead has unsatisfied fan-out gate (bead_chain-9sc workaround).
 
     Beads with waits_for: children-of(...) are invisible to bd blocked due
@@ -741,15 +815,23 @@ def _has_fan_out_gate_issue(bead_id: str) -> bool:
     1. It has a "waits_for" field
     2. The field is in "children-of(spawner_id)" format
     3. The spawner has at least one child that is not yet closed
+
+    Call consolidation (bead_chain-lqf): callers that have already
+    fetched ``bead_id``'s full ``bd show`` record this activation pass
+    may pass it as ``bead`` so we don't spawn a second identical
+    ``bd show``. When omitted we fetch it ourselves (preserving the
+    original single-arg contract). The spawner lookup is always a
+    separate, distinct ``bd show`` — it's a different bead.
     """
     if not bead_id:
         return False
 
-    try:
-        bead = show(bead_id)
-    except BeadsError:
-        # Can't determine gate status; assume no gate issue
-        return False
+    if bead is None:
+        try:
+            bead = show(bead_id)
+        except BeadsError:
+            # Can't determine gate status; assume no gate issue
+            return False
     if not bead:
         return False
 
@@ -779,17 +861,8 @@ def _has_fan_out_gate_issue(bead_id: str) -> bool:
     if not spawner:
         return False
 
-    # Find children with parent=spawner_id and status != closed
-    try:
-        raw = beads._run_bd("list", "--json")
-        all_issues = beads._parse_json_list(raw, "bd list --json")
-        for issue in all_issues:
-            if isinstance(issue, dict) and issue.get("parent") == spawner_id:
-                if issue.get("status", "").lower() != "closed":
-                    # Found an unclosed child; gate is unsatisfied
-                    return True
-    except BeadsError:
-        # Can't determine; assume gate is satisfied
-        pass
-
-    return False
+    # Gate is unsatisfied iff the spawner still has an unclosed child.
+    # ``has_open_children`` scopes the query to this one spawner
+    # (``bd list --parent=<id>``) instead of scanning the whole database,
+    # and soft-fails to False (gate satisfied) on infrastructure error.
+    return has_open_children(spawner_id)

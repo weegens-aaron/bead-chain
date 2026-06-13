@@ -54,6 +54,8 @@ Module layout:
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 
 from code_puppy.callbacks import register_callback
@@ -64,17 +66,38 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
-from code_puppy.plugins.wiggum import state as wiggum_state
+
+# ---------------------------------------------------------------------------
+# wiggum prerequisite check (bead_chain-c87)
+# ---------------------------------------------------------------------------
+#
+# bead-chain is NOT a goal engine — it's a queue driver that delegates the
+# LLM-judged completion loop to wiggum's /goal mode. wiggum is therefore a
+# hard prerequisite (documented in the README). Historically this was a bare
+# top-level ``from code_puppy.plugins.wiggum import state`` which, when wiggum
+# wasn't loaded, raised a raw ImportError. The plugin loader caught it and the
+# app survived, but the user saw a cryptic
+# ``Failed to import callbacks from user plugin bead_chain: No module named
+# 'code_puppy.plugins.wiggum'`` instead of an actionable message.
+#
+# We now import wiggum defensively: on failure we keep the module importable
+# (so the loader logs nothing alarming), record the absence in
+# ``_WIGGUM_AVAILABLE``, log one clear human-readable line (below, after the
+# remaining imports), and make ``/bead-chain`` degrade gracefully — it tells
+# the user wiggum is required rather than blowing up. When wiggum IS present
+# this is a single successful import with zero behavioural change.
+try:
+    from code_puppy.plugins.wiggum import state as wiggum_state
+
+    _WIGGUM_AVAILABLE = True
+except ImportError:
+    wiggum_state = None  # type: ignore[assignment]
+    _WIGGUM_AVAILABLE = False
 
 from . import state
-from .beads import (
-    BeadsError,
-    claim,
-    is_excluded_type,
-    next_ready,
-    open_blocker_ids,
-    revert_to_open,
-)
+from .beads import BeadsError, is_excluded_type
+from .beads_reads import next_ready, open_blocker_ids
+from .beads_writes import claim, revert_to_open
 from .close_guard import on_run_shell_command as _on_run_shell_command
 from .execution_hints import apply_execution_hints
 from .lifecycle import (
@@ -85,6 +108,24 @@ from .lifecycle import (
     is_recovery_bead,
 )
 from .prompt import format_bead_as_goal
+
+logger = logging.getLogger(__name__)
+
+# Human-readable message shown when the wiggum prerequisite is missing. Kept
+# as a module constant so the import-time log line and the runtime
+# ``/bead-chain`` warning say exactly the same thing (and tests can assert it).
+_WIGGUM_MISSING_MESSAGE = (
+    "\U0001f517 bead-chain requires the wiggum plugin — install/enable it to "
+    "use /bead-chain. bead-chain drives wiggum's /goal mode one bead at a "
+    "time, so it cannot run without it."
+)
+
+if not _WIGGUM_AVAILABLE:
+    # One clear line in the loader output instead of a raw ImportError
+    # traceback. (bead_chain-c87)
+    logger.warning(_WIGGUM_MISSING_MESSAGE)
+
+__all__ = ["handle_bead_chain_command"]
 
 # ---------------------------------------------------------------------------
 # Lazy hook registration
@@ -168,6 +209,13 @@ def _parse_max_iterations(command: str) -> int | None | object:
 )
 def handle_bead_chain_command(command: str) -> str | bool:
     """Engage bead-chain: drive /goal across every ready bead in turn."""
+    if not _WIGGUM_AVAILABLE:
+        # Graceful degradation: wiggum (our /goal engine) isn't loaded, so
+        # there's nothing to drive. Tell the user plainly instead of letting
+        # a later ``wiggum_state`` dereference raise. (bead_chain-c87)
+        emit_warning(_WIGGUM_MISSING_MESSAGE)
+        return True
+
     if state.is_active():
         emit_info("🔗 bead-chain is already running.")
         return True
@@ -326,7 +374,20 @@ async def _on_interactive_turn_end(
     # but interactive_turn_cancel runs for cancellation and would have
     # already stopped us; so reaching this branch with state.active
     # still True implies success.
-    just_closed = close_current_bead_success()
+    # bead_chain-u0b: close_current_bead_success() shells out to `bd`
+    # (bd close / bd show / bd update) synchronously. Running it inline
+    # here would block code_puppy's interactive event loop for the
+    # duration of the subprocess — up to ~45s worst case under retries.
+    # asyncio.to_thread() hands the blocking work to a worker thread and
+    # `await` yields the loop so the UI stays responsive. We deliberately
+    # `await` it to completion BEFORE the is_active() check and BEFORE
+    # touching activate_next_bead below: the close→check→activate sequence
+    # must stay strictly ordered (no premature parallelism), and only one
+    # worker thread is ever in flight at a time, so the existing
+    # single-threaded ordering and state-mutation guarantees are
+    # preserved. The 15s timeout + retry/backoff live inside `bd`'s
+    # _run_bd and are untouched by moving the call to a thread.
+    just_closed = await asyncio.to_thread(close_current_bead_success)
     # If close-failure stopped the chain, close_current_bead_success
     # already emitted the explanation and halted state. Bow out cleanly
     # rather than barreling into activate_next_bead and claiming a new
@@ -354,11 +415,29 @@ async def _on_interactive_turn_end(
     # Note: starting the next bead's parent epic is handled inside
     # activate_next_bead, where we actually know which bead got
     # claimed. Doing it here would be premature.
-    return activate_next_bead(just_closed)
+    #
+    # bead_chain-u0b: activate_next_bead() is the other bd-heavy call in
+    # this hook (pick_next_bead → bd ready/list/show, claim, gate/rollup
+    # probes). Off-load it to a worker thread for the same reason as the
+    # close above. It runs strictly AFTER the close has fully completed
+    # and the is_active() short-circuit has passed, so the activation
+    # sees the post-close state exactly as it did when both ran inline.
+    return await asyncio.to_thread(activate_next_bead, just_closed)
 
 
-def _on_interactive_turn_cancel(prompt: str, *, reason: str = "cancelled") -> None:
+async def _on_interactive_turn_cancel(
+    prompt: str, *, reason: str = "cancelled"
+) -> None:
     """Bow out on Ctrl+C; leave the in-flight bead in_progress for recovery.
+
+    Declared ``async`` to match its sibling :func:`_on_interactive_turn_end`
+    and the host's async dispatch contract: ``on_interactive_turn_cancel``
+    (code_puppy/callbacks.py) is an ``async`` invoker that calls each
+    callback and ``await``s the result iff it's a coroutine. A plain ``def``
+    works today only because the dispatcher tolerates sync callbacks; making
+    this ``async`` removes that latent coupling so the two interactive-turn
+    hooks present one consistent contract. The body stays fully synchronous
+    (no ``await``) — there's no I/O to suspend on.
 
     The bead stays **in_progress** deliberately. The next ``/bead-chain``
     run hits the recovery tier first (:func:`pick_next_bead` tier 0) and

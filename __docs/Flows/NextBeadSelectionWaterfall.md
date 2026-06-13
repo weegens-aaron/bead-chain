@@ -205,7 +205,7 @@ claim, hint application, and `/goal` arming happen downstream in
   call; the waterfall only ever inspects the head (plus per-strand checks in
   tier 0, which is normally empty).
 - **Every spawn rides the single chokepoint.** All `bd` calls flow through
-  `beads.py:_run_bd` (`beads.py:280`) with `DEFAULT_TIMEOUT = 30.0` and retry
+  `beads.py:_run_bd` (`beads.py:280`) with `DEFAULT_TIMEOUT = 15.0` and retry
   backoff — see
   [BdSubprocessTransport](../Concepts/BdSubprocessTransport.md).
 - **No persistence.** The only write is tier 0's `revert_to_open`; the waterfall
