@@ -433,6 +433,19 @@ def _run_bd(*args: str, timeout: float = DEFAULT_TIMEOUT) -> str:
                 [bd, *args],
                 capture_output=True,
                 text=True,
+                # Force UTF-8 decoding. Without an explicit encoding,
+                # ``text=True`` decodes subprocess output using
+                # ``locale.getpreferredencoding()``, which on Windows is the
+                # legacy code page (cp1252). ``bd``/git emit UTF-8 (em-dashes,
+                # smart quotes, box-drawing glyphs, etc.), so a single
+                # non-cp1252 byte kills the pipe-reader thread with a
+                # UnicodeDecodeError; ``proc.stdout`` then comes back ``None``
+                # and surfaces downstream as a misleading
+                # "the JSON object must be str, bytes or bytearray, not
+                # NoneType". ``errors="replace"`` guarantees a rogue byte can
+                # never crash the chain.
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 check=False,
             )
