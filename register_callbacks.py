@@ -54,6 +54,7 @@ Module layout:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from code_puppy.callbacks import register_callback
@@ -328,7 +329,20 @@ async def _on_interactive_turn_end(
     # but interactive_turn_cancel runs for cancellation and would have
     # already stopped us; so reaching this branch with state.active
     # still True implies success.
-    just_closed = close_current_bead_success()
+    # bead_chain-u0b: close_current_bead_success() shells out to `bd`
+    # (bd close / bd show / bd update) synchronously. Running it inline
+    # here would block code_puppy's interactive event loop for the
+    # duration of the subprocess — up to ~45s worst case under retries.
+    # asyncio.to_thread() hands the blocking work to a worker thread and
+    # `await` yields the loop so the UI stays responsive. We deliberately
+    # `await` it to completion BEFORE the is_active() check and BEFORE
+    # touching activate_next_bead below: the close→check→activate sequence
+    # must stay strictly ordered (no premature parallelism), and only one
+    # worker thread is ever in flight at a time, so the existing
+    # single-threaded ordering and state-mutation guarantees are
+    # preserved. The 15s timeout + retry/backoff live inside `bd`'s
+    # _run_bd and are untouched by moving the call to a thread.
+    just_closed = await asyncio.to_thread(close_current_bead_success)
     # If close-failure stopped the chain, close_current_bead_success
     # already emitted the explanation and halted state. Bow out cleanly
     # rather than barreling into activate_next_bead and claiming a new
@@ -356,7 +370,14 @@ async def _on_interactive_turn_end(
     # Note: starting the next bead's parent epic is handled inside
     # activate_next_bead, where we actually know which bead got
     # claimed. Doing it here would be premature.
-    return activate_next_bead(just_closed)
+    #
+    # bead_chain-u0b: activate_next_bead() is the other bd-heavy call in
+    # this hook (pick_next_bead → bd ready/list/show, claim, gate/rollup
+    # probes). Off-load it to a worker thread for the same reason as the
+    # close above. It runs strictly AFTER the close has fully completed
+    # and the is_active() short-circuit has passed, so the activation
+    # sees the post-close state exactly as it did when both ran inline.
+    return await asyncio.to_thread(activate_next_bead, just_closed)
 
 
 async def _on_interactive_turn_cancel(

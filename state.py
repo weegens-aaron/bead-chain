@@ -7,12 +7,21 @@ Thread-safety (known limitation)
 --------------------------------
 The singleton is **not** thread-safe: ``_STATE`` is a bare module-level
 instance with no lock around its mutators. This is deliberate and safe in
-practice — bead-chain's three coordinating hooks (command / turn-end /
-turn-cancel) all fire on code_puppy's single interactive event loop, never
-concurrently, so there is no contended writer. If bead-chain ever grows a
-background/worker thread that mutates state, this box must gain a lock (or
-move to per-run dependency injection). Until then, a lock would be pure
-YAGNI ceremony.
+practice. bead-chain's coordinating hooks (command / turn-end /
+turn-cancel) all fire on code_puppy's single interactive event loop, and
+they never run concurrently with one another.
+
+Note (bead_chain-u0b): ``_on_interactive_turn_end`` now off-loads its
+``bd`` subprocess work to a worker thread via ``asyncio.to_thread`` so the
+event loop stays responsive. That work — ``close_current_bead_success``
+then ``activate_next_bead`` — mutates this box from the worker thread.
+There is still no contended writer: the two calls are ``await``ed
+*sequentially* (at most one worker thread is ever in flight), and the
+turn-end hook does not re-enter while its own thread is running, so the
+state has exactly one mutator at any instant. If bead-chain ever fans
+these calls out concurrently, or grows an independent background thread
+that mutates state, this box must gain a lock (or move to per-run
+dependency injection). Until then, a lock would be pure YAGNI ceremony.
 """
 
 from __future__ import annotations
