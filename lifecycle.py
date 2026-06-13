@@ -26,9 +26,19 @@ from code_puppy.messaging import (
     emit_success,
     emit_warning,
 )
-from code_puppy.plugins.wiggum import state as wiggum_state
-
 from . import state
+
+try:
+    # bead-chain is a queue driver that delegates the LLM-judged completion
+    # loop to wiggum's /goal mode — wiggum is a hard prerequisite (see
+    # README). We still want this module to *import* cleanly when wiggum is
+    # absent so the plugin loader doesn't spew a raw ImportError traceback:
+    # register_callbacks gates every code path that would actually call
+    # wiggum_state behind an availability check, so a None here is never
+    # dereferenced. (bead_chain-c87)
+    from code_puppy.plugins.wiggum import state as wiggum_state
+except ImportError:  # pragma: no cover - exercised via register_callbacks
+    wiggum_state = None  # type: ignore[assignment]
 from .beads import (
     BeadsError,
     RECOVERABLE_STATUSES,

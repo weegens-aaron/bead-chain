@@ -55,6 +55,7 @@ Module layout:
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from code_puppy.callbacks import register_callback
@@ -65,7 +66,33 @@ from code_puppy.messaging import (
     emit_system_message,
     emit_warning,
 )
-from code_puppy.plugins.wiggum import state as wiggum_state
+
+# ---------------------------------------------------------------------------
+# wiggum prerequisite check (bead_chain-c87)
+# ---------------------------------------------------------------------------
+#
+# bead-chain is NOT a goal engine — it's a queue driver that delegates the
+# LLM-judged completion loop to wiggum's /goal mode. wiggum is therefore a
+# hard prerequisite (documented in the README). Historically this was a bare
+# top-level ``from code_puppy.plugins.wiggum import state`` which, when wiggum
+# wasn't loaded, raised a raw ImportError. The plugin loader caught it and the
+# app survived, but the user saw a cryptic
+# ``Failed to import callbacks from user plugin bead_chain: No module named
+# 'code_puppy.plugins.wiggum'`` instead of an actionable message.
+#
+# We now import wiggum defensively: on failure we keep the module importable
+# (so the loader logs nothing alarming), record the absence in
+# ``_WIGGUM_AVAILABLE``, log one clear human-readable line (below, after the
+# remaining imports), and make ``/bead-chain`` degrade gracefully — it tells
+# the user wiggum is required rather than blowing up. When wiggum IS present
+# this is a single successful import with zero behavioural change.
+try:
+    from code_puppy.plugins.wiggum import state as wiggum_state
+
+    _WIGGUM_AVAILABLE = True
+except ImportError:
+    wiggum_state = None  # type: ignore[assignment]
+    _WIGGUM_AVAILABLE = False
 
 from . import state
 from .beads import (
@@ -86,6 +113,22 @@ from .lifecycle import (
     is_recovery_bead,
 )
 from .prompt import format_bead_as_goal
+
+logger = logging.getLogger(__name__)
+
+# Human-readable message shown when the wiggum prerequisite is missing. Kept
+# as a module constant so the import-time log line and the runtime
+# ``/bead-chain`` warning say exactly the same thing (and tests can assert it).
+_WIGGUM_MISSING_MESSAGE = (
+    "\U0001f517 bead-chain requires the wiggum plugin — install/enable it to "
+    "use /bead-chain. bead-chain drives wiggum's /goal mode one bead at a "
+    "time, so it cannot run without it."
+)
+
+if not _WIGGUM_AVAILABLE:
+    # One clear line in the loader output instead of a raw ImportError
+    # traceback. (bead_chain-c87)
+    logger.warning(_WIGGUM_MISSING_MESSAGE)
 
 __all__ = ["handle_bead_chain_command"]
 
@@ -171,6 +214,13 @@ def _parse_max_iterations(command: str) -> int | None | object:
 )
 def handle_bead_chain_command(command: str) -> str | bool:
     """Engage bead-chain: drive /goal across every ready bead in turn."""
+    if not _WIGGUM_AVAILABLE:
+        # Graceful degradation: wiggum (our /goal engine) isn't loaded, so
+        # there's nothing to drive. Tell the user plainly instead of letting
+        # a later ``wiggum_state`` dereference raise. (bead_chain-c87)
+        emit_warning(_WIGGUM_MISSING_MESSAGE)
+        return True
+
     if state.is_active():
         emit_info("🔗 bead-chain is already running.")
         return True
