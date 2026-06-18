@@ -207,7 +207,7 @@ def next_in_progress() -> dict[str, Any] | None:
 
     Thin convenience wrapper over :func:`list_in_progress` so callers
     that only want the head don't have to slice. Epics are excluded
-    server-side; see :func:`list_in_progress` for the bd command.
+    client-side; see :func:`list_in_progress` for the br command.
     """
     items = list_in_progress()
     return items[0] if items else None
