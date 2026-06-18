@@ -24,7 +24,7 @@ Pick your platform — one line, copy, paste, run. Then **restart code_puppy** a
 ### macOS / Linux (bash/zsh)
 
 ```bash
-curl -fsSL https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip -o /tmp/bead-chain.zip && unzip -o /tmp/bead-chain.zip -d ~/.code_puppy/plugins/
+curl -fsSL https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain-br.zip -o /tmp/bead-chain-br.zip && unzip -o /tmp/bead-chain-br.zip -d ~/.code_puppy/plugins/
 ```
 
 Plugins live at `~/.code_puppy/plugins/`.
@@ -32,7 +32,7 @@ Plugins live at `~/.code_puppy/plugins/`.
 ### Windows (PowerShell)
 
 ```powershell
-Invoke-WebRequest -Uri https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip -OutFile $env:TEMP\bead-chain.zip; Expand-Archive -Force $env:TEMP\bead-chain.zip -DestinationPath ~\.code_puppy\plugins\
+Invoke-WebRequest -Uri https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain-br.zip -OutFile $env:TEMP\bead-chain-br.zip; Expand-Archive -Force $env:TEMP\bead-chain-br.zip -DestinationPath ~\.code_puppy\plugins\
 ```
 
 Plugins live at `~\.code_puppy\plugins\` (i.e. `%USERPROFILE%\.code_puppy\plugins\`).
@@ -42,7 +42,7 @@ Plugins live at `~\.code_puppy\plugins\` (i.e. `%USERPROFILE%\.code_puppy\plugin
 Prefer the browser?
 
 1. Go to the [**Releases** page](https://github.com/weegens-aaron/bead-chain/releases/latest).
-2. Download **`bead-chain.zip`** from the latest release's assets.
+2. Download **`bead-chain-br.zip`** from the latest release's assets.
 3. Extract it so that the `bead_chain/` folder lands directly inside your plugins directory:
    - macOS / Linux: `~/.code_puppy/plugins/bead_chain/`
    - Windows: `~\.code_puppy\plugins\bead_chain\`
@@ -52,27 +52,27 @@ The zip contains a single top-level `bead_chain/` folder, so every path above re
 
 ### Verify your download (optional but recommended)
 
-Every release publishes a `bead-chain.zip.sha256` asset next to the zip. Verifying it confirms the download is the exact artifact the maintainer built — a quick guard against a corrupted or tampered file. **This is optional**: the install one-liners above work fine on their own. If you skip it, nothing breaks.
+Every release publishes a `bead-chain-br.zip.sha256` asset next to the zip. Verifying it confirms the download is the exact artifact the maintainer built — a quick guard against a corrupted or tampered file. **This is optional**: the install one-liners above work fine on their own. If you skip it, nothing breaks.
 
 #### macOS / Linux (bash/zsh)
 
-After running the install one-liner (which leaves the zip at `/tmp/bead-chain.zip`):
+After running the install one-liner (which leaves the zip at `/tmp/bead-chain-br.zip`):
 
 ```bash
-curl -fsSL https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip.sha256 -o /tmp/bead-chain.zip.sha256
-( cd /tmp && shasum -a 256 -c bead-chain.zip.sha256 )   # prints "bead-chain.zip: OK"
+curl -fsSL https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain-br.zip.sha256 -o /tmp/bead-chain-br.zip.sha256
+( cd /tmp && shasum -a 256 -c bead-chain-br.zip.sha256 )   # prints "bead-chain-br.zip: OK"
 ```
 
-(`sha256sum -c bead-chain.zip.sha256` works too on distros that ship `sha256sum` instead of `shasum`.)
+(`sha256sum -c bead-chain-br.zip.sha256` works too on distros that ship `sha256sum` instead of `shasum`.)
 
 #### Windows (PowerShell)
 
-After running the install one-liner (which leaves the zip at `$env:TEMP\bead-chain.zip`):
+After running the install one-liner (which leaves the zip at `$env:TEMP\bead-chain-br.zip`):
 
 ```powershell
-Invoke-WebRequest -Uri https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain.zip.sha256 -OutFile $env:TEMP\bead-chain.zip.sha256
-$expected = (Get-Content $env:TEMP\bead-chain.zip.sha256).Split(' ')[0]
-$actual   = (Get-FileHash $env:TEMP\bead-chain.zip -Algorithm SHA256).Hash
+Invoke-WebRequest -Uri https://github.com/weegens-aaron/bead-chain/releases/latest/download/bead-chain-br.zip.sha256 -OutFile $env:TEMP\bead-chain-br.zip.sha256
+$expected = (Get-Content $env:TEMP\bead-chain-br.zip.sha256).Split(' ')[0]
+$actual   = (Get-FileHash $env:TEMP\bead-chain-br.zip -Algorithm SHA256).Hash
 if ($actual -eq $expected) { "OK: checksum matches" } else { Write-Error "CHECKSUM MISMATCH — do not install" }
 ```
 
@@ -87,7 +87,7 @@ If verification fails, **don't install** — re-download or report it.
 | **Upgrade** | Re-run the install line — it always pulls the latest release. | Re-run the install line — it always pulls the latest release. |
 | **Uninstall** | `rm -rf ~/.code_puppy/plugins/bead_chain` | `Remove-Item -Recurse -Force ~\.code_puppy\plugins\bead_chain` |
 
-Every command uses the stable `/releases/latest/download/bead-chain.zip` URL — a fixed asset name on the latest release — so nothing ever needs version-editing for new releases.
+Every command uses the stable `/releases/latest/download/bead-chain-br.zip` URL — a fixed asset name on the latest release — so nothing ever needs version-editing for new releases.
 
 ### Prerequisites
 
