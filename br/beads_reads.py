@@ -171,8 +171,8 @@ def list_recoverable_strands() -> list[dict[str, Any]]:
     hold one status, but bd version drift could echo one twice, and the
     one-at-a-time recovery contract must never see the same id twice.
 
-    Epics are excluded both server-side and client-side per
-    :func:`_list_by_status`. Raises :class:`BeadsError` on infra failure
+    Epics are excluded client-side per :func:`_list_by_status` (br has
+    no --exclude-type flag). Raises :class:`BeadsError` on infra failure
     — same soft-fail contract callers already expect from
     :func:`list_in_progress`.
     """
