@@ -17,13 +17,16 @@ import re
 import sys
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_LICENSE = os.path.join(_ROOT, "LICENSE")
+# Runtime files (incl. LICENSE) live in the bd/ subdirectory; scripts/ stays
+# at the repo root.
+_BD = os.path.join(_ROOT, "bd")
+_LICENSE = os.path.join(_BD, "LICENSE")
 _BUILD_SCRIPT = os.path.join(_ROOT, "scripts", "build-release.sh")
 
 
-def test_license_file_exists_at_repo_root():
-    """A LICENSE file lives at the repo root."""
-    assert os.path.isfile(_LICENSE), "LICENSE missing from repo root"
+def test_license_file_exists_in_bd_dir():
+    """A LICENSE file lives in the bd/ plugin directory."""
+    assert os.path.isfile(_LICENSE), "LICENSE missing from bd/"
 
 
 def test_license_is_mit():
@@ -47,7 +50,7 @@ def test_build_script_ships_license():
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, _ROOT)
+    sys.path.insert(0, _BD)
     failures = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

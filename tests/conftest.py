@@ -19,7 +19,9 @@ import sys
 
 import pytest
 
-_PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_PLUGIN_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bd"
+)
 _PKG = "code_puppy.plugins.bead_chain"
 
 # Make the flat ``beads`` module importable from any test (and from the

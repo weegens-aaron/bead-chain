@@ -24,11 +24,16 @@
 
 set -euo pipefail
 
-# --- Locate the repo root (the dir that holds __init__.py), relative to this
-#     script, so the build works no matter the caller's CWD. -----------------
+# --- Locate the repo root (the dir that holds bd/ and scripts/), relative to
+#     this script, so the build works no matter the caller's CWD. ------------
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd)"
 cd "${REPO_ROOT}"
+
+# --- The plugin runtime sources now live in the bd/ subdirectory (the repo
+#     houses multiple plugin variants; bd/ is the canonical bead-chain one).
+#     Everything the allowlist names is sourced from here, not the repo root.
+SRC_DIR="${REPO_ROOT}/bd"
 
 # --- The allowlist (ADR 0002: SHIP = 10 runtime .py files + README.md +
 #     LICENSE). Anything not named here is excluded by construction
@@ -60,7 +65,7 @@ STABLE_ZIP="${DIST_DIR}/bead-chain.zip"
 #        needed — just slice the quoted value out of the one assignment). -----
 read_version() {
   local line
-  line="$(grep -E '^__version__[[:space:]]*=' "${REPO_ROOT}/__init__.py" | head -n1)"
+  line="$(grep -E '^__version__[[:space:]]*=' "${SRC_DIR}/__init__.py" | head -n1)"
   if [[ -z "${line}" ]]; then
     echo "ERROR: could not find __version__ in __init__.py" >&2
     exit 1
@@ -109,11 +114,11 @@ mkdir -p "${STAGING_DIR}/${PKG_NAME}" "${DIST_DIR}"
 # --- 3. Copy ONLY the allowlisted paths into staging/bead_chain/. -----------
 echo "==> Copying ${#ALLOWLIST[@]} allowlisted paths into staging/${PKG_NAME}/"
 for path in "${ALLOWLIST[@]}"; do
-  if [[ ! -e "${REPO_ROOT}/${path}" ]]; then
-    echo "ERROR: allowlisted path is missing from the repo: ${path}" >&2
+  if [[ ! -e "${SRC_DIR}/${path}" ]]; then
+    echo "ERROR: allowlisted path is missing from bd/: ${path}" >&2
     exit 1
   fi
-  cp -f "${REPO_ROOT}/${path}" "${STAGING_DIR}/${PKG_NAME}/"
+  cp -f "${SRC_DIR}/${path}" "${STAGING_DIR}/${PKG_NAME}/"
   echo "    + ${path}"
 done
 

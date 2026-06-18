@@ -23,9 +23,13 @@ import importlib.util
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bd")
+)
 
-_PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_PLUGIN_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bd"
+)
 _PKG = "code_puppy.plugins.bead_chain"
 
 if _PKG not in sys.modules:

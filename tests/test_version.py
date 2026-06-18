@@ -21,6 +21,8 @@ import re
 import sys
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The single-source __init__.py now lives in the bd/ plugin subdirectory.
+_BD = os.path.join(_ROOT, "bd")
 
 
 def _load_init():
@@ -32,7 +34,7 @@ def _load_init():
     name on the path in that layout.
     """
     spec = importlib.util.spec_from_file_location(
-        "bead_chain_init", os.path.join(_ROOT, "__init__.py")
+        "bead_chain_init", os.path.join(_BD, "__init__.py")
     )
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -40,11 +42,11 @@ def _load_init():
     return module
 
 
-def test_version_is_defined_and_is_0_1_0():
-    """The single source of truth defines __version__ = "0.1.0"."""
+def test_version_is_defined_and_is_0_2_1():
+    """The single source of truth defines __version__ = "0.2.1"."""
     init = _load_init()
     assert hasattr(init, "__version__"), "__version__ missing from __init__.py"
-    assert init.__version__ == "0.1.0", init.__version__
+    assert init.__version__ == "0.2.1", init.__version__
 
 
 def test_version_is_a_plain_string():
@@ -62,14 +64,14 @@ def test_version_is_greppable_from_source():
         grep -oE '__version__ = "[^"]+"' __init__.py | cut -d'"' -f2
     """
     init = _load_init()
-    with open(os.path.join(_ROOT, "__init__.py"), encoding="utf-8") as fh:
+    with open(os.path.join(_BD, "__init__.py"), encoding="utf-8") as fh:
         source = fh.read()
     matches = re.findall(r'__version__ = "([^"]+)"', source)
     assert matches == [init.__version__], matches
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, _ROOT)
+    sys.path.insert(0, _BD)
     failures = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
