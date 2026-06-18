@@ -87,6 +87,74 @@ def test_build_produces_verifiable_checksum():
     assert actual == digest, "recorded SHA256 does not match the built zip"
 
 
+def test_build_produces_both_variant_artifacts():
+    """Integration: the build emits bd + br variant zips, versioned copies,
+    a verifiable .sha256 for each, both archives top-leveled at ``bead_chain/``,
+    and a legacy ``bead-chain.zip`` alias that is byte-identical to the bd
+    variant (bead_chain-szm).
+
+    Skipped when the required CLI tools aren't on PATH.
+    """
+    import zipfile
+
+    if not _tools_available():
+        print("SKIP test_build_produces_both_variant_artifacts (missing CLI tools)")
+        return
+
+    result = subprocess.run(
+        ["bash", _BUILD_SCRIPT],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"build failed:\n{result.stderr}"
+
+    dist = os.path.join(_ROOT, "dist")
+
+    for variant in ("bd", "br"):
+        # Read the variant's own __version__ to build the expected versioned name.
+        init_path = os.path.join(_ROOT, variant, "__init__.py")
+        version = None
+        with open(init_path, encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip().startswith("__version__"):
+                    version = line.split('"')[1]
+                    break
+        assert version, f"could not read __version__ for variant {variant}"
+
+        stable = os.path.join(dist, f"bead-chain-{variant}.zip")
+        versioned = os.path.join(dist, f"bead-chain-{variant}-v{version}.zip")
+        for zpath in (stable, versioned):
+            assert os.path.isfile(zpath), f"missing artifact: {zpath}"
+            assert os.path.isfile(zpath + ".sha256"), (
+                f"missing checksum: {zpath}.sha256"
+            )
+
+        # Checksum names the bare file and matches the bytes.
+        with open(stable + ".sha256", encoding="utf-8") as fh:
+            digest, _, name = fh.read().strip().partition(" ")
+        assert name.strip() == f"bead-chain-{variant}.zip", (
+            f"{variant} checksum names a path, not a bare file: {name!r}"
+        )
+        actual = hashlib.sha256(open(stable, "rb").read()).hexdigest()
+        assert actual == digest, f"{variant} recorded SHA256 mismatch"
+
+        # The archive's single top-level entry is bead_chain/ (NOT the variant).
+        with zipfile.ZipFile(stable) as zf:
+            tops = {n.split("/", 1)[0] for n in zf.namelist()}
+        assert tops == {"bead_chain"}, (
+            f"{variant} zip top-level should be only bead_chain/, got {tops}"
+        )
+
+    # Legacy alias is byte-identical to the bd variant (backward compat).
+    legacy = os.path.join(dist, "bead-chain.zip")
+    bd_stable = os.path.join(dist, "bead-chain-bd.zip")
+    assert os.path.isfile(legacy), "legacy bead-chain.zip alias missing"
+    assert open(legacy, "rb").read() == open(bd_stable, "rb").read(), (
+        "legacy bead-chain.zip is not byte-identical to bead-chain-bd.zip"
+    )
+
+
 if __name__ == "__main__":
     sys.path.insert(0, _ROOT)
     failures = 0
