@@ -42,11 +42,25 @@ def _load_init():
     return module
 
 
-def test_version_is_defined_and_is_0_2_1():
-    """The single source of truth defines __version__ = "0.2.1"."""
+# Strict MAJOR.MINOR.PATCH core with an optional PEP 440 / SemVer suffix
+# (e.g. ``1.2.3``, ``1.2.3rc1``, ``1.2.3.post1``, ``1.2.3+local``). We assert
+# the *shape* rather than a specific literal so a routine version bump never
+# re-reds this test (bead_chain-dl3: the old hardcoded ``== "0.1.0"`` drifted
+# from source and blocked the suite — see test_release_checksum.py for the
+# same source-derived, never-hardcoded pattern).
+_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-.+]?[0-9A-Za-z][0-9A-Za-z.\-+]*)?$")
+
+
+def test_version_is_defined_and_well_formed():
+    """__version__ is defined and is a strict MAJOR.MINOR.PATCH version.
+
+    Deliberately does NOT hardcode the value: a version bump must not have to
+    touch this test. The runtime-vs-source consistency of the *literal* is
+    locked separately by ``test_version_is_greppable_from_source``.
+    """
     init = _load_init()
     assert hasattr(init, "__version__"), "__version__ missing from __init__.py"
-    assert init.__version__ == "0.2.1", init.__version__
+    assert _VERSION_RE.match(init.__version__), init.__version__
 
 
 def test_version_is_a_plain_string():
