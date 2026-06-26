@@ -35,6 +35,21 @@ Cancellation:
     re-prompt the agent with the recovery preamble so it assesses the
     current state of the work before doing anything new.
 
+CLI flag (``--bead-chain``):
+
+  * ``code-puppy --bead-chain`` (optionally ``--bead-chain-max N``)
+    launches the chain straight from the command line — no need to type
+    ``/bead-chain`` once the REPL is up. We hook ``register_cli_args`` /
+    ``handle_cli_args`` (see :func:`_register_cli_args` /
+    :func:`_handle_cli_args`): when the flag is present we run the exact
+    same setup as the slash command via
+    :func:`handle_bead_chain_command`, capture the goal-prompt it
+    returns, and inject it as the interactive REPL's *initial command*
+    by setting ``args.command``. We deliberately return ``None`` (never a
+    terminal ``{handled: True}`` dict) because bead-chain NEEDS the
+    interactive loop running to drive wiggum's /goal iterations — a
+    one-shot exit would defeat the whole point.
+
 This plugin is **not** a goal engine — it's a queue driver that
 delegates the LLM-judged completion loop to wiggum's /goal mode.
 Without wiggum loaded, /bead-chain has nothing to drive.
@@ -484,3 +499,107 @@ async def _on_interactive_turn_cancel(
 # commands are intercepted. 🐶
 
 register_callback("run_shell_command", _on_run_shell_command)
+
+
+# ---------------------------------------------------------------------------
+# CLI flag: --bead-chain  (bead_chain -> invokable from the command line)
+# ---------------------------------------------------------------------------
+#
+# These two hooks let ``code-puppy --bead-chain [--bead-chain-max N]`` start the
+# chain without the user typing ``/bead-chain`` after the REPL comes up.
+#
+# How it works end-to-end:
+#   * register_cli_args  -- adds our two namespaced flags to the live parser
+#     BEFORE argparse runs. We namespace as ``--bead-chain`` /
+#     ``--bead-chain-max`` so we can never collide with another plugin's flag
+#     (this is the one phase that is NOT error-isolated -- dupes raise).
+#   * handle_cli_args     -- fires with the parsed namespace, BEFORE main()
+#     reads ``args.command`` to build the interactive REPL's initial command.
+#     When --bead-chain is set we run the *identical* setup the slash command
+#     does (claim -> arm wiggum -> register turn-end hooks) via
+#     handle_bead_chain_command(), then inject the goal-prompt it returns as
+#     ``args.command`` so interactive_mode executes it as the first turn.
+#
+# Crucially we return ``None`` (never a terminal ``{handled: True}`` dict):
+# bead-chain needs the interactive loop alive to drive wiggum's /goal
+# iterations, so a clean one-shot exit would be exactly wrong here.
+
+_CLI_ARGS_REGISTERED = False
+
+
+def _register_cli_args(parser: Any) -> None:
+    """register_cli_args: contribute ``--bead-chain`` / ``--bead-chain-max``."""
+    group = parser.add_argument_group("bead-chain")
+    group.add_argument(
+        "--bead-chain",
+        action="store_true",
+        help=(
+            "Engage bead-chain on startup: drive `bd ready` beads through "
+            "/goal until the queue is empty"
+        ),
+    )
+    group.add_argument(
+        "--bead-chain-max",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Safety cap for --bead-chain: stop after N bead(s).",
+    )
+
+
+def _handle_cli_args(args: Any) -> None:
+    """handle_cli_args: launch the chain and feed its goal-prompt to the REPL.
+
+    Returns ``None`` in every path so startup always proceeds into the
+    interactive REPL -- bead-chain is a queue *driver* and needs that loop
+    running to chain wiggum's /goal iterations.
+    """
+    if not getattr(args, "bead_chain", False):
+        return None  # flag not set -- not our turn
+
+    if not _WIGGUM_AVAILABLE:
+        # Mirror the slash-command degradation: say so plainly and drop into a
+        # normal interactive session rather than blowing up at startup.
+        emit_warning(_WIGGUM_MISSING_MESSAGE)
+        return None
+
+    # Rebuild the slash-command string handle_bead_chain_command expects, so
+    # there is exactly ONE code path for chain start-up. The --max parser
+    # inside handle_bead_chain_command reads ``--max=N`` from this string.
+    command = "/bead-chain"
+    max_n = getattr(args, "bead_chain_max", None)
+    if max_n is not None:
+        command += f" --max={max_n}"
+
+    try:
+        result = handle_bead_chain_command(command)
+    except Exception as exc:  # never take down startup over a chain hiccup
+        logger.exception("bead-chain --bead-chain startup failed")
+        emit_warning(f"bead-chain couldn't start from --bead-chain: {exc}")
+        return None
+
+    # handle_bead_chain_command returns the goal-prompt string on success, or
+    # True when it couldn't start (no ready beads, already active, bad --max,
+    # claim failure, ...). In the latter case it has already explained why; we
+    # just fall through into a normal interactive session.
+    if isinstance(result, str) and result.strip():
+        # Inject the goal-prompt as the REPL's initial command. main() reads
+        # args.command AFTER us to build initial_command, and the
+        # initial-command path runs a plain agent prompt (no slash dispatch) --
+        # exactly what a goal-prompt is. Clear args.prompt so we land in the
+        # interactive REPL (prompt-only mode would exit after one turn and
+        # starve the chain's turn-end driver).
+        args.command = [result]
+        if getattr(args, "prompt", None):
+            emit_warning(
+                "--bead-chain overrides --prompt; ignoring the supplied prompt."
+            )
+            args.prompt = None
+
+    return None
+
+
+if not _CLI_ARGS_REGISTERED:
+    register_callback("register_cli_args", _register_cli_args)
+    register_callback("handle_cli_args", _handle_cli_args)
+    _CLI_ARGS_REGISTERED = True
