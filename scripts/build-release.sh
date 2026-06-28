@@ -30,26 +30,29 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd)"
 cd "${REPO_ROOT}"
 
-# --- The allowlist (ADR 0002: SHIP = 10 runtime .py files + README.md +
-#     LICENSE). Anything not named here is excluded by construction
-#     (fail-closed). LICENSE ships so the MIT terms travel with the artifact
-#     (bead_chain-aij). beads_reads.py / beads_writes.py are the read/write
-#     halves split out of the once-monolithic beads.py (bead_chain-7xv) — they
-#     are imported by beads.py's facade and MUST ship or every consumer breaks.
-ALLOWLIST=(
-  "__init__.py"
-  "beads.py"
-  "beads_reads.py"
-  "beads_writes.py"
-  "close_guard.py"
-  "execution_hints.py"
-  "lifecycle.py"
-  "prompt.py"
-  "register_callbacks.py"
-  "state.py"
-  "README.md"
-  "LICENSE"
-)
+# --- The allowlist now lives in ONE place: scripts/ship-manifest.txt (ADR
+#     0002). Both this release build AND scripts/sync-plugin.py read it, so
+#     the shippable file set can never drift between the two. Anything not
+#     named in the manifest is excluded by construction (fail-closed). -------
+MANIFEST_FILE="${SCRIPT_DIR}/ship-manifest.txt"
+if [[ ! -f "${MANIFEST_FILE}" ]]; then
+  echo "ERROR: ship manifest not found: ${MANIFEST_FILE}" >&2
+  exit 1
+fi
+
+ALLOWLIST=()
+while IFS= read -r line || [[ -n "${line}" ]]; do
+  line="${line%%#*}"                          # drop comments (inline + full)
+  line="${line#"${line%%[![:space:]]*}"}"    # ltrim whitespace
+  line="${line%"${line##*[![:space:]]}"}"    # rtrim whitespace
+  [[ -z "${line}" ]] && continue
+  ALLOWLIST+=("${line}")
+done < "${MANIFEST_FILE}"
+
+if [[ ${#ALLOWLIST[@]} -eq 0 ]]; then
+  echo "ERROR: ship manifest is empty after parsing: ${MANIFEST_FILE}" >&2
+  exit 1
+fi
 
 PKG_NAME="bead_chain"
 STAGING_DIR="${REPO_ROOT}/staging"
