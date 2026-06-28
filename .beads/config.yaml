@@ -56,4 +56,6 @@
 
 export.auto: false
 
+# sync.remote temporarily disabled during schema-rebuild (Rowsdower).
+# Re-added + force-pushed after the healthy local DB is rebuilt.
 sync.remote: "git+https://github.com/weegens-aaron/bead-chain.git"
