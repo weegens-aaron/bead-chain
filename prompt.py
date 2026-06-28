@@ -476,6 +476,16 @@ _TRIAGE_VERIFY_PREAMBLE: str = (
 #     :func:`lifecycle.pick_next_bead` will route them naturally.
 #   * The blocking criterion is task-completion-relative, not
 #     theoretical: "can't satisfy THIS bead's acceptance criteria".
+#   * An inline-fixed bug is filed with the triage marker only — NOT
+#     with ``--blocks=<current-bead-id>``. The marker alone already
+#     drives the triage-verification preamble (:func:`is_triaged_bug`)
+#     in a future iteration, so a ``--blocks`` edge against an
+#     already-completed bead buys nothing except a close-time deadlock:
+#     bd refuses to close a bead that an open bug "blocks". Reserve
+#     ``--blocks`` strictly for genuine dependency tracking. The
+#     close-side auto-revert (bead_chain-yvc / ADR 0004) is the safety
+#     net if a stray block edge ever does slip through; this softening
+#     simply makes that recovery path fire far less often.
 #
 # Why every prompt: agents shouldn't need to remember bug-handling
 # rules differently depending on which iteration they're in. The token
@@ -507,7 +517,12 @@ _BUG_DISCOVERY_PROTOCOL: str = (
     f"  bd create --type=bug --title='<short title>' \\\n"
     f"    --description='{TRIAGE_MARKER} <what you saw, what you fixed "
     "inline, why it blocked>' \\\n"
-    "    --blocks=<current-bead-id> --priority=1\n"
+    "    --priority=1\n"
+    "  Do NOT add --blocks=<current-bead-id>: you're fixing this bug\n"
+    "  inline right now, so it is not a real dependency of this bead —\n"
+    "  a block edge against a bead you're about to finish only deadlocks\n"
+    "  its close. The triage marker alone gets the bug proper\n"
+    "  verification later. Reserve --blocks for genuine dependencies.\n"
     "  Then fix the bug AS PART OF this bead's work (scope expansion),\n"
     "  finish the original goal, and present both in your summary so\n"
     "  the judges see the expanded scope. The filed bug stays open and\n"
