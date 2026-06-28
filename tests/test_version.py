@@ -5,7 +5,9 @@ the git release tag, and runtime introspection all derive from it. These tests
 lock that contract two ways:
 
   1. Runtime introspection: ``bead_chain.__version__`` (here imported directly
-     as the top-level package ``__init__``) exposes a PEP 440-ish string.
+     as the top-level package ``__init__``) exposes a PEP 440-ish string. We
+     assert its *shape*, never a hardcoded literal — a duplicated literal is a
+     second source of truth that drifts (bead_chain-wn7).
   2. Greppability: the literal is readable by a non-Python build script via a
      simple ``grep`` over the file — the format is part of the contract.
 
@@ -40,11 +42,25 @@ def _load_init():
     return module
 
 
-def test_version_is_defined_and_is_0_1_0():
-    """The single source of truth defines __version__ = "0.1.0"."""
+# PEP 440-ish: a dotted release segment (e.g. "0.2.1") optionally followed by
+# pre/post/dev or local-version suffixes. We intentionally do NOT hardcode the
+# concrete value here: __init__.py is the single source of truth, and a second
+# literal in the test is just a duplicate that drifts (it did — see
+# bead_chain-wn7). We lock the *contract* (defined + well-formed), not a copy.
+_VERSION_RE = re.compile(
+    r"^\d+(?:\.\d+)*(?:[._-]?(?:a|b|rc|alpha|beta|post|dev)\d*)*(?:\+[a-zA-Z0-9.]+)?$"
+)
+
+
+def test_version_is_defined_and_well_formed():
+    """The single source of truth defines a PEP 440-ish ``__version__``.
+
+    We assert the *shape* of the version rather than a hardcoded literal so the
+    test never drifts from ``__init__.py`` on a release bump.
+    """
     init = _load_init()
     assert hasattr(init, "__version__"), "__version__ missing from __init__.py"
-    assert init.__version__ == "0.1.0", init.__version__
+    assert _VERSION_RE.match(init.__version__), init.__version__
 
 
 def test_version_is_a_plain_string():
