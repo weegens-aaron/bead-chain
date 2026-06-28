@@ -48,7 +48,15 @@ CLI flag (``--bead-chain``):
     by setting ``args.command``. We deliberately return ``None`` (never a
     terminal ``{handled: True}`` dict) because bead-chain NEEDS the
     interactive loop running to drive wiggum's /goal iterations — a
-    one-shot exit would defeat the whole point.
+    one-shot exit at *startup* would defeat the whole point.
+
+  * When (and only when) launched this way, code-puppy *exits* once the
+    chain finishes — natural drain, ``--max`` cap, close failure, or
+    Ctrl+C cancel — instead of leaving the user at an empty REPL. The
+    plumbing is a module-level ``_EXIT_ON_CHAIN_FINISH`` latch set by
+    :func:`_handle_cli_args` on a successful start, checked by
+    :func:`_exit_if_cli_launched` from every chain-stop observation point.
+    Slash-command launches keep the original drop-back-to-REPL behaviour.
 
 This plugin is **not** a goal engine — it's a queue driver that
 delegates the LLM-judged completion loop to wiggum's /goal mode.
@@ -408,6 +416,7 @@ async def _on_interactive_turn_end(
     # rather than barreling into activate_next_bead and claiming a new
     # bead on top of the one we couldn't close.
     if not state.is_active():
+        _exit_if_cli_launched("close failed")
         return None
     # NOTE: Per-bead rollup removed (bead_chain-tfn fix).
     #
@@ -437,7 +446,15 @@ async def _on_interactive_turn_end(
     # close above. It runs strictly AFTER the close has fully completed
     # and the is_active() short-circuit has passed, so the activation
     # sees the post-close state exactly as it did when both ran inline.
-    return await asyncio.to_thread(activate_next_bead, just_closed)
+    continuation = await asyncio.to_thread(activate_next_bead, just_closed)
+    # activate_next_bead returns None when there are no more ready beads,
+    # the --max cap was hit, or an excluded type / bd error halted us. In
+    # every one of those branches it called state.stop() itself and emitted
+    # the relevant message. From here that's indistinguishable from a clean
+    # drain, and either way the chain is done -- check exit-on-finish.
+    if continuation is None:
+        _exit_if_cli_launched("queue drained")
+    return continuation
 
 
 async def _on_interactive_turn_cancel(
@@ -472,13 +489,18 @@ async def _on_interactive_turn_cancel(
     bead_id = state.get_state().current_bead_id
     state.stop()
     emit_warning(f"🔗 bead-chain halted due to {reason}.")
-    if not bead_id:
-        return
-    emit_system_message(
-        f"🔖 Bead {bead_id} left in_progress — the next /bead-chain run "
-        "will resume it with a recovery preamble so the agent assesses "
-        "the current state before doing new work."
-    )
+    if bead_id:
+        emit_system_message(
+            f"🔖 Bead {bead_id} left in_progress — the next /bead-chain run "
+            "will resume it with a recovery preamble so the agent assesses "
+            "the current state before doing new work."
+        )
+    # If the chain was launched from the command line, treat a cancel as
+    # "finished". The recovery message above still applies -- it'll be the
+    # NEXT process's startup that picks the stranded bead up. Staying in an
+    # empty REPL after the user explicitly Ctrl+C'd a one-shot drain serves
+    # nobody.
+    _exit_if_cli_launched(f"cancelled: {reason}")
 
 
 # ---------------------------------------------------------------------------
@@ -523,8 +545,28 @@ register_callback("run_shell_command", _on_run_shell_command)
 # Crucially we return ``None`` (never a terminal ``{handled: True}`` dict):
 # bead-chain needs the interactive loop alive to drive wiggum's /goal
 # iterations, so a clean one-shot exit would be exactly wrong here.
+#
+# Exit-on-finish (CLI-launch-only)
+# --------------------------------
+# When the chain is launched via ``--bead-chain``, code-puppy is being used
+# as a one-shot queue drainer -- there's no human waiting at the REPL with
+# follow-up tasks. Dropping back to an empty prompt after the chain ends
+# would just strand the process. We therefore latch a module-level
+# ``_EXIT_ON_CHAIN_FINISH`` flag the moment ``_handle_cli_args`` successfully
+# starts a chain, and check it from the two callbacks that observe a chain
+# stop: ``_on_interactive_turn_end`` (natural drain / cap hit / close
+# failure) and ``_on_interactive_turn_cancel`` (Ctrl+C). When set, we raise
+# ``SystemExit(0)`` from inside the callback. Two things make this work:
+#   * The host's callback dispatcher catches ``Exception`` (NOT
+#     ``BaseException``), so ``SystemExit`` propagates out cleanly through
+#     the continuation loop -> input loop -> interactive_mode -> main.
+#   * The flag is module-scoped (not on ``BeadChainState``) on purpose:
+#     the state singleton's job is bead lifecycle, not "where did the chain
+#     get launched from". Keeping origin-metadata out of it preserves SRP
+#     and means the slash-command path is byte-for-byte unchanged.
 
 _CLI_ARGS_REGISTERED = False
+_EXIT_ON_CHAIN_FINISH = False
 
 
 def _register_cli_args(parser: Any) -> None:
@@ -595,11 +637,60 @@ def _handle_cli_args(args: Any) -> None:
                 "--bead-chain overrides --prompt; ignoring the supplied prompt."
             )
             args.prompt = None
+        # Latch: when this chain finishes (drain / cap / cancel / close
+        # failure), the turn-end / cancel hooks will exit code-puppy instead
+        # of leaving the user in an empty REPL. Only set on the successful-
+        # start branch -- if the chain refused to start (no ready beads,
+        # bad --max, etc.) we want the normal interactive fallback.
+        global _EXIT_ON_CHAIN_FINISH
+        _EXIT_ON_CHAIN_FINISH = True
 
     return None
 
 
+def _exit_if_cli_launched(reason: str) -> None:
+    """Exit code-puppy if the chain was launched via ``--bead-chain``.
+
+    Called from the turn-end / cancel hooks at every observable chain-stop
+    point. No-op when the chain was started by the ``/bead-chain`` slash
+    command (the human launched the REPL deliberately and presumably has
+    follow-up work to do there).
+
+    Implementation note: we raise :class:`SystemExit` rather than calling
+    ``sys.exit()`` directly to make the side-effect grep-able and the intent
+    explicit. The host's async callback dispatcher catches ``Exception`` but
+    not ``BaseException``, so this propagates cleanly out of the continuation
+    loop, out of ``interactive_mode``, and back to the process boundary --
+    exactly the same path Ctrl+D takes (which surfaces as ``EOFError`` and
+    breaks out of the input loop).
+    """
+    if not _EXIT_ON_CHAIN_FINISH:
+        return
+    emit_success(
+        f"\U0001f517 --bead-chain run finished ({reason}); exiting code-puppy."
+    )
+    raise SystemExit(0)
+
+
+# Defensive registration: ``register_cli_args`` / ``handle_cli_args`` are
+# newer code_puppy callback phases (added after 0.1.37). On older hosts
+# ``register_callback`` raises ``ValueError("Unsupported phase: ...")`` *at
+# module import time* -- which, before this guard, took down the entire
+# plugin (and every test that imports it) on any host without the phases.
+# We mirror the wiggum-missing degradation: log one clear line, leave
+# ``--bead-chain`` unsupported on this host, and let the rest of the plugin
+# (slash command, turn-end hook, close guard) run normally. When the host
+# *does* know the phases this is a single successful registration with zero
+# behavioural change.
 if not _CLI_ARGS_REGISTERED:
-    register_callback("register_cli_args", _register_cli_args)
-    register_callback("handle_cli_args", _handle_cli_args)
-    _CLI_ARGS_REGISTERED = True
+    try:
+        register_callback("register_cli_args", _register_cli_args)
+        register_callback("handle_cli_args", _handle_cli_args)
+        _CLI_ARGS_REGISTERED = True
+    except ValueError as exc:
+        logger.warning(
+            "\U0001f517 bead-chain: this code_puppy build doesn't support "
+            "register_cli_args/handle_cli_args (%s); --bead-chain CLI flag "
+            "unavailable. Use /bead-chain inside the REPL instead.",
+            exc,
+        )
