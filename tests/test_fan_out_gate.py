@@ -300,6 +300,129 @@ def test_gate_check_uses_scoped_parent_query():
     assert captured == [("list", "--parent=discover", "--json")]
 
 
+# ---------------------------------------------------------------------------
+# FB-13 (bead_chain-y0s): mode-aware fan-out gates + unknown-mode no-revert
+# ---------------------------------------------------------------------------
+
+
+def test_fan_out_mode_unknown_when_no_mode_surfaced():
+    """Today's bd (mode write-only) ⇒ mode resolves to None (unknown)."""
+    bead = {"id": "finalize", "waits_for": "children-of(discover)"}
+    assert lifecycle._fan_out_gate_mode(bead) is None
+
+
+def test_fan_out_mode_reads_top_level_key():
+    """Once bd surfaces a top-level mode key, it is honored (any/all)."""
+    any_bead = {"waits_for": "children-of(d)", "waits_for_gate": "any-children"}
+    all_bead = {"waits_for": "children-of(d)", "waits_for_gate": "all-children"}
+    assert lifecycle._fan_out_gate_mode(any_bead) == lifecycle._FAN_OUT_MODE_ANY
+    assert lifecycle._fan_out_gate_mode(all_bead) == lifecycle._FAN_OUT_MODE_ALL
+
+
+def test_fan_out_mode_tolerates_spelling_drift():
+    """`any`, `any_children`, `ANY-CHILDREN` all normalize to any-children."""
+    for raw in ("any", "any_children", "ANY-CHILDREN", " Any-Child "):
+        assert lifecycle._normalize_fan_out_mode(raw) == lifecycle._FAN_OUT_MODE_ANY
+    for raw in ("all", "all_children", "ALL-CHILDREN"):
+        assert lifecycle._normalize_fan_out_mode(raw) == lifecycle._FAN_OUT_MODE_ALL
+    # Garbage / non-string ⇒ unknown, never a guess.
+    assert lifecycle._normalize_fan_out_mode("sometimes") is None
+    assert lifecycle._normalize_fan_out_mode({"x": 1}) is None
+
+
+def test_fan_out_mode_reads_dependency_edge():
+    """If bd surfaces the mode on a dependency entry, that is honored too."""
+    bead = {
+        "waits_for": "children-of(d)",
+        "dependencies": [{"type": "waits-for", "gate": "any-children"}],
+    }
+    assert lifecycle._fan_out_gate_mode(bead) == lifecycle._FAN_OUT_MODE_ANY
+
+
+def test_any_children_satisfied_after_first_child_closes():
+    """any-children: one closed child ⇒ gate satisfied even with open siblings."""
+    _patch_show({"id": "discover", "status": "in_progress"})
+    _patch_run_bd_and_parse(
+        [
+            {"id": "discover.1", "parent": "discover", "status": "closed"},
+            {"id": "discover.2", "parent": "discover", "status": "open"},
+        ]
+    )
+    bead = {
+        "id": "finalize",
+        "waits_for": "children-of(discover)",
+        "waits_for_gate": "any-children",
+    }
+    verdict = lifecycle._fan_out_gate_verdict("finalize", bead)
+    assert verdict.blocked is False
+    assert verdict.mode_known is True
+
+
+def test_any_children_unsatisfied_when_no_child_closed():
+    """any-children: zero closed children ⇒ gate still unsatisfied (blocked)."""
+    _patch_show({"id": "discover", "status": "in_progress"})
+    _patch_run_bd_and_parse(
+        [
+            {"id": "discover.1", "parent": "discover", "status": "open"},
+            {"id": "discover.2", "parent": "discover", "status": "in_progress"},
+        ]
+    )
+    bead = {
+        "id": "finalize",
+        "waits_for": "children-of(discover)",
+        "waits_for_gate": "any-children",
+    }
+    verdict = lifecycle._fan_out_gate_verdict("finalize", bead)
+    assert verdict.blocked is True
+    assert verdict.mode_known is True
+
+
+def test_unknown_mode_blocks_but_marks_revert_unsafe():
+    """Unknown mode + open child ⇒ blocked (conservative) but mode_known False.
+
+    This is the FB-13 core: with the mode invisible we still refuse to
+    drive (blocked), but flag the revert as unsafe so the caller does not
+    strand a possibly-ready any-children waiter at ``open``.
+    """
+    _patch_show({"id": "discover", "status": "in_progress"})
+    _patch_run_bd_and_parse(
+        [
+            {"id": "discover.1", "parent": "discover", "status": "closed"},
+            {"id": "discover.2", "parent": "discover", "status": "open"},
+        ]
+    )
+    bead = {"id": "finalize", "waits_for": "children-of(discover)"}
+    verdict = lifecycle._fan_out_gate_verdict("finalize", bead)
+    assert verdict.blocked is True
+    assert verdict.mode_known is False
+
+
+def test_all_children_mode_known_allows_revert():
+    """Explicit all-children + open child ⇒ blocked AND mode_known (revert ok)."""
+    _patch_show({"id": "discover", "status": "in_progress"})
+    _patch_run_bd_and_parse(
+        [{"id": "discover.1", "parent": "discover", "status": "open"}]
+    )
+    bead = {
+        "id": "finalize",
+        "waits_for": "children-of(discover)",
+        "waits_for_gate": "all-children",
+    }
+    verdict = lifecycle._fan_out_gate_verdict("finalize", bead)
+    assert verdict.blocked is True
+    assert verdict.mode_known is True
+
+
+def test_has_fan_out_gate_issue_still_bool_for_unknown_all_children():
+    """Back-compat: the bool wrapper keeps all-children semantics by default."""
+    _patch_show({"id": "discover", "status": "in_progress"})
+    _patch_run_bd_and_parse(
+        [{"id": "discover.1", "parent": "discover", "status": "open"}]
+    )
+    bead = {"id": "finalize", "waits_for": "children-of(discover)"}
+    assert lifecycle._has_fan_out_gate_issue("finalize", bead) is True
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
