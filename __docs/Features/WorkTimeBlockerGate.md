@@ -27,6 +27,18 @@ blocked bead even though `bd ready` filters them server-side:
 The gate prevents the wasted run; bd's native close-time refusal stays as the
 final safety net.
 
+**The close-time net no longer halts the chain (ADR 0004).** A blocker can
+still be wired *after* the claim — most commonly when an agent files a bug
+mid-run with `--blocks=<this bead>` per the
+[Bug Discovery Protocol](BugDiscoveryProtocol.md). When that bead is then
+judged-passed, `bd close` refuses with *"blocked by open issue(s)"*. This is a
+recoverable, self-healing state, **not** a fault: `close_current_bead_success`
+recognises it (via `_is_blocked_close_error`), reverts the bead to `open`, and
+**continues** — letting the very gate described here drive the blocker first and
+re-drive the bead afterwards. Only a *failed revert* (genuinely infra-class)
+falls back to halting. Previously every close failure halted the entire chain,
+deadlocking on the protocol's own expected output.
+
 ## How It Works
 
 ### User Perspective

@@ -219,6 +219,30 @@ def enforce_single_in_progress() -> dict[str, Any] | None:
 # Close current + rollup
 # ---------------------------------------------------------------------------
 
+# bd refuses to close a bead that still has open blockers, surfacing a
+# message containing "blocked by open issue(s)" (the "(s)" is grammatical
+# pluralisation, so we key off the singular stem). bead-chain's
+# :func:`beads._run_bd` wraps that stderr verbatim into the BeadsError
+# string, so a substring match against ``str(exc)`` is the authoritative
+# (if string-keyed) signal. We keep the match deliberately NARROW: on any
+# miss we degrade to the historical halt-loudly behavior, which is safe —
+# never silent. See ADR 0004
+# (notes/decisions/0004-close-failure-blocked-is-recoverable.md).
+_BLOCKED_CLOSE_MARKER: str = "blocked by open issue"
+
+
+def _is_blocked_close_error(exc: BeadsError) -> bool:
+    """True iff ``exc`` is bd's *recoverable* "blocked by open issues" refusal.
+
+    This distinguishes the one **recoverable** close-failure class — a
+    blocker (typically a bug filed via the Bug Discovery Protocol with
+    ``--blocks=<this bead>``) is still open, so bd won't let us close —
+    from every other (infra-class) BeadsError, which must still halt the
+    chain loudly. Narrow by design: an unrecognised message returns
+    ``False`` and the caller falls back to the safe halt path.
+    """
+    return _BLOCKED_CLOSE_MARKER in str(exc).lower()
+
 
 def close_current_bead_success() -> dict[str, Any] | None:
     """Close the bead we were just working on, if any.
@@ -231,24 +255,37 @@ def close_current_bead_success() -> dict[str, Any] | None:
     signal for epic-affinity routing (we *intended* to finish that
     epic's work).
 
-    **Close-failure handling.** If ``bd close`` raises, the bead is
-    still legitimately in_progress in bd's view. We:
+    **Close-failure handling.** If ``bd close`` raises, we split on the
+    error class (ADR 0004 — *a "blocked by open issues" close failure is
+    recoverable, not a chain-halt*):
 
-      1. **Leave it in_progress.** Reverting would orphan the partial
-         work from its bead — the next ``bd ready`` could hand us a
-         different bead and the half-done changes would silently
-         attach to no tracked work. Staying in_progress means the
-         next ``/bead-chain`` run's recovery tier picks it up and
-         re-prompts with the recovery preamble, so the agent assesses
-         the current state before doing anything new.
-      2. **Stop the chain.** A close failure means something is
-         genuinely wrong (bd outage, permission issue, schema drift).
-         Halt loudly rather than barreling on.
+      * **Recoverable — "blocked by open issue(s)".** bd refused because
+        a blocker is still open, typically a bug filed *during this
+        bead's own run* with ``--blocks=<this bead>`` per the Bug
+        Discovery Protocol. That is a documented, self-healing state,
+        not a fault. We :func:`revert_to_open` the bead, clear
+        ``current_bead``, and **continue** the chain. The next
+        iteration's tier-0 (``_unblocked_strands``) and tier-1
+        (blocking-bug routing) machinery drives the blocker first, then
+        re-drives this bead — the recovery net that already exists.
+        Detected narrowly via :func:`_is_blocked_close_error`; if the
+        revert itself fails, that *is* infra-class and we fall through
+        to the halt path below.
+      * **Infra-class — everything else** (bd outage, permission issue,
+        schema drift). We **leave the bead in_progress** (reverting
+        would orphan partial work — the next ``bd ready`` could hand us
+        a different bead and the half-done changes would silently attach
+        to no tracked work) and **stop the chain**. Staying in_progress
+        means the next ``/bead-chain`` run's recovery tier picks it up
+        and re-prompts with the recovery preamble, so the agent
+        assesses the current state before doing anything new. Halt
+        loudly rather than barreling on.
 
     The caller distinguishes the success vs. failure case by checking
     ``state.is_active()`` after the call: if False, the chain was
     stopped here and the caller should bail without claiming another
-    bead.
+    bead. (A recoverable blocked-close revert leaves the chain *active*,
+    so the caller proceeds to pick the next bead as usual.)
     """
     just_closed = state.get_state().current_bead
     if not just_closed:
@@ -319,6 +356,45 @@ def close_current_bead_success() -> dict[str, Any] | None:
     try:
         close(bead_id, reason="bead-chain: LLM judges passed")
     except BeadsError as exc:
+        # Two distinct error classes hide behind one BeadsError (ADR 0004):
+        #
+        #   1. RECOVERABLE — bd refused because a blocker is still open
+        #      (e.g. a bug filed mid-run with --blocks=<this bead> per the
+        #      Bug Discovery Protocol). This is a documented, self-healing
+        #      state, NOT a fault: revert the bead to open and let the next
+        #      iteration's tier-0 (_unblocked_strands) + tier-1
+        #      (blocking-bug routing) machinery drive the blocker first and
+        #      re-drive this bead afterwards. The chain CONTINUES.
+        #
+        #   2. INFRA — anything else (bd outage, permission, schema drift).
+        #      Genuinely wrong: halt loudly, exactly as before.
+        if _is_blocked_close_error(exc):
+            emit_info(
+                f"🔗 bead-chain can't close {bead_id} yet — it's blocked by an "
+                "open issue (likely a bug filed during this run). This is "
+                "recoverable, not a fault: reverting to open so the next "
+                "iteration drives the blocker first, then re-drives this bead."
+            )
+            try:
+                revert_to_open(bead_id)
+            except BeadsError as revert_exc:
+                # A failed revert IS infra-class — fall back to the safe
+                # halt path rather than leaving the bead wedged in_progress.
+                emit_warning(
+                    f"🔗 bead-chain couldn't revert {bead_id} after a blocked "
+                    f"close: {revert_exc}. Halting; investigate before "
+                    "re-running."
+                )
+                state.stop()
+                return just_closed
+            emit_info(
+                f"🔄 reverted {bead_id} to open — when it's re-driven, prior "
+                "work may already satisfy the acceptance criteria; verify "
+                "before redoing it to avoid burning tokens on a needless redo."
+            )
+            state.get_state().current_bead = None
+            return just_closed
+
         emit_warning(f"🔗 bead-chain couldn't close {bead_id}: {exc}")
         # Leave the bead in_progress on purpose — see docstring.
         # The next /bead-chain run will recover it via tier-0 and

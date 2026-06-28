@@ -308,6 +308,12 @@ should remain open until the judges sign off.
 - [NextBeadSelectionWaterfall](../Flows/NextBeadSelectionWaterfall.md) — names
   the close-time guard (`close_guard.py`) as the final backstop when a blocked
   bead slips through selection.
+- [WorkTimeBlockerGate](WorkTimeBlockerGate.md) — when bd's *own* close-time
+  refusal fires (a judged-passed bead is *"blocked by open issue(s)"*, e.g. a
+  bug filed mid-run with `--blocks`), `close_current_bead_success` now reverts
+  and **continues** instead of halting the chain (ADR 0004). That is distinct
+  from this guard, which blocks *agent-issued* `bd close` commands; here the
+  driver's *own* legitimate close is the one bd refuses.
 - [EpicRollup](EpicRollup.md) — bead-chain's *own* legitimate closes (epics at
   drain) go through `beads.close`/`subprocess.run` and bypass this hook.
 - Fixed bug `bead_chain-21d` — former `re.MULTILINE` false-positive: a close
