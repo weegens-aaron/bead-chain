@@ -115,7 +115,7 @@ flowchart TD
 | 4 | Classify recovery vs fresh (status ∈ `{in_progress, hooked}`) | `lifecycle.py:is_recovery_bead` (`_RECOVERY_STATUSES` ← `beads.RECOVERABLE_STATUSES`, `beads.py:198`) | None — pure dict read; missing/empty status ⇒ `False` (treated as fresh) |
 | 5 | **Blocker recheck:** re-fetch live blockers with `bd show <id> --json` and walk `dependencies[]` | `lifecycle.py:activate_next_bead` → `beads.py:open_blocker_ids` (`beads.py:476`) | `open_blocker_ids` soft-fails to `[]` on any `bd show` blip — close-guard is the backstop |
 | 6 | If blocked: revert to `open` (non-recovery only) and stop the chain | `lifecycle.py:activate_next_bead` → `beads.py:revert_to_open` (`beads.py:736`) | Revert raises `BeadsError` → `emit_warning("also couldn't revert …")`; chain still stops |
-| 7 | Refuse unsatisfied molecule fan-out gates (`waits_for: children-of(...)` with unclosed children) | `lifecycle.py:_has_fan_out_gate_issue` (`lifecycle.py:733`) | Soft-fails to `False` (treat as satisfied) on any `bd show`/`bd list` blip; revert (non-recovery) + `state.stop()` when it fires |
+| 7 | Refuse unsatisfied molecule fan-out gates (`waits_for: children-of(...)`), honoring the aggregation mode (any/all/unknown) | `lifecycle.py:_fan_out_gate_verdict` (thin bool wrapper: `_has_fan_out_gate_issue`) | Soft-fails to *not blocked* on any `bd show`/`bd list` blip; when blocked, `state.stop()`. Revert (non-recovery) **only when bd surfaced the mode** — an unknown mode might be `any-children` and already satisfied, so the bead is left `in_progress` instead of stranded at `open` (FB-13) |
 | 8 | Claim the **parent epic first** so bd's per-parent tree never goes stale | `lifecycle.py:ensure_epic_in_progress` (`lifecycle.py:398`) → `beads.py:claim` | Soft-fails internally — any error is swallowed; the child claim still proceeds |
 | 9 | Claim the bead atomically (skipped for recovery beads) | `beads.py:claim` (`bd update <id> --claim`, `beads.py:731`) | `BeadsError` → `emit_warning("couldn't claim …")` + `state.stop()` + `return None` |
 | 10 | Stash as current and apply execution hints (effort/model/agent_type) | `state.py:get_state().current_bead`; `execution_hints.py:apply_execution_hints` | Hints soft-fail per-hint; no-op when none present |
@@ -137,11 +137,17 @@ either an armed `/goal` continuation, a status mutation, or `None`. The hops:
   `beads.py:165`) and whose `status` ∉ `SATISFIED_BLOCKER_STATUSES`
   (`frozenset({"closed"})`, `beads.py:170`), it collects `dep["id"]`. A
   non-empty list ⇒ revert + stop; empty ⇒ proceed.
-- **`bead["waits_for"]` → fan-out gate verdict.** `_has_fan_out_gate_issue`
-  (`lifecycle.py:733`) parses `"children-of(<spawner_id>)"`, then runs
-  `bd list --json` and tests
-  whether any issue with `parent == spawner_id` has `status != "closed"`. Any
-  unclosed child ⇒ gate unsatisfied ⇒ revert + stop.
+- **`bead["waits_for"]` → fan-out gate verdict.** `_fan_out_gate_verdict`
+  parses `"children-of(<spawner_id>)"`, resolves the aggregation **mode** via
+  `_fan_out_gate_mode` (bd ≤ 1.0.5 keeps it write-only ⇒ `None`/unknown), then
+  runs a scoped `bd list --parent=<spawner_id> --json`:
+  - **any-children** ⇒ unsatisfied only while *no* child is closed (ready the
+    moment the first child closes);
+  - **all-children** ⇒ unsatisfied while *any* child is open;
+  - **unknown** ⇒ evaluated with the conservative all-children rule for the
+    *block* decision, but flagged `mode_known=False`.
+  Blocked ⇒ stop; revert happens only when `mode_known` (FB-13: never strand a
+  possibly-ready any-children waiter).
 - **fresh bead → `in_progress` status.** `claim(str(bead["id"]))` shells
   `bd update <id> --claim`; the bead leaves `bd ready` and becomes the single
   in-flight bead.

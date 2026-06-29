@@ -21,13 +21,19 @@ iteration of every bead* and never depends on an agent remembering the rules.
 
 It also closes the loop on **blocking** bugs. When a bug genuinely stops the
 current bead, the agent fixes it inline (scope expansion) **and** files it with
-a `[bead-chain:triaged]` marker + a `--blocks` edge. That marker buys two
-things: (1) tier-1 routing in `pick_next_bead` escalates the now-`dependent`
-bug ahead of ordinary work via `next_blocking_bug`, and (2) when a later
-iteration claims it, `is_triaged_bug` flips the prompt to a
-triage-verification preamble so the inline patch gets a real test / proper fix
-instead of being rubber-stamped. Filing-not-closing keeps the human-graded
-close gate intact while still capturing every defect the swarm finds.
+a `[bead-chain:triaged]` marker — but **not** a `--blocks` edge against the
+current bead. The marker alone is what matters: when a later iteration claims
+the bug, `is_triaged_bug` flips the prompt to a triage-verification preamble so
+the inline patch gets a real test / proper fix instead of being
+rubber-stamped. A `--blocks` edge against a bead the agent is about to finish
+buys nothing except a close-time deadlock (bd refuses to close a bead an open
+bug "blocks"), so it is dropped here; the close-side auto-revert
+(`bead_chain-yvc` / ADR 0004) remains the safety net if a stray edge ever
+slips through. `--blocks` is reserved strictly for genuine cross-bead
+dependency tracking — and the tier-1 `next_blocking_bug` fast-lane (which keys
+on `dependent_count > 0`) still escalates any bug that legitimately carries
+such an edge. Filing-not-closing keeps the human-graded close gate intact
+while still capturing every defect the swarm finds.
 
 ## How It Works
 
@@ -72,15 +78,15 @@ sequenceDiagram
         A1->>Bd: bd create --type=bug --priority=2
         A1->>A1: continue original bead, then summarize
     else BLOCKING
-        A1->>Bd: bd create --type=bug --priority=1<br/>--blocks=<bead N> (desc has TRIAGE_MARKER)
+        A1->>Bd: bd create --type=bug --priority=1<br/>(desc has TRIAGE_MARKER, no --blocks)
         A1->>A1: fix inline as scope expansion, finish bead N
     end
     A1->>Judges: present work (NEVER self-close)
     Judges->>Judges: close bead N
     Note over Pick,NBB: a later /bead-chain iteration
     Pick->>NBB: tier 1: any ready bug w/ dependent_count > 0?
-    NBB-->>Pick: the triaged blocking bug
-    Pick->>Fmt: format_bead_as_goal(bug)
+    NBB-->>Pick: (only bugs with a genuine --blocks edge)
+    Pick->>Fmt: format_bead_as_goal(triaged bug, via tier-1 or global-ready)
     Fmt->>Fmt: is_triaged_bug(bug) == True
     Fmt-->>A2: _TRIAGE_VERIFY_PREAMBLE + body + protocol
     A2->>A2: verify/upgrade the inline fix, add tests
@@ -144,7 +150,7 @@ text spliced into it, not a structured object.
 | `call` | `prompt.is_triaged_bug(bead) -> bool` | Detect the `TRIAGE_MARKER` on a `bug`-typed bead to drive triage-verification | N/A — no HTTP surface |
 | `call` | `beads.next_blocking_bug() -> dict \| None` | Tier-1 selection: top ready bug with `dependent_count > 0` | N/A — no HTTP surface |
 | `shell` | `bd create --type=bug --title=... --description=... --priority=2` | Agent files a NON-BLOCKING discovered bug | N/A — `bd` subprocess |
-| `shell` | `bd create --type=bug --title=... --description='[bead-chain:triaged] ...' --blocks=<id> --priority=1` | Agent files a BLOCKING discovered bug (then fixes inline) | N/A — `bd` subprocess |
+| `shell` | `bd create --type=bug --title=... --description='[bead-chain:triaged] ...' --priority=1` | Agent files a BLOCKING discovered bug, then fixes inline (no `--blocks` — the bug is fixed in-bead, so it isn't a real dependency) | N/A — `bd` subprocess |
 
 ## Implementation Map
 
@@ -170,7 +176,7 @@ text spliced into it, not a structured object.
 | `_TRIAGE_VERIFY_PREAMBLE` | constant text (`prompt.py`) | Prepended when a claimed bead is a triaged bug and `recovery=False` |
 | `BLOCKING_BUG_TYPES` | `("bug",)` | Issue types eligible for tier-1 blocking-bug escalation; tuple so adding e.g. `"regression"` is a one-line edit |
 | protocol non-blocking priority | `--priority=2` (baked into the rubric text) | NON-BLOCKING bugs are filed at P2 and left for natural queue order |
-| protocol blocking priority | `--priority=1` + `--blocks=<id>` (baked into the rubric text) | BLOCKING bugs are filed at P1 with a `blocks` edge so they gain `dependent_count > 0` and jump the queue |
+| protocol blocking priority | `--priority=1` + triage marker, **no** `--blocks` (baked into the rubric text) | Inline-fixed BLOCKING bugs are filed at P1 with the triage marker only; `--blocks` is omitted so the current bead can close cleanly. A genuine cross-bead dependency may still add `--blocks` to earn tier-1 escalation. |
 
 ## Edge Cases
 
@@ -197,10 +203,14 @@ text spliced into it, not a structured object.
 > subsumes "verify a prior fix" (see the ordering in `format_bead_as_goal`).
 
 > [!WARNING]
-> **A blocking bug must carry `--blocks` to escalate.** Tier-1
-> `next_blocking_bug` requires `dependent_count > 0`; a P1 bug filed *without* a
-> `blocks` edge has no dependents and is treated as ordinary work, picked up by
-> the global ready tier instead of jumping the queue.
+> **Tier-1 escalation requires a `--blocks` edge — but inline-fixed bugs don't
+> get one.** Tier-1 `next_blocking_bug` requires `dependent_count > 0`; a P1
+> bug filed *without* a `blocks` edge is treated as ordinary work, picked up by
+> the global ready tier in priority order. This is *intentional* for the
+> inline-fix path: the bug is already fixed in-bead, so there is nothing to
+> unblock — re-prioritising it would only jump a verification task to the
+> front. `--blocks` (and thus tier-1 escalation) is reserved for genuine
+> cross-bead dependencies, where work really is stalled until the bug closes.
 
 > [!CAUTION]
 > **Agents must never self-close.** The protocol explicitly forbids closing any
@@ -213,7 +223,8 @@ text spliced into it, not a structured object.
 | Trigger | Behavior | User sees |
 |---------|----------|-----------|
 | Agent files a NON-BLOCKING bug, keeps working | Bug sits at P2 in the backlog; no escalation (no dependents) | New `bug` bead in `bd list`; original bead finishes normally |
-| Agent files a BLOCKING bug with `--blocks` + marker, fixes inline | `next_blocking_bug` later returns it (`dependent_count > 0`); tier-1 escalation | `bead-chain: blocking bug detected -> prioritising <id>` |
+| Agent files a BLOCKING bug with the marker (no `--blocks`), fixes inline | Bug sits at P1 in the ready queue (`dependent_count == 0`); claimed in priority order, then flipped to triage-verification via `is_triaged_bug` | New `bug` bead in `bd list`; current bead closes cleanly; later a `TRIAGE VERIFICATION` prompt |
+| A genuine cross-bead dependency bug is filed with `--blocks` + marker | `next_blocking_bug` later returns it (`dependent_count > 0`); tier-1 escalation | `bead-chain: blocking bug detected -> prioritising <id>` |
 | Triaged bug later claimed, `issue_type == 'bug'`, marker present, not recovering | `format_bead_as_goal` prepends `_TRIAGE_VERIFY_PREAMBLE` | A `TRIAGE VERIFICATION` prompt |
 | Triaged bug claimed but `issue_type != 'bug'` (or marker absent) | `is_triaged_bug` returns `False`; ordinary prompt | No triage preamble |
 | Triaged bug also stranded `in_progress` | Recovery preamble wins via ordering | Recovery prompt, not triage |

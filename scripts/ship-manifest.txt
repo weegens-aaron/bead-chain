@@ -1,0 +1,30 @@
+# ship-manifest.txt — the ONE source of truth for "what is bead-chain?"
+#
+# Every consumer of the shippable file set reads THIS file and nothing else:
+#   - scripts/build-release.sh  -> the release zip allowlist (ADR 0002)
+#   - scripts/sync-plugin.py    -> syncing dev -> the local plugin dir
+#
+# Rules for this file:
+#   - one path per line, relative to the repo root
+#   - blank lines are ignored
+#   - everything from a '#' to end-of-line is a comment (inline ok)
+#   - fail-closed: anything NOT named here is excluded by construction
+#
+# SHIP = 10 runtime .py files + README.md + LICENSE. beads_reads.py /
+# beads_writes.py are the read/write halves split out of the once-monolithic
+# beads.py (bead_chain-7xv) — beads.py's facade imports them, so they MUST
+# ship or every consumer breaks. LICENSE ships so the MIT terms travel with
+# the artifact (bead_chain-aij).
+
+__init__.py
+beads.py
+beads_reads.py
+beads_writes.py
+close_guard.py
+execution_hints.py
+lifecycle.py
+prompt.py
+register_callbacks.py
+state.py
+README.md
+LICENSE

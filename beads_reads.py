@@ -236,16 +236,11 @@ def next_ready_in_epic(epic_id: str) -> dict[str, Any] | None:
     return None
 
 
-def has_open_children(parent_id: str) -> bool:
-    """True if ``parent_id`` has at least one direct child that isn't closed.
+def _child_statuses(parent_id: str) -> list[str]:
+    """Return the lower-cased statuses of ``parent_id``'s direct children.
 
     Scopes the query with ``bd list --parent=<parent_id> --json`` so only
     that parent's children are fetched — never the whole issue database.
-    This is the public entry point backing the molecule fan-out gate check
-    in :func:`lifecycle._has_fan_out_gate_issue`: a ``waits_for:
-    children-of(spawner)`` field is satisfied only once *every* child of
-    the spawner is closed, so a single still-open child means the gate is
-    unsatisfied.
 
     Why a scoped query
     ------------------
@@ -257,17 +252,19 @@ def has_open_children(parent_id: str) -> bool:
     pushes the filter server-side, matching bd's own ``--parent`` filter
     used by :func:`next_ready_in_epic`.
 
-    Soft-fails to ``False`` (treat the gate as satisfied) on any
-    infrastructure error, mirroring the rest of the gate-detection path.
+    Soft-fails to an empty list on any infrastructure error, so the
+    fan-out predicates built on top treat the gate as satisfied (their
+    documented fail-safe-open behaviour).
     """
     if not parent_id:
-        return False
+        return []
     _validate_bead_id(parent_id)
     try:
         raw = _beads._run_bd("list", f"--parent={parent_id}", "--json")
         children = _beads._parse_json_list(raw, f"bd list --parent={parent_id} --json")
     except BeadsError:
-        return False
+        return []
+    statuses: list[str] = []
     for child in children:
         if not isinstance(child, dict):
             continue
@@ -275,9 +272,42 @@ def has_open_children(parent_id: str) -> bool:
         # re-assert it client-side in case a future bd loosens the match.
         if child.get("parent") != parent_id:
             continue
-        if child.get("status", "").lower() != "closed":
-            return True
-    return False
+        statuses.append(str(child.get("status", "")).lower())
+    return statuses
+
+
+def has_open_children(parent_id: str) -> bool:
+    """True if ``parent_id`` has at least one direct child that isn't closed.
+
+    Backs the **all-children** molecule fan-out gate check in
+    :func:`lifecycle._fan_out_gate_verdict`: a ``waits_for:
+    children-of(spawner)`` field in all-children mode is satisfied only
+    once *every* child of the spawner is closed, so a single still-open
+    child means the gate is unsatisfied.
+
+    Soft-fails to ``False`` (treat the gate as satisfied) on any
+    infrastructure error, mirroring the rest of the gate-detection path.
+    """
+    return any(status != "closed" for status in _child_statuses(parent_id))
+
+
+def has_closed_children(parent_id: str) -> bool:
+    """True if ``parent_id`` has at least one direct child that *is* closed.
+
+    Backs the **any-children** molecule fan-out gate check in
+    :func:`lifecycle._fan_out_gate_verdict`: an any-children gate is
+    satisfied the moment the *first* child closes, so a single closed
+    child means the gate is satisfied (the waiter is ready).
+
+    Soft-fails to ``False`` (no closed child observed) on any
+    infrastructure error. Note the fail-safe direction differs from
+    :func:`has_open_children` on purpose: there, an error reads as
+    'gate satisfied' (don't strand work); here the *caller* inverts
+    this result, so 'no closed child observed' likewise reads as
+    'gate not yet provably satisfied' — both lean the same way, away
+    from prematurely declaring an any-children gate unsatisfied.
+    """
+    return any(status == "closed" for status in _child_statuses(parent_id))
 
 
 def extract_parent_epic_id(bead: dict[str, Any] | None) -> str | None:

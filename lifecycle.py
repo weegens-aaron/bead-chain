@@ -19,7 +19,7 @@ listens to.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
 from code_puppy.messaging import (
     emit_info,
@@ -42,6 +42,7 @@ except ImportError:  # pragma: no cover - exercised via register_callbacks
 from .beads import BeadsError, RECOVERABLE_STATUSES, is_excluded_type
 from .beads_reads import (
     extract_parent_epic_id,
+    has_closed_children,
     has_open_children,
     is_pinned,
     list_recoverable_strands,
@@ -219,6 +220,30 @@ def enforce_single_in_progress() -> dict[str, Any] | None:
 # Close current + rollup
 # ---------------------------------------------------------------------------
 
+# bd refuses to close a bead that still has open blockers, surfacing a
+# message containing "blocked by open issue(s)" (the "(s)" is grammatical
+# pluralisation, so we key off the singular stem). bead-chain's
+# :func:`beads._run_bd` wraps that stderr verbatim into the BeadsError
+# string, so a substring match against ``str(exc)`` is the authoritative
+# (if string-keyed) signal. We keep the match deliberately NARROW: on any
+# miss we degrade to the historical halt-loudly behavior, which is safe —
+# never silent. See ADR 0004
+# (notes/decisions/0004-close-failure-blocked-is-recoverable.md).
+_BLOCKED_CLOSE_MARKER: str = "blocked by open issue"
+
+
+def _is_blocked_close_error(exc: BeadsError) -> bool:
+    """True iff ``exc`` is bd's *recoverable* "blocked by open issues" refusal.
+
+    This distinguishes the one **recoverable** close-failure class — a
+    blocker (typically a bug filed via the Bug Discovery Protocol with
+    ``--blocks=<this bead>``) is still open, so bd won't let us close —
+    from every other (infra-class) BeadsError, which must still halt the
+    chain loudly. Narrow by design: an unrecognised message returns
+    ``False`` and the caller falls back to the safe halt path.
+    """
+    return _BLOCKED_CLOSE_MARKER in str(exc).lower()
+
 
 def close_current_bead_success() -> dict[str, Any] | None:
     """Close the bead we were just working on, if any.
@@ -231,24 +256,37 @@ def close_current_bead_success() -> dict[str, Any] | None:
     signal for epic-affinity routing (we *intended* to finish that
     epic's work).
 
-    **Close-failure handling.** If ``bd close`` raises, the bead is
-    still legitimately in_progress in bd's view. We:
+    **Close-failure handling.** If ``bd close`` raises, we split on the
+    error class (ADR 0004 — *a "blocked by open issues" close failure is
+    recoverable, not a chain-halt*):
 
-      1. **Leave it in_progress.** Reverting would orphan the partial
-         work from its bead — the next ``bd ready`` could hand us a
-         different bead and the half-done changes would silently
-         attach to no tracked work. Staying in_progress means the
-         next ``/bead-chain`` run's recovery tier picks it up and
-         re-prompts with the recovery preamble, so the agent assesses
-         the current state before doing anything new.
-      2. **Stop the chain.** A close failure means something is
-         genuinely wrong (bd outage, permission issue, schema drift).
-         Halt loudly rather than barreling on.
+      * **Recoverable — "blocked by open issue(s)".** bd refused because
+        a blocker is still open, typically a bug filed *during this
+        bead's own run* with ``--blocks=<this bead>`` per the Bug
+        Discovery Protocol. That is a documented, self-healing state,
+        not a fault. We :func:`revert_to_open` the bead, clear
+        ``current_bead``, and **continue** the chain. The next
+        iteration's tier-0 (``_unblocked_strands``) and tier-1
+        (blocking-bug routing) machinery drives the blocker first, then
+        re-drives this bead — the recovery net that already exists.
+        Detected narrowly via :func:`_is_blocked_close_error`; if the
+        revert itself fails, that *is* infra-class and we fall through
+        to the halt path below.
+      * **Infra-class — everything else** (bd outage, permission issue,
+        schema drift). We **leave the bead in_progress** (reverting
+        would orphan partial work — the next ``bd ready`` could hand us
+        a different bead and the half-done changes would silently attach
+        to no tracked work) and **stop the chain**. Staying in_progress
+        means the next ``/bead-chain`` run's recovery tier picks it up
+        and re-prompts with the recovery preamble, so the agent
+        assesses the current state before doing anything new. Halt
+        loudly rather than barreling on.
 
     The caller distinguishes the success vs. failure case by checking
     ``state.is_active()`` after the call: if False, the chain was
     stopped here and the caller should bail without claiming another
-    bead.
+    bead. (A recoverable blocked-close revert leaves the chain *active*,
+    so the caller proceeds to pick the next bead as usual.)
     """
     just_closed = state.get_state().current_bead
     if not just_closed:
@@ -319,6 +357,45 @@ def close_current_bead_success() -> dict[str, Any] | None:
     try:
         close(bead_id, reason="bead-chain: LLM judges passed")
     except BeadsError as exc:
+        # Two distinct error classes hide behind one BeadsError (ADR 0004):
+        #
+        #   1. RECOVERABLE — bd refused because a blocker is still open
+        #      (e.g. a bug filed mid-run with --blocks=<this bead> per the
+        #      Bug Discovery Protocol). This is a documented, self-healing
+        #      state, NOT a fault: revert the bead to open and let the next
+        #      iteration's tier-0 (_unblocked_strands) + tier-1
+        #      (blocking-bug routing) machinery drive the blocker first and
+        #      re-drive this bead afterwards. The chain CONTINUES.
+        #
+        #   2. INFRA — anything else (bd outage, permission, schema drift).
+        #      Genuinely wrong: halt loudly, exactly as before.
+        if _is_blocked_close_error(exc):
+            emit_info(
+                f"🔗 bead-chain can't close {bead_id} yet — it's blocked by an "
+                "open issue (likely a bug filed during this run). This is "
+                "recoverable, not a fault: reverting to open so the next "
+                "iteration drives the blocker first, then re-drives this bead."
+            )
+            try:
+                revert_to_open(bead_id)
+            except BeadsError as revert_exc:
+                # A failed revert IS infra-class — fall back to the safe
+                # halt path rather than leaving the bead wedged in_progress.
+                emit_warning(
+                    f"🔗 bead-chain couldn't revert {bead_id} after a blocked "
+                    f"close: {revert_exc}. Halting; investigate before "
+                    "re-running."
+                )
+                state.stop()
+                return just_closed
+            emit_info(
+                f"🔄 reverted {bead_id} to open — when it's re-driven, prior "
+                "work may already satisfy the acceptance criteria; verify "
+                "before redoing it to avoid burning tokens on a needless redo."
+            )
+            state.get_state().current_bead = None
+            return just_closed
+
         emit_warning(f"🔗 bead-chain couldn't close {bead_id}: {exc}")
         # Leave the bead in_progress on purpose — see docstring.
         # The next /bead-chain run will recover it via tier-0 and
@@ -717,19 +794,32 @@ def activate_next_bead(
     # Beads with waits_for: children-of(...) are invisible to bd blocked,
     # so we detect and refuse to claim them here. Reuses ``full_bead``
     # fetched above (bead_chain-lqf) so we don't re-spawn ``bd show``.
-    if _has_fan_out_gate_issue(bead_id, full_bead):
+    fan_out = _fan_out_gate_verdict(bead_id, full_bead)
+    if fan_out.blocked:
         emit_warning(
             f"bead-chain refused to activate {bead_id}: it has an unsatisfied "
             "fan-out gate (waits_for: children-of(...) with unclosed spawned "
-            "children). The gate will be satisfied once all children close. "
-            "Stopping chain to avoid driving work that isn't ready yet."
+            "children). Stopping chain to avoid driving work that isn't ready yet."
         )
+        # FB-13 (bead_chain-y0s): only revert when bd actually surfaced the
+        # aggregation mode. When the mode is unknown, the gate *might* be
+        # ``any-children`` and already satisfied — reverting would strand
+        # that otherwise-ready waiter at ``open``. So we still stop the
+        # chain (conservative refusal) but leave the bead in_progress for a
+        # human to inspect, rather than wrongly flipping it back.
         if not recovery:
-            try:
-                revert_to_open(bead_id)
-                emit_info(f"reverted {bead_id} to open")
-            except BeadsError as exc:
-                emit_warning(f"also couldn't revert {bead_id}: {exc}")
+            if fan_out.mode_known:
+                try:
+                    revert_to_open(bead_id)
+                    emit_info(f"reverted {bead_id} to open")
+                except BeadsError as exc:
+                    emit_warning(f"also couldn't revert {bead_id}: {exc}")
+            else:
+                emit_info(
+                    f"leaving {bead_id} in_progress (fan-out aggregation mode "
+                    "unknown — skipping revert so an any-children waiter that "
+                    "is already ready is not stranded at open)"
+                )
         state.stop()
         return None
 
@@ -804,65 +894,198 @@ def activate_next_bead(
     }
 
 
-def _has_fan_out_gate_issue(bead_id: str, bead: dict[str, Any] | None = None) -> bool:
-    """True if bead has unsatisfied fan-out gate (bead_chain-9sc workaround).
+# ---------------------------------------------------------------------------
+# Molecule fan-out gate aggregation mode (FB-13, bead_chain-y0s)
+# ---------------------------------------------------------------------------
+# A ``waits_for: children-of(spawner)`` gate can aggregate its spawned
+# children two ways:
+#   * ``all-children`` — satisfied only once EVERY child is closed.
+#   * ``any-children`` — satisfied the moment the FIRST child closes.
+# bd accepts ``--waits-for-gate {all-children,any-children}`` at *write*
+# time but, through at least bd 1.0.5, does NOT surface the chosen mode in
+# ``bd show --json`` / ``bd dep list`` — the mode is write-only. So today
+# :func:`_fan_out_gate_mode` resolves to ``None`` (unknown) in practice;
+# the plumbing below *honors* the mode the instant bd starts exposing it,
+# with no further bead-chain change.
+_FAN_OUT_MODE_ALL = "all-children"
+_FAN_OUT_MODE_ANY = "any-children"
 
-    Beads with waits_for: children-of(...) are invisible to bd blocked due
-    to a beads CLI bug. This detects them so bead-chain can properly surface
-    them as waiting.
+# Top-level ``bd show`` record keys that *might* carry the aggregation mode
+# once bd surfaces it. Ordered most-likely-first; every one is a cheap
+# dict lookup, so listing a few candidate spellings costs nothing and
+# future-proofs against bd's eventual field name.
+_FAN_OUT_MODE_KEYS: tuple[str, ...] = (
+    "waits_for_gate",
+    "waits_for_mode",
+    "fan_out_mode",
+    "gate_mode",
+)
 
-    A bead has an unsatisfied fan-out gate if:
-    1. It has a "waits_for" field
-    2. The field is in "children-of(spawner_id)" format
-    3. The spawner has at least one child that is not yet closed
+# Keys to probe inside each ``dependencies`` array entry, in case bd
+# surfaces the mode on the dependency edge rather than the bead.
+_FAN_OUT_DEP_MODE_KEYS: tuple[str, ...] = (
+    "waits_for_gate",
+    "gate",
+    "gate_mode",
+    "mode",
+    "aggregation",
+)
 
-    Call consolidation (bead_chain-lqf): callers that have already
-    fetched ``bead_id``'s full ``bd show`` record this activation pass
-    may pass it as ``bead`` so we don't spawn a second identical
-    ``bd show``. When omitted we fetch it ourselves (preserving the
-    original single-arg contract). The spawner lookup is always a
-    separate, distinct ``bd show`` — it's a different bead.
+
+def _normalize_fan_out_mode(raw: Any) -> str | None:
+    """Map a raw mode token to a canonical mode constant, or ``None``.
+
+    Tolerant of spelling drift (``any`` / ``any-children`` / ``any_child``)
+    so we honor whatever shape bd eventually emits. Anything unrecognised
+    (including non-strings) reads as ``None`` — unknown, never a guess.
+    """
+    if not isinstance(raw, str):
+        return None
+    token = raw.strip().lower().replace("_", "-")
+    if token in ("any", "any-child", "any-children"):
+        return _FAN_OUT_MODE_ANY
+    if token in ("all", "all-child", "all-children"):
+        return _FAN_OUT_MODE_ALL
+    return None
+
+
+def _fan_out_gate_mode(bead: dict[str, Any] | None) -> str | None:
+    """Resolve a fan-out gate's aggregation mode from a ``bd show`` record.
+
+    Returns ``_FAN_OUT_MODE_ALL``, ``_FAN_OUT_MODE_ANY``, or ``None``
+    (unknown). Checks the plausible top-level keys first, then any
+    per-edge ``dependencies`` entries. Today (bd ≤ 1.0.5) the mode is
+    write-only and this returns ``None`` for every real bead — that's the
+    expected, documented state, not a bug. The verdict layer treats
+    ``None`` as 'do not revert' so an otherwise-ready *any-children*
+    waiter is never wrongly flipped back to open.
+    """
+    if not bead:
+        return None
+    for key in _FAN_OUT_MODE_KEYS:
+        mode = _normalize_fan_out_mode(bead.get(key))
+        if mode is not None:
+            return mode
+    deps = bead.get("dependencies")
+    if isinstance(deps, list):
+        for dep in deps:
+            if not isinstance(dep, dict):
+                continue
+            for key in _FAN_OUT_DEP_MODE_KEYS:
+                mode = _normalize_fan_out_mode(dep.get(key))
+                if mode is not None:
+                    return mode
+    return None
+
+
+class _FanOutGateVerdict(NamedTuple):
+    """Outcome of evaluating a bead's molecule fan-out gate.
+
+    ``blocked``
+        The gate is unsatisfied, so the bead must not be driven yet.
+    ``mode_known``
+        bd surfaced the aggregation mode, so a revert-to-open is safe.
+        When the mode is unknown we *refuse* (stop) but deliberately
+        *skip the revert*: an unknown gate might be ``any-children`` and
+        already satisfied, and reverting would strand that ready waiter
+        at ``open`` (FB-13 acceptance criterion #1).
+    """
+
+    blocked: bool
+    mode_known: bool
+
+
+# Canonical 'no gate / nothing to do' verdict. ``mode_known=True`` is
+# inert here (no revert happens when ``blocked`` is False) but keeps the
+# 'unknown ⇒ skip revert' signal meaningful only for real, blocked gates.
+_NO_FAN_OUT_GATE = _FanOutGateVerdict(blocked=False, mode_known=True)
+
+
+def _fan_out_gate_verdict(
+    bead_id: str, bead: dict[str, Any] | None = None
+) -> _FanOutGateVerdict:
+    """Evaluate ``bead_id``'s molecule fan-out gate, honoring its mode.
+
+    Beads with ``waits_for: children-of(spawner)`` are invisible to
+    ``bd blocked`` (bead_chain-9sc upstream bug), so bead-chain evaluates
+    the gate itself at claim time. The verdict honors the aggregation
+    mode (FB-13, bead_chain-y0s):
+
+    * **any-children** — unsatisfied only while *no* child has closed yet;
+      satisfied the moment the first child closes.
+    * **all-children** — unsatisfied while *any* child is still open
+      (the historic, hardcoded behavior).
+    * **unknown** (bd doesn't surface the mode) — evaluated with the
+      conservative all-children rule for the *block* decision, but flagged
+      ``mode_known=False`` so the caller skips the destructive revert.
+
+    Call consolidation (bead_chain-lqf): pass an already-fetched
+    ``bd show`` record as ``bead`` to avoid a redundant spawn. The
+    spawner lookup is always a separate ``bd show`` — a different bead.
+
+    Soft-fails to :data:`_NO_FAN_OUT_GATE` (not blocked) on any bd blip or
+    malformed input, preserving the gate-detection path's fail-safe-open
+    discipline.
     """
     if not bead_id:
-        return False
+        return _NO_FAN_OUT_GATE
 
     if bead is None:
         try:
             bead = show(bead_id)
         except BeadsError:
-            # Can't determine gate status; assume no gate issue
-            return False
+            # Can't determine gate status; assume no gate issue.
+            return _NO_FAN_OUT_GATE
     if not bead:
-        return False
+        return _NO_FAN_OUT_GATE
 
-    # Check for waits_for field
+    # Check for waits_for field.
     waits_for = bead.get("waits_for")
     if not waits_for or not isinstance(waits_for, str):
-        return False
+        return _NO_FAN_OUT_GATE
 
-    # Check if it's a fan-out gate (children-of format)
+    # Check if it's a fan-out gate (children-of format).
     if not waits_for.startswith("children-of(") or not waits_for.endswith(")"):
-        return False
+        return _NO_FAN_OUT_GATE
 
-    # Extract spawner ID
+    # Extract spawner ID.
     try:
         spawner_id = waits_for[len("children-of(") : -1].strip()
         if not spawner_id:
-            return False
+            return _NO_FAN_OUT_GATE
     except (ValueError, IndexError):
-        return False
+        return _NO_FAN_OUT_GATE
 
-    # Check if spawner has any unclosed children
+    # Confirm the spawner exists before querying its children.
     try:
         spawner = show(spawner_id)
     except BeadsError:
-        # Can't determine; assume gate is satisfied
-        return False
+        # Can't determine; assume gate is satisfied.
+        return _NO_FAN_OUT_GATE
     if not spawner:
-        return False
+        return _NO_FAN_OUT_GATE
 
-    # Gate is unsatisfied iff the spawner still has an unclosed child.
-    # ``has_open_children`` scopes the query to this one spawner
-    # (``bd list --parent=<id>``) instead of scanning the whole database,
-    # and soft-fails to False (gate satisfied) on infrastructure error.
-    return has_open_children(spawner_id)
+    mode = _fan_out_gate_mode(bead)
+
+    if mode == _FAN_OUT_MODE_ANY:
+        # Satisfied the moment the first child closes. ``has_closed_children``
+        # scopes the query to this one spawner (``bd list --parent=<id>``).
+        blocked = not has_closed_children(spawner_id)
+        return _FanOutGateVerdict(blocked=blocked, mode_known=True)
+
+    # all-children OR unknown: unsatisfied iff the spawner still has an
+    # unclosed child. ``has_open_children`` scopes the query to this one
+    # spawner and soft-fails to False (gate satisfied) on infra error.
+    blocked = has_open_children(spawner_id)
+    return _FanOutGateVerdict(blocked=blocked, mode_known=(mode == _FAN_OUT_MODE_ALL))
+
+
+def _has_fan_out_gate_issue(bead_id: str, bead: dict[str, Any] | None = None) -> bool:
+    """True if ``bead_id`` has an unsatisfied fan-out gate.
+
+    Thin bool wrapper over :func:`_fan_out_gate_verdict` (kept for its
+    long-standing call sites and unit tests). The revert decision lives
+    in the verdict's ``mode_known`` flag; callers that must decide whether
+    to revert should use :func:`_fan_out_gate_verdict` directly.
+    """
+    return _fan_out_gate_verdict(bead_id, bead).blocked

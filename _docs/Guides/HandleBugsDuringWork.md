@@ -34,7 +34,7 @@ flowchart TD
     FIND --> DECIDE{"Can this task's\nacceptance criteria\nbe met WITHOUT\nfixing the bug?"}
     DECIDE -- "Yes → Non-blocking" --> FILE_NB["File the bug\nas a new bead\n(priority 2)"]
     FILE_NB --> CONTINUE["Continue working\nthe original task"]
-    DECIDE -- "No → Blocking" --> FILE_BL["File the bug\nwith a triage marker\n(priority 1, linked\nas blocker)"]
+    DECIDE -- "No → Blocking" --> FILE_BL["File the bug\nwith a triage marker\n(priority 1, no\nblocker link)"]
     FILE_BL --> FIX["Fix the bug inline\nas scope expansion"]
     FIX --> FINISH["Finish the original\ntask and summarize\nboth pieces of work"]
     CONTINUE --> DONE(["Task completes\nnormally"])
@@ -105,12 +105,15 @@ it waits its turn in the
 
 When the bug prevents the current task from meeting its acceptance criteria:
 
-1. The agent files a new bug bead, but this time with two differences:
-   - It includes a **triage marker** (`[bead-chain:triaged]`) in the
-     description, which tells future iterations that this bug was already
-     spotted and inline-fixed.
-   - It links the bug as a **blocker** of the current task, making the
-     dependency relationship explicit.
+1. The agent files a new bug bead, but this time with one difference: it
+   includes a **triage marker** (`[bead-chain:triaged]`) in the description,
+   which tells future iterations that this bug was already spotted and
+   inline-fixed. It does **not** link the bug as a blocker of the current
+   task — the agent is fixing the bug inline right now, so it isn't a real
+   dependency, and a blocker edge against a task you're about to finish only
+   deadlocks its close. The triage marker alone gets the bug proper
+   verification later. (`--blocks` is reserved for genuine cross-task
+   dependencies.)
 2. The bug is filed at priority 1.
 3. The agent fixes the bug **right there**, as part of the current task's work.
    This is called **scope expansion** — the task's scope grows to include both
@@ -118,8 +121,8 @@ When the bug prevents the current task from meeting its acceptance criteria:
 4. The agent finishes the original task and presents both pieces of work in its
    summary so the judges can evaluate the full scope.
 
-**What you'll see:** The `bd create` command (with the triage marker and
-`--blocks` flag visible), followed by the agent fixing the bug, then completing
+**What you'll see:** The `bd create` command (with the triage marker visible,
+but no `--blocks` flag), followed by the agent fixing the bug, then completing
 the original task, then a combined summary covering both the fix and the
 original deliverable.
 
