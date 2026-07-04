@@ -99,6 +99,34 @@ sha256_in_dist() {
   )
 }
 
+# --- Cross-platform Python resolver: `python3` on Windows is often the
+#     Microsoft Store stub that prints an ad and exits non-zero. Probe each
+#     candidate by actually running it; use the first that works. Needed by
+#     BOTH the zip fallback (no `zip` on Git Bash) and the import self-check,
+#     so it lives in ONE helper. ---------------------------------------------
+find_python() {
+  local candidate
+  for candidate in python3 python; do
+    if command -v "${candidate}" >/dev/null 2>&1 \
+       && "${candidate}" -c 'import sys' >/dev/null 2>&1; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  echo "ERROR: no working python3/python found on PATH" >&2
+  exit 1
+}
+
+# BEAD_CHAIN_PYTHON overrides the interpreter (may include args, e.g.
+# "uv run --with code-puppy python") — needed because the self-check imports
+# register_callbacks, which requires the code_puppy host package. Explicit
+# is better than implicit: no override, no magic dependency resolution.
+if [[ -n "${BEAD_CHAIN_PYTHON:-}" ]]; then
+  read -r -a PY_CMD <<< "${BEAD_CHAIN_PYTHON}"
+else
+  PY_CMD=("$(find_python)")
+fi
+
 VERSION="$(read_version)"
 VERSIONED_ZIP="${DIST_DIR}/bead-chain-v${VERSION}.zip"
 
@@ -122,11 +150,29 @@ done
 
 # --- 4 & 5. Zip staging/ so the single top-level entry is bead_chain/. -------
 echo "==> Building ${STABLE_ZIP}"
-(
-  cd "${STAGING_DIR}"
-  # -X strips extra file attributes (no .DS_Store-style noise); -r recursive.
-  zip -X -r -q "${STABLE_ZIP}" "${PKG_NAME}"
-)
+if command -v zip >/dev/null 2>&1; then
+  (
+    cd "${STAGING_DIR}"
+    # -X strips extra file attributes (no .DS_Store-style noise); -r recursive.
+    zip -X -r -q "${STABLE_ZIP}" "${PKG_NAME}"
+  )
+else
+  # Git Bash on Windows ships unzip but NOT zip — fall back to Python's
+  # stdlib zipfile. Walk sorted for a deterministic archive; forward-slash
+  # arcnames keep the zip portable.
+  "${PY_CMD[@]}" - "${STAGING_DIR}" "${PKG_NAME}" "${STABLE_ZIP}" <<'PY'
+import os, sys, zipfile
+staging, pkg, dest = sys.argv[1], sys.argv[2], sys.argv[3]
+root = os.path.join(staging, pkg)
+with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for name in sorted(filenames):
+            full = os.path.join(dirpath, name)
+            arc = os.path.relpath(full, staging).replace(os.sep, "/")
+            zf.write(full, arc)
+PY
+fi
 cp -f "${STABLE_ZIP}" "${VERSIONED_ZIP}"
 echo "    wrote $(basename "${STABLE_ZIP}") and $(basename "${VERSIONED_ZIP}")"
 
@@ -147,7 +193,11 @@ trap cleanup EXIT
 
 unzip -q "${STABLE_ZIP}" -d "${TMP_CHECK}"
 
-python3 -c "import sys; sys.path.insert(0, '${TMP_CHECK}'); import ${PKG_NAME}.register_callbacks; print('    import OK:', ${PKG_NAME}.register_callbacks.__name__)"
+# On Git Bash/MSYS, mktemp yields a POSIX path (/tmp/...) that a native
+# Windows Python can't resolve — translate it when cygpath is available.
+TMP_CHECK_PY="$(cygpath -m "${TMP_CHECK}" 2>/dev/null || printf '%s' "${TMP_CHECK}")"
+
+"${PY_CMD[@]}" -c "import sys; sys.path.insert(0, r'${TMP_CHECK_PY}'); import ${PKG_NAME}.register_callbacks; print('    import OK:', ${PKG_NAME}.register_callbacks.__name__)"
 
 # --- Report the archive contents so the build is auditable at a glance. ------
 echo "==> Archive contents:"
