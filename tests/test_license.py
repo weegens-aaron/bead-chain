@@ -3,8 +3,9 @@
 This locks the acceptance criteria of ``bead_chain-aij``:
 
   1. A LICENSE file (MIT) exists at the repo root.
-  2. The build script (``scripts/build-release.sh``) ships it in the release
-     archive — i.e. ``LICENSE`` is named in the build allowlist.
+  2. The release ships it — i.e. ``LICENSE`` is named in the shared ship
+     manifest (``scripts/ship-manifest.txt``), the ONE source of truth read
+     by both ``build-release.sh`` and ``sync-plugin.py`` (ADR 0002).
 
 Pure-stdlib, so they run standalone:
 ``python3 -m pytest tests/`` or ``python3 tests/test_license.py``.
@@ -18,7 +19,7 @@ import sys
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _LICENSE = os.path.join(_ROOT, "LICENSE")
-_BUILD_SCRIPT = os.path.join(_ROOT, "scripts", "build-release.sh")
+_SHIP_MANIFEST = os.path.join(_ROOT, "scripts", "ship-manifest.txt")
 
 
 def test_license_file_exists_at_repo_root():
@@ -38,12 +39,14 @@ def test_license_is_mit():
     assert re.search(r"Copyright \(c\) \d{4}", text), "missing copyright line"
 
 
-def test_build_script_ships_license():
-    """The build allowlist names LICENSE so it lands in the release zip."""
-    with open(_BUILD_SCRIPT, encoding="utf-8") as fh:
-        script = fh.read()
-    # The allowlist entries are quoted bare filenames; LICENSE must be one.
-    assert '"LICENSE"' in script, "LICENSE not in build-release.sh allowlist"
+def test_ship_manifest_ships_license():
+    """The ship manifest names LICENSE so it lands in the release zip."""
+    with open(_SHIP_MANIFEST, encoding="utf-8") as fh:
+        entries = [
+            line.split("#", 1)[0].strip()
+            for line in fh
+        ]
+    assert "LICENSE" in entries, "LICENSE not in scripts/ship-manifest.txt"
 
 
 if __name__ == "__main__":

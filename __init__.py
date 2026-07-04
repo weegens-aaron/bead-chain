@@ -15,6 +15,6 @@ Chains your `bd ready` queue into the /goal loop one bead at a time.
 # assignment below and slicing out the quoted value. The format below (a plain,
 # single-line string literal that is the ONLY such assignment in this file) is
 # part of the contract -- keep it greppable and keep it unique.
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 __all__ = ["__version__"]
